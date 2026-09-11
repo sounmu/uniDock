@@ -39,6 +39,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 | Upcoming | 선택적 시작일·종료일 | Planner 일정, 과목, 제출 기록, 새 활동 |
 | Todo | 없음 | 할 일 제목·마감·과목·ignore 상태 |
 | 녹화 강의 | 과목명 | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기 |
+| 자막 TXT | 사용자가 연 강의 탭 | 공식 한국어 자막 감지 및 선택한 자막 TXT 다운로드 |
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
@@ -79,13 +80,13 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, 같은 요청은 합치며 다른 동시 요청은 BUSY로 종료합니다.
 
-Chrome 권한은 `sidePanel`과 두 호스트 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`뿐입니다. `cookies`, `storage`, `tabs`, `scripting`, `activeTab`, 광범위 호스트 권한은 없습니다. 호스트 권한으로 해당 탭의 URL을 검사합니다. SSO/LTI 호스트 권한도 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`입니다. 상시 호스트 권한은 기존 두 LMS 호스트뿐입니다. 자막 감지를 위해 사용자가 강의 탭에서 도구 모음 아이콘을 눌렀을 때 `activeTab`으로 임시 접근하고 `scripting`으로 제한된 읽기 함수를 실행합니다. `cookies`, `storage`, `tabs`, `downloads`, 광범위 호스트 권한 및 상시 SSO/LTI 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-파일, Chrome storage, local/session storage, IndexedDB, telemetry에 LMS 데이터를 저장하지 않습니다. Fetch는 `cache: no-store`입니다. 목록은 패널 메모리에만 남고 탭 전환·페이지 로딩·다음 조회·기능/필터 변경 때 지워집니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT를 제외하고 파일에 LMS 데이터를 저장하지 않습니다. Chrome storage, local/session storage, IndexedDB, telemetry도 사용하지 않습니다. Fetch는 `cache: no-store`입니다. 목록은 패널 메모리에만 남고 탭 전환·페이지 로딩·다음 조회·기능/필터 변경 때 지워집니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
 
-과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, 영상 자동재생/keepalive/출석 자동화는 구현하지 않습니다. CLI의 자료 다운로드·일반 캘린더 이벤트·feed·자막은 현재 범위 밖입니다.
+과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, 영상 자동재생/keepalive/출석 자동화는 구현하지 않습니다. CLI의 자료 다운로드·일반 캘린더 이벤트·feed는 현재 범위 밖입니다.
 
 ## 녹화 강의 탐색과 탭 열기
 
@@ -104,6 +105,24 @@ Chrome 권한은 `sidePanel`과 두 호스트 `https://mylms.korea.ac.kr/*`, `ht
 
 자동재생, 연속 재생, 숨겨진 탭, 영상 제어, 완료/출석 API, keepalive는 없습니다. 열린 LMS/LTI 자체가 영상을 재생하거나 시청·진도·출석을 기록할 수 있으며 재생은 사용자가 해당 화면에서 제어합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
 
+## 공식 한국어 자막 → TXT
+
+1. 녹화 강의의 **LTI 탭 열기**로 강의 플레이어를 엽니다.
+2. **그 강의 탭에서 도구 모음 uniDock 아이콘을 누릅니다.** 이미 패널이 열려 있어도 외부 LTI 호스트에 임시 접근하려면 필요합니다.
+3. 플레이어에 한국어 자막/스크립트가 아직 로드되지 않았다면 해당 UI를 직접 엽니다. 확장은 자막 버튼·재생 버튼을 누르거나 재생 위치를 변경하지 않습니다.
+4. **자막 TXT → 공식 한국어 자막 감지**를 누릅니다.
+5. 감지 결과에서 **TXT 다운로드**를 누릅니다. `uniDock-ko-YYYYMMDDTHHMMSSZ.txt`(UTC 시각) 이름의 UTF-8 파일을 브라우저가 다운로드합니다. 파일명에는 강의명·ID·URL을 넣지 않습니다.
+
+공식 소스는 페이지가 명시한 `subtitles/captions` 트랙, 이미 로드된 플레이어 `captionScriptList` cue 배열, 명시적으로 한국어 표시가 있는 전용 `#cs-script-list` DOM입니다. 언어 코드 `ko`, `kor`, `kr`, `ko-*` 또는 한국어/한글/국문/Korean 라벨로 판별합니다. 단순히 한글이 포함된 일반 페이지 본문을 자막으로 간주하지 않습니다. AI 생성·음성 인식·추정 자막은 사용하지 않습니다.
+
+native cues가 없으면 페이지에 선언된 같은 출처 HTTPS `<track src>`만 GET합니다. 리다이렉트와 외부 CDN URL은 따라가지 않습니다. ISOLATED world에서 DOM/트랙을 읽고, MAIN world에서는 이미 로드된 자막 데이터 속성만 읽으며 플레이어 함수를 호출하지 않습니다. 두 읽기는 같은 document ID에 묶고 문서 변경 시 결과를 폐기합니다. 같은 출처 iframe은 깊이 3/최대 20개까지 탐색합니다. 다른 출처 iframe은 우회하지 않으며 플레이어를 독립 탭으로 열어 아이콘을 눌러야 합니다.
+
+VTT/SRT 타임코드·cue ID·NOTE/STYLE/REGION, TTML/XML 마크업, 공식 JSON 자막 텍스트 필드를 TXT로 정규화합니다. 중복 트랙은 제거하며 반복 대사는 유지합니다. HTML 오류 페이지, JavaScript, URL·이메일·토큰·긴 숫자 식별자 등 민감 패턴이 있으면 저장하지 않습니다. 이 보수적 정책 때문에 일부 정상 자막도 거부될 수 있습니다.
+
+트랙 하나는 최대 1 MB의 fetch 응답/100만 문자, 감지 결과는 최대 200만 문자입니다. DOM fetch는 전체 10초, 패널 대기는 15초 제한입니다. 자막 내용은 패널 메모리에 최대 5분 보관하며 탭 변경·탐색·화면 전환·재감지 때 폐기합니다. 다운로드는 클릭 시 로컬 Blob으로 생성하고 object URL을 해제합니다. 다운로드 완료/디스크 저장 여부는 추적하지 않으며 UI는 다운로드 **요청**만 알립니다.
+
+지원 제한: 아직 로드되지 않은 전용 API, 폐쇄형 shadow DOM, 외부 CDN에만 있는 미로딩 자막, cross-origin iframe은 감지되지 않을 수 있습니다. DOM/분할 트랙은 현재 로드된 범위만 포함할 수 있어 전체 강의 자막임을 보장하지 않습니다. 페이지의 공식 자막 표시는 해당 LMS/플레이어를 신뢰하며 출처를 별도로 암호학적으로 검증하지 않습니다. 실제 LMS 플레이어에서의 동작은 수동 검증이 필요합니다.
+
 ## Python 계약 테스트
 
 `tests/fixtures/python-contract.json`은 `../ku-lms-cli/tests/test_live_provider.py::FakeSession`의 **공개 가상 데이터**에서 생성했습니다. `scripts/generate_contract.py`는 지정된 공개 소스 두 파일만 읽습니다. AST로 fixture 리터럴과 공개 변환 함수/마감일 메서드만 추출해 실행하며, 참조 모듈을 import하거나 로그인/provider를 생성하지 않습니다. env·자격 증명·discovery 파일을 읽거나 참조 저장소에 쓰지 않습니다.
@@ -117,6 +136,8 @@ npm test                  # Node만 필요. golden JSON으로 전체 필드와 A
 npm run contract:check    # 선택적 개발 검증: Python 3.10+ 및 읽기 전용 참조 저장소 필요
 npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 ```
+
+`scripts/generate_caption_contract.py`는 공개 `captions.py`, `live.py`, `test_provider_cli_core.py`에서 단일/다국어 자막 fixture와 순수 변환 함수를 읽어 `tests/fixtures/python-captions.json`을 만듭니다. 한국어 선택과 TXT 결과도 Python과 비교합니다.
 
 `contract:check`는 현재 Python 소스에서 재계산한 결과와 golden이 정확히 같은지 확인하고, 차이가 있으면 실패합니다. 참조 경로가 다르면 `python3 -B scripts/generate_contract.py --check /path/to/ku-lms-cli`로 실행할 수 있습니다. Python은 개발용 golden 생성에만 사용하며 확장 런타임/빌드에는 포함되지 않습니다. 일반 단위 테스트는 참조 저장소 없이 실행됩니다.
 
@@ -135,7 +156,8 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 7. 일반 사이트 탭에서는 LMS 탭 안내, 네트워크 끊김에는 오류/시간 초과, 미갱신 탭에는 새로고침 안내를 확인합니다.
 8. **녹화 강의**에서 모듈/제목을 LMS와 비교합니다. 교안·잠김 항목이 빠지는지, 목록 조회만으로 탭이 열리지 않는지 확인합니다. 각 열기 버튼은 선택한 항목의 탭 하나만 열어야 합니다. LTI 탭에서는 직접 재생을 제어합니다.
 9. 목록을 5분 이상 둔 뒤 열기를 눌러 만료 안내를 확인하고 재조회합니다. 항목 ID가 없는 fixture에서는 개별 LTI 버튼이 비활성화되어야 합니다.
-10. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
+10. 한국어 자막이 있는 강의에서 도구 모음 아이콘 → 자막 감지를 실행합니다. 한국어만 나오는지, TXT에 타임코드/URL/ID가 없는지, 재생 상태가 바뀌지 않는지 확인합니다. 영문만 있는 강의·자막 미로딩·cross-origin iframe에서도 오류 안내를 확인합니다.
+11. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
 
 LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합니다. 실 서비스 API/SSO 변화와 Chrome Web Store 심사는 별도 검증이 필요합니다.
 
@@ -143,14 +165,15 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 2026-09-11 확인. 패키지 정확한 버전은 `package.json`과 `package-lock.json`에 고정합니다.
 
+- [Chrome scripting](https://developer.chrome.com/docs/extensions/reference/api/scripting), [activeTab](https://developer.chrome.com/docs/extensions/develop/concepts/activeTab), [HTML track](https://developer.mozilla.org/en-US/docs/Web/API/HTMLTrackElement), [Blob object URL](https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL_static)
 - [Chrome Side Panel](https://developer.chrome.com/docs/extensions/reference/api/sidePanel), [메시징](https://developer.chrome.com/docs/extensions/develop/concepts/messaging), [네트워크](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests), [Tabs 호스트 권한](https://developer.chrome.com/docs/extensions/reference/api/tabs)
 - [WXT entrypoints](https://wxt.dev/guide/essentials/entrypoints.html), [manifest](https://wxt.dev/guide/essentials/config/manifest.html), [npm 공식 registry](https://registry.npmjs.org/)
 - [Canvas Modules](https://developerdocs.instructure.com/services/canvas/resources/modules), [Canvas Assignments](https://developerdocs.instructure.com/services/canvas/resources/assignments), [Planner](https://developerdocs.instructure.com/services/canvas/resources/planner), [Users / Todo](https://developerdocs.instructure.com/services/canvas/resources/users), [Pagination](https://developerdocs.instructure.com/services/canvas/basics/file.pagination)
 
 ## 검증 결과
 
-- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **129개(7개 파일)**, production build 통과.
+- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **170개(8개 파일)**, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`과 기존 LMS 두 호스트만 유지, Chrome 114 minimum 유지.
+- production manifest: `sidePanel`, `activeTab`, `scripting`과 기존 LMS 두 호스트, Chrome 114 minimum 유지. 쿠키/다운로드/상시 외부 호스트 권한 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 실제 LMS 세션 요청 및 브라우저 UI 육안 검증: 미실시. 위 수동 절차로 확인 필요.

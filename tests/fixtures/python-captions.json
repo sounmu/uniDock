@@ -1,0 +1,65 @@
+{
+  "provenance": {
+    "src/ku_lms_cli/captions.py": "915350ef00dabbaa7fe8a32156b20b27c46e2312834c0446f4d70874c7138f11",
+    "src/ku_lms_cli/live.py": "5c160c3aed1e3b1f509464b28107a3de295c80f4f9e933310c2af2fe7d512658",
+    "tests/test_provider_cli_core.py": "40e88873cc4e717c2721c9897721b73bbee53dd2f103ce33a7890a1e2a5f684d"
+  },
+  "cases": [
+    {
+      "name": "test_live_recording_captions_cli_uses_course_and_optional_title",
+      "tracks": [
+        {
+          "label": "한국어",
+          "language": "ko",
+          "format": "vtt",
+          "source": "track_element",
+          "char_count": 55,
+          "text": "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n국제법 자막입니다.\n"
+        }
+      ],
+      "expected": [
+        {
+          "label": "한국어",
+          "source": "track_element",
+          "text": "국제법 자막입니다.\n"
+        }
+      ]
+    },
+    {
+      "name": "test_recording_captions_cli_saves_only_korean_track_with_week_session_timestamp",
+      "tracks": [
+        {
+          "label": "한글4-1",
+          "language": "한국어",
+          "format": "vtt",
+          "source": "player_caption_api",
+          "char_count": 40,
+          "text": "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n한국어 자막\n"
+        },
+        {
+          "label": "중문4-1",
+          "language": "중국어",
+          "format": "vtt",
+          "source": "player_caption_api",
+          "char_count": 40,
+          "text": "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n中文字幕\n"
+        },
+        {
+          "label": "영문4-1",
+          "language": "영어",
+          "format": "vtt",
+          "source": "player_caption_api",
+          "char_count": 40,
+          "text": "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nEnglish caption\n"
+        }
+      ],
+      "expected": [
+        {
+          "label": "한글4-1",
+          "source": "player_caption_api",
+          "text": "한국어 자막\n"
+        }
+      ]
+    }
+  ]
+}
