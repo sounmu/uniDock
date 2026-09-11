@@ -1,0 +1,642 @@
+{
+  "provenance": {
+    "source": "ku-lms-cli/tests/test_live_provider.py::FakeSession",
+    "source_sha256": "5c160c3aed1e3b1f509464b28107a3de295c80f4f9e933310c2af2fe7d512658",
+    "tests_sha256": "bf113ecd2e55aa0774db71a465feeb020103c564cf6cff017beedb14e2c0f1e9",
+    "now": "2026-09-11T00:00:00Z"
+  },
+  "raw": {
+    "courses": [
+      {
+        "id": 101,
+        "name": "국제법",
+        "workflow_state": "available",
+        "default_view": "modules"
+      },
+      {
+        "id": 202,
+        "name": "운영체제",
+        "workflow_state": "available",
+        "default_view": "modules"
+      },
+      {
+        "id": 303,
+        "name": "국제법연습",
+        "workflow_state": "available",
+        "default_view": "modules"
+      }
+    ],
+    "assignments": [
+      {
+        "id": 999,
+        "name": "기말 리포트",
+        "due_at": "2099-06-01T00:00:00Z",
+        "unlock_at": null,
+        "lock_at": null,
+        "points_possible": 10,
+        "published": true,
+        "locked_for_user": false,
+        "submission_types": [
+          "online_upload"
+        ],
+        "submission": {
+          "workflow_state": "unsubmitted",
+          "submitted_at": null,
+          "missing": false,
+          "late": false
+        }
+      }
+    ],
+    "upcoming": [
+      {
+        "context_name": "국제법",
+        "plannable_date": "2026-06-01T09:00:00Z",
+        "plannable_type": "assignment",
+        "plannable": {
+          "title": "퀴즈9차",
+          "id": 11111111
+        },
+        "submissions": {
+          "submitted": false
+        }
+      }
+    ],
+    "todo": [
+      {
+        "type": "submitting",
+        "context_name": "국제법",
+        "assignment": {
+          "name": "퀴즈9차",
+          "due_at": "2026-06-01T09:00:00Z",
+          "id": 11111111
+        }
+      }
+    ]
+  },
+  "expected": {
+    "assignments": [
+      {
+        "title": "기말 리포트",
+        "due_at": "2099-06-01T00:00:00Z",
+        "unlock_at": "",
+        "lock_at": "",
+        "points_possible": 10,
+        "published": true,
+        "locked_for_user": false,
+        "submission_workflow_state": "unsubmitted",
+        "submitted_at": "",
+        "missing": false,
+        "late": false,
+        "submission_types": [
+          "online_upload"
+        ],
+        "remaining_candidate": true
+      }
+    ],
+    "deadlines": [
+      {
+        "title": "기말 리포트",
+        "due_at": "2099-06-01T00:00:00Z",
+        "remaining_candidate": true
+      }
+    ],
+    "upcoming": [
+      {
+        "title": "퀴즈9차",
+        "date": "2026-06-01T09:00:00Z",
+        "type": "assignment",
+        "course": "국제법",
+        "submitted": false,
+        "new_activity": false
+      }
+    ],
+    "todo": [
+      {
+        "title": "퀴즈9차",
+        "due_at": "2026-06-01T09:00:00Z",
+        "type": "submitting",
+        "course": "국제법",
+        "ignore": false
+      }
+    ]
+  },
+  "edge": {
+    "raw": {
+      "assignments": [
+        {},
+        {
+          "title": "제목 대체",
+          "due_at": null,
+          "submission": null
+        },
+        {
+          "name": "진행 중",
+          "due_at": "2099-01-01T00:00:00Z"
+        },
+        {
+          "name": "잠김",
+          "due_at": "2099-01-01T00:00:00Z",
+          "locked_for_user": true
+        },
+        {
+          "name": "제출됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "submission": {
+            "submitted_at": "2026-01-01T00:00:00Z"
+          }
+        },
+        {
+          "name": "채점됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "submission": {
+            "workflow_state": "graded",
+            "missing": true,
+            "late": true
+          }
+        },
+        {
+          "name": "제출 상태",
+          "due_at": "2099-01-01T00:00:00Z",
+          "submission": {
+            "workflow_state": "submitted"
+          }
+        },
+        {
+          "name": "마감 지남",
+          "due_at": "2000-01-01T00:00:00Z"
+        },
+        {
+          "name": "경계 시각",
+          "due_at": "2026-09-11T00:00:00Z"
+        },
+        {
+          "name": "UTC 기본값",
+          "due_at": "2026-09-11T00:00:01"
+        },
+        {
+          "name": "시차",
+          "due_at": "2026-09-11T09:00:00+09:00"
+        },
+        {
+          "name": "잘못된 날짜",
+          "due_at": "not-a-date"
+        },
+        {
+          "name": "달력 범위 오류",
+          "due_at": "2099-02-30T00:00:00Z"
+        },
+        {
+          "name": "미공개도 원본 유지",
+          "due_at": "2099-01-01",
+          "published": false,
+          "points_possible": 0,
+          "submission_types": []
+        }
+      ],
+      "upcoming": [
+        {},
+        {
+          "title": "최상위 제목",
+          "plannable": null,
+          "submissions": false
+        },
+        {
+          "plannable": {
+            "name": "이름 대체",
+            "due_at": "2026-09-12",
+            "type": "quiz"
+          },
+          "submissions": {
+            "submitted_at": "2026-09-10"
+          },
+          "new_activity": true
+        },
+        {
+          "title": "후순위",
+          "plannable_date": "2026-09-13",
+          "plannable_type": "assignment",
+          "plannable": {
+            "title": "우선 제목",
+            "due_at": "2026-09-12"
+          },
+          "submissions": {
+            "submitted": true
+          },
+          "context_name": "샘플 과목"
+        }
+      ],
+      "todo": [
+        {},
+        {
+          "type": "submitting",
+          "assignment": null
+        },
+        {
+          "type": "submitting",
+          "assignment": {
+            "title": "대체 제목",
+            "due_at": null
+          },
+          "ignore": true
+        },
+        {
+          "type": "grading",
+          "assignment": {
+            "name": "이름 우선",
+            "title": "후순위",
+            "due_at": "2026-09-13"
+          },
+          "context_name": "샘플 과목"
+        }
+      ]
+    },
+    "expected": {
+      "assignments": [
+        {
+          "title": "",
+          "due_at": "",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "제목 대체",
+          "due_at": "",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "진행 중",
+          "due_at": "2099-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": true
+        },
+        {
+          "title": "잠김",
+          "due_at": "2099-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": true,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "제출됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "2026-01-01T00:00:00Z",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "채점됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "graded",
+          "submitted_at": "",
+          "missing": true,
+          "late": true,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "제출 상태",
+          "due_at": "2099-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "submitted",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "마감 지남",
+          "due_at": "2000-01-01T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "경계 시각",
+          "due_at": "2026-09-11T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "UTC 기본값",
+          "due_at": "2026-09-11T00:00:01",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": true
+        },
+        {
+          "title": "시차",
+          "due_at": "2026-09-11T09:00:00+09:00",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "잘못된 날짜",
+          "due_at": "not-a-date",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "달력 범위 오류",
+          "due_at": "2099-02-30T00:00:00Z",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": null,
+          "published": true,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": false
+        },
+        {
+          "title": "미공개도 원본 유지",
+          "due_at": "2099-01-01",
+          "unlock_at": "",
+          "lock_at": "",
+          "points_possible": 0,
+          "published": false,
+          "locked_for_user": false,
+          "submission_workflow_state": "",
+          "submitted_at": "",
+          "missing": false,
+          "late": false,
+          "submission_types": [],
+          "remaining_candidate": true
+        }
+      ],
+      "deadlines": [
+        {
+          "title": "",
+          "due_at": "",
+          "remaining_candidate": false
+        },
+        {
+          "title": "제목 대체",
+          "due_at": "",
+          "remaining_candidate": false
+        },
+        {
+          "title": "진행 중",
+          "due_at": "2099-01-01T00:00:00Z",
+          "remaining_candidate": true
+        },
+        {
+          "title": "잠김",
+          "due_at": "2099-01-01T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "제출됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "채점됨",
+          "due_at": "2099-01-01T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "제출 상태",
+          "due_at": "2099-01-01T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "마감 지남",
+          "due_at": "2000-01-01T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "경계 시각",
+          "due_at": "2026-09-11T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "UTC 기본값",
+          "due_at": "2026-09-11T00:00:01",
+          "remaining_candidate": true
+        },
+        {
+          "title": "시차",
+          "due_at": "2026-09-11T09:00:00+09:00",
+          "remaining_candidate": false
+        },
+        {
+          "title": "잘못된 날짜",
+          "due_at": "not-a-date",
+          "remaining_candidate": false
+        },
+        {
+          "title": "달력 범위 오류",
+          "due_at": "2099-02-30T00:00:00Z",
+          "remaining_candidate": false
+        },
+        {
+          "title": "미공개도 원본 유지",
+          "due_at": "2099-01-01",
+          "remaining_candidate": true
+        }
+      ],
+      "upcoming": [
+        {
+          "title": "",
+          "date": "",
+          "type": "",
+          "course": "",
+          "submitted": false,
+          "new_activity": false
+        },
+        {
+          "title": "최상위 제목",
+          "date": "",
+          "type": "",
+          "course": "",
+          "submitted": false,
+          "new_activity": false
+        },
+        {
+          "title": "이름 대체",
+          "date": "2026-09-12",
+          "type": "quiz",
+          "course": "",
+          "submitted": true,
+          "new_activity": true
+        },
+        {
+          "title": "우선 제목",
+          "date": "2026-09-13",
+          "type": "assignment",
+          "course": "샘플 과목",
+          "submitted": true,
+          "new_activity": false
+        }
+      ],
+      "todo": [
+        {
+          "title": "",
+          "due_at": "",
+          "type": "",
+          "course": "",
+          "ignore": false
+        },
+        {
+          "title": "submitting",
+          "due_at": "",
+          "type": "submitting",
+          "course": "",
+          "ignore": false
+        },
+        {
+          "title": "대체 제목",
+          "due_at": "",
+          "type": "submitting",
+          "course": "",
+          "ignore": true
+        },
+        {
+          "title": "이름 우선",
+          "due_at": "2026-09-13",
+          "type": "grading",
+          "course": "샘플 과목",
+          "ignore": false
+        }
+      ]
+    }
+  },
+  "remaining": [
+    {
+      "args": [
+        "2099-01-01T00:00:00Z",
+        false,
+        "",
+        "unsubmitted"
+      ],
+      "expected": true
+    },
+    {
+      "args": [
+        "2000-01-01T00:00:00Z",
+        false,
+        "",
+        "unsubmitted"
+      ],
+      "expected": false
+    },
+    {
+      "args": [
+        "2099-01-01T00:00:00Z",
+        true,
+        "",
+        "unsubmitted"
+      ],
+      "expected": false
+    },
+    {
+      "args": [
+        "2099-01-01T00:00:00Z",
+        false,
+        "2099-01-01T00:00:00Z",
+        "submitted"
+      ],
+      "expected": false
+    }
+  ]
+}
