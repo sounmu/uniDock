@@ -47,6 +47,28 @@
         }
       }
     ],
+    "recordings": [
+      {
+        "name": "1주차",
+        "items": [
+          {
+            "title": "1주차 1차시",
+            "type": "ExternalTool",
+            "html_url": "https://lti.example.invalid/launch?user_id=12345678"
+          },
+          {
+            "title": "1주차 2차시",
+            "type": "ExternalTool",
+            "html_url": "https://lti.example.invalid/launch?user_id=87654321"
+          },
+          {
+            "title": "[강의 교안] 1주차",
+            "type": "ExternalTool",
+            "html_url": "https://files.example.invalid/raw"
+          }
+        ]
+      }
+    ],
     "upcoming": [
       {
         "context_name": "국제법",
@@ -117,6 +139,20 @@
         "type": "submitting",
         "course": "국제법",
         "ignore": false
+      }
+    ],
+    "recordings": [
+      {
+        "module": "1주차",
+        "title": "1주차 1차시",
+        "type": "ExternalTool",
+        "playable": true
+      },
+      {
+        "module": "1주차",
+        "title": "1주차 2차시",
+        "type": "ExternalTool",
+        "playable": true
       }
     ]
   },

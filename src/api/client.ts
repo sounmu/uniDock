@@ -1,3 +1,5 @@
+import { NavigationCatalog, type RecordingTarget } from '../navigation-catalog';
+import { accessible, availabilitySnapshot, internalId, recordingCandidate, recordingLabel } from '../recordings';
 import { projectCourses } from '../domain';
 import { projectAssignments, projectDeadlines, projectUpcoming, projectTodo, rows } from '../domain-items';
 import { errors, isRequest, type ErrorCode, type Request, type Result } from '../protocol';
@@ -6,7 +8,7 @@ import { redactText } from '../security/redaction';
 import { nextPage } from './pagination';
 const coursesPath = '/api/v1/courses';
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
-export async function listQuery(origin: string, query: Request, fetcher: typeof fetch = fetch, now = Date.now()): Promise<Result> {
+export async function listQuery(origin: string, query: Request, fetcher: typeof fetch = fetch, now = Date.now(), catalog?: NavigationCatalog): Promise<Result> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   // One budget covers course resolution plus all item pages.
@@ -38,6 +40,7 @@ export async function listQuery(origin: string, query: Request, fetcher: typeof 
   }
   try {
     if (!isRequest(query)) throw new Error('POLICY');
+    if (query.type === 'RECORDINGS_LIST') catalog?.clear();
     switch (query.type) {
       case 'COURSES_LIST': return { status: 'success', courses: await collect(coursesQuery, coursesPath, projectCourses) };
       case 'TODO_LIST': return { status: 'success', todo: await collect('/api/v1/users/self/todo?per_page=100', '/api/v1/users/self/todo', projectTodo) };
@@ -47,6 +50,8 @@ export async function listQuery(origin: string, query: Request, fetcher: typeof 
         if (query.end_date) params.set('end_date', query.end_date);
         return { status: 'success', upcoming: await collect(`/api/v1/planner/items?${params}`, '/api/v1/planner/items', projectUpcoming) };
       }
+      case 'RECORDING_OPEN': throw new Error('POLICY');
+      case 'RECORDINGS_LIST':
       case 'ASSIGNMENTS_LIST':
       case 'DEADLINES_LIST': {
         // Internal IDs live only inside this call, never in panel messages or storage.
@@ -61,6 +66,34 @@ export async function listQuery(origin: string, query: Request, fetcher: typeof 
         const exact = matches.filter(course => course.name.toLowerCase() === search);
         const match = matches.length === 1 ? matches[0] : exact.length === 1 ? exact[0] : undefined;
         if (!match) throw new Error(matches.length ? 'COURSE_AMBIGUOUS' : 'COURSE_NOT_FOUND');
+        if (query.type === 'RECORDINGS_LIST') {
+          if (!catalog) throw new Error('POLICY');
+          catalog.clear();
+          const path = `/api/v1/courses/${match.id}/modules`;
+          const modules = await collect(`${path}?per_page=100&include[]=items&include[]=content_details`,path,rows);
+          const targets: RecordingTarget[] = [];
+          for (const module of modules) {
+            if (!accessible(module,now)) continue;
+            let items = Array.isArray(module.items) ? module.items : [];
+            if (module.items_count != null && (!Number.isSafeInteger(module.items_count) || Number(module.items_count) < 0)) throw new Error('INVALID_RESPONSE');
+            if ((Number(module.items_count) > items.length) || (module.items == null && module.items_count !== 0)) {
+              const moduleId = internalId(module.id);
+              if (!moduleId) throw new Error('INVALID_RESPONSE');
+              const itemPath = `${path}/${moduleId}/items`;
+              items = await collect(`${itemPath}?per_page=100&include[]=content_details`,itemPath,rows);
+            }
+            if (items.length > 10000) throw new Error('LIMIT');
+            for (const item of items.flatMap(item => rows([item]))) {
+              if (!recordingCandidate(item,now)) continue;
+              const itemId = internalId(item.id);
+              const ids = [match.id, internalId(module.id) ?? '', itemId ?? '', internalId(item.content_id) ?? ''];
+              targets.push({module:recordingLabel(module.name,ids),title:recordingLabel(item.title,ids),courseId:match.id,itemId,
+                moduleAccess:availabilitySnapshot(module),itemAccess:availabilitySnapshot(item)});
+              if (targets.length > 10000) throw new Error('LIMIT');
+            }
+          }
+          return {status:'success',recordings:catalog.replace(origin,targets)};
+        }
         const path = `/api/v1/courses/${match.id}/assignments`;
         const assignments = await collect(`${path}?per_page=100&include[]=submission`, path, raw => projectAssignments(raw, now));
         return query.type === 'ASSIGNMENTS_LIST' ? { status: 'success', assignments } : { status: 'success', deadlines: projectDeadlines(assignments) };

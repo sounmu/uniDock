@@ -1,3 +1,4 @@
+import type { NavigationCatalog } from '../src/navigation-catalog';
 import { afterEach, expect, it, vi } from 'vitest';
 import { request, type Request } from '../src/protocol';
 const list = vi.hoisted(() => vi.fn());
@@ -44,4 +45,29 @@ it.each<Request>([
   expect(busy).toHaveBeenCalledWith({status:'error',code:'BUSY'});
   await vi.waitFor(() => expect(respond).toHaveBeenCalledWith({status:'error',code:'LOGIN_REQUIRED'}));
   expect(query).toHaveBeenCalledWith('https://mylms.korea.ac.kr',request);
+});
+it('opens only a known catalog handle and never accepts a raw URL from the panel', async () => {
+  const addListener = vi.fn(), sendMessage = vi.fn().mockResolvedValue({status:'success',opened:true});
+  vi.stubGlobal('chrome',{runtime:{id:'fixture-extension',getURL:()=>'chrome-extension://fixture-extension/sidepanel.html',onMessage:{addListener},sendMessage}});
+  vi.stubGlobal('location',{href:'https://mylms.korea.ac.kr/',origin:'https://mylms.korea.ac.kr'});
+  (content as unknown as {main:()=>void}).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {id:'fixture-extension',url:'chrome-extension://fixture-extension/sidepanel.html'};
+  const invalid = vi.fn();
+  expect(listener({version:1,type:'RECORDING_OPEN',handle:crypto.randomUUID(),url:'https://evil.invalid/'},sender,invalid)).toBe(false);
+  expect(sendMessage).not.toHaveBeenCalled();
+  let store: NavigationCatalog | undefined;
+  query.mockImplementation(async (_origin, _request, _fetch, _now, catalog) => {
+    store = catalog;
+    return {status:'success',recordings:catalog.replace('https://mylms.korea.ac.kr',[{module:'주차',title:'강의',courseId:'101',itemId:'501',moduleAccess:{},itemAccess:{}}])};
+  });
+  const listed = vi.fn();
+  listener({version:1,type:'RECORDINGS_LIST',course:'과목'},sender,listed);
+  await vi.waitFor(() => expect(listed).toHaveBeenCalledTimes(1));
+  const handle = listed.mock.calls[0]![0].recordings[0].launchHandle;
+  const opened = vi.fn();
+  listener({version:1,type:'RECORDING_OPEN',handle},sender,opened);
+  await vi.waitFor(() => expect(opened).toHaveBeenCalledWith({status:'success',opened:true}));
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith({version:1,type:'OPEN_LMS_TARGET',url:'https://mylms.korea.ac.kr/courses/101/modules/items/501'});
+  store?.clear();
 });

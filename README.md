@@ -38,6 +38,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 | 마감일 | 과목명 | **모든 과제**의 제목·마감·남은 후보 |
 | Upcoming | 선택적 시작일·종료일 | Planner 일정, 과목, 제출 기록, 새 활동 |
 | Todo | 없음 | 할 일 제목·마감·과목·ignore 상태 |
+| 녹화 강의 | 과목명 | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기 |
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
@@ -54,23 +55,26 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 ## 구조와 안전 경계
 
-- `entrypoints/background.ts`: 도구 모음 → Side Panel 설정.
+- `entrypoints/background.ts`, `src/open-tab.ts`: Side Panel 설정 및 검증된 LMS 주소를 새 탭으로 열기.
 - `entrypoints/sidepanel/`: 기능 선택, 입력, 상태 UI, 결과 렌더링.
 - `entrypoints/lms.content.ts`: 허용 LMS 최상위 프레임의 isolated world에서 사용자 요청 처리.
 - `src/transport.ts`, `src/protocol.ts`: 요청 종류별 닫힌 스키마, sender 검증, 응답 종류/필드 검증, 시간 제한.
 - `src/api/`: GET 전용 API, 과목명 해석, Link 페이지네이션.
 - `src/domain.ts`, `src/domain-items.ts`: 공개 모델, 필드 투영, 날짜와 남은 후보 계산.
+- `src/recordings.ts`, `src/navigation-catalog.ts`: 강의 후보 필터링, 메모리 전용 일회성 선택 키.
 - `src/security/`: 출처/경로/쿼리 제한, redaction, 정적 이벤트 코드 로깅.
 
 패널 → `tabs.sendMessage` → LMS content script → 동일 출처 Fetch 순서입니다. `credentials: same-origin`으로 브라우저가 해당 세션 쿠키를 자동 첨부합니다. 쿠키를 직접 읽거나 저장하지 않습니다. 백그라운드 범용 HTTP proxy는 없습니다.
 
-허용되는 GET 경로는 아래 네 가지뿐입니다.
+허용되는 GET 목록 경로는 아래와 같습니다. 모듈의 인라인 항목이 누락되거나 일부만 있으면 module items API를 추가 조회합니다.
 
 ```text
 /api/v1/courses?per_page=100&enrollment_state=active
 /api/v1/courses/{내부에서 확인한 ID}/assignments?per_page=100&include[]=submission
 /api/v1/planner/items?per_page=100[&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD]
 /api/v1/users/self/todo?per_page=100
+/api/v1/courses/{ID}/modules?per_page=100&include[]=items&include[]=content_details
+/api/v1/courses/{ID}/modules/{module ID}/items?per_page=100&include[]=content_details
 ```
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, 같은 요청은 합치며 다른 동시 요청은 BUSY로 종료합니다.
@@ -83,9 +87,28 @@ Chrome 권한은 `sidePanel`과 두 호스트 `https://mylms.korea.ac.kr/*`, `ht
 
 과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, 영상 자동재생/keepalive/출석 자동화는 구현하지 않습니다. CLI의 자료 다운로드·일반 캘린더 이벤트·feed·자막은 현재 범위 밖입니다.
 
+## 녹화 강의 탐색과 탭 열기
+
+**내 과목 → 녹화 보기** 또는 **녹화 강의 → 과목명 → 조회**로 탐색합니다. API 순서를 유지하며 모듈 이름과 제목을 표시합니다. Python과 같은 후보 규칙입니다.
+
+- `ExternalTool`이면서 링크 메타데이터가 있는 항목. 외부 도구가 실제 영상인지 자동 판별하지 않으므로 ‘강의 후보’로 표시합니다.
+- 교안·강의자료·자료 항목 제외.
+- 모듈 및 항목의 미공개/잠김/미래 unlock/만료 lock 제외. `content_details`도 확인하고 해석할 수 없는 날짜는 제외합니다.
+- `items`가 누락되거나 `items_count`보다 적으면 전체 module items 목록을 조회해 인라인 목록을 교체합니다. 모든 단계에서 Link 페이지네이션과 기존 20초/100페이지 한도를 적용합니다.
+
+각 강의의 **LMS에서 보기**는 과목 모듈 화면, **LTI 탭 열기**는 Canvas module-item 경유 화면을 새 전경 탭으로 엽니다. 서비스가 제공하는 원본 LTI launch URL이나 `external_url`은 실행·전달·저장하지 않습니다. 실제 LTI 연결/리다이렉트/로그인은 열린 LMS 페이지가 처리합니다. module item ID가 없는 응답이면 개별 LTI 버튼을 비활성화하고 LMS 모듈에서 직접 열도록 안내합니다.
+
+패널에는 URL/내부 ID 대신 무작위 UUID 선택 키를 보냅니다. content script의 메모리 목록은 5분 뒤, 다음 조회 때, 문서 종료 때 사라지며 키는 한 번 사용하면 폐기됩니다. 알려진 lock 시각은 열기 직전에도 확인합니다. 목록 조회 뒤 서버에서 바뀐 권한/공개 상태 및 세션 유효성은 최종 LMS 화면이 검사하며 자동 재로그인은 없습니다.
+
+백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules` 또는 `/courses/{ID}/modules/items/{ID}` 주소만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않으므로 manifest 권한은 그대로입니다.
+
+자동재생, 연속 재생, 숨겨진 탭, 영상 제어, 완료/출석 API, keepalive는 없습니다. 열린 LMS/LTI 자체가 영상을 재생하거나 시청·진도·출석을 기록할 수 있으며 재생은 사용자가 해당 화면에서 제어합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
+
 ## Python 계약 테스트
 
 `tests/fixtures/python-contract.json`은 `../ku-lms-cli/tests/test_live_provider.py::FakeSession`의 **공개 가상 데이터**에서 생성했습니다. `scripts/generate_contract.py`는 지정된 공개 소스 두 파일만 읽습니다. AST로 fixture 리터럴과 공개 변환 함수/마감일 메서드만 추출해 실행하며, 참조 모듈을 import하거나 로그인/provider를 생성하지 않습니다. env·자격 증명·discovery 파일을 읽거나 참조 저장소에 쓰지 않습니다.
+
+Python 녹화 후보 탐색 및 `_public_recording` 결과도 계약에 포함합니다. 확장은 추가로 임시 열기 키를 사용하며 Python의 `playable` 필드를 재생 기능으로 구현하지 않습니다.
 
 Python `_public_assignment`, `_public_planner_item`, `_public_todo_item`, `_remaining_candidate`, `LiveLmsProvider.deadlines`의 결과를 기대값으로 고정합니다. 기준 시각은 `2026-09-11T00:00:00Z`이며 원본 파일 SHA-256도 기록합니다. 원본 fixture 외에도 누락/null 필드, 제출/채점/잠김, 과거/미래/경계 마감, UTC 기본값, 시차, 잘못된 날짜, 제목 fallback을 Python으로 계산한 사례를 포함합니다.
 
@@ -110,7 +133,9 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 5. 과목명 일부와 없는 과목명을 입력해 선택 오류를 확인합니다. 종료일이 시작일보다 빠르면 조회가 비활성화되어야 합니다.
 6. 여러 페이지가 있으면 마지막 항목까지 표시되는지 확인합니다. LMS 로그아웃 후 다시 조회하면 기존 목록 대신 안내가 보여야 합니다. 동일 문서 내 로그아웃은 다음 조회 때 반영될 수 있습니다.
 7. 일반 사이트 탭에서는 LMS 탭 안내, 네트워크 끊김에는 오류/시간 초과, 미갱신 탭에는 새로고침 안내를 확인합니다.
-8. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
+8. **녹화 강의**에서 모듈/제목을 LMS와 비교합니다. 교안·잠김 항목이 빠지는지, 목록 조회만으로 탭이 열리지 않는지 확인합니다. 각 열기 버튼은 선택한 항목의 탭 하나만 열어야 합니다. LTI 탭에서는 직접 재생을 제어합니다.
+9. 목록을 5분 이상 둔 뒤 열기를 눌러 만료 안내를 확인하고 재조회합니다. 항목 ID가 없는 fixture에서는 개별 LTI 버튼이 비활성화되어야 합니다.
+10. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
 
 LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합니다. 실 서비스 API/SSO 변화와 Chrome Web Store 심사는 별도 검증이 필요합니다.
 
@@ -120,11 +145,11 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - [Chrome Side Panel](https://developer.chrome.com/docs/extensions/reference/api/sidePanel), [메시징](https://developer.chrome.com/docs/extensions/develop/concepts/messaging), [네트워크](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests), [Tabs 호스트 권한](https://developer.chrome.com/docs/extensions/reference/api/tabs)
 - [WXT entrypoints](https://wxt.dev/guide/essentials/entrypoints.html), [manifest](https://wxt.dev/guide/essentials/config/manifest.html), [npm 공식 registry](https://registry.npmjs.org/)
-- [Canvas Assignments](https://developerdocs.instructure.com/services/canvas/resources/assignments), [Planner](https://developerdocs.instructure.com/services/canvas/resources/planner), [Users / Todo](https://developerdocs.instructure.com/services/canvas/resources/users), [Pagination](https://developerdocs.instructure.com/services/canvas/basics/file.pagination)
+- [Canvas Modules](https://developerdocs.instructure.com/services/canvas/resources/modules), [Canvas Assignments](https://developerdocs.instructure.com/services/canvas/resources/assignments), [Planner](https://developerdocs.instructure.com/services/canvas/resources/planner), [Users / Todo](https://developerdocs.instructure.com/services/canvas/resources/users), [Pagination](https://developerdocs.instructure.com/services/canvas/basics/file.pagination)
 
 ## 검증 결과
 
-- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **98개(6개 파일)**, production build 통과.
+- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **129개(7개 파일)**, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
 - production manifest: `sidePanel`과 기존 LMS 두 호스트만 유지, Chrome 114 minimum 유지.
 - 참조 저장소 `git status --porcelain`: 변경 없음.

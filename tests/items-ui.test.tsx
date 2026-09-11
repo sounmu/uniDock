@@ -26,3 +26,9 @@ it('formats dates consistently in Korea time', () => {
   expect(dateLabel('invalid')).toBe('날짜 확인 필요');
   expect(dateLabel('2026-09-11T00:00:00Z')).toContain('9:00');
 });
+it('renders recording actions without URLs or internal IDs in the DOM', () => {
+  const html = renderToStaticMarkup(<ResultList result={{status:'success',recordings:[{module:'1주차',title:'1차시',type:'ExternalTool',lmsHandle:crypto.randomUUID(),launchHandle:crypto.randomUUID()}]}} onCourse={() => {}} onRecording={() => {}}/>);
+  expect(html).toContain('LMS에서 보기');
+  expect(html).toContain('LTI 탭 열기');
+  expect(html).not.toMatch(/href=|https:|\/courses\//);
+});

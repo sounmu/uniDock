@@ -1,10 +1,11 @@
 """Developer-only golden contract generator; never imported by the extension.
 
 Reads only two named public source files, not env/config/discovery artifacts.
-Extracts literal FakeSession responses and executes only five pure projection
+Extracts literal FakeSession responses and executes only selected pure projection/discovery
 functions via AST (no imports or provider/login code from the reference repo).
 """
 import ast
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -18,8 +19,8 @@ reference = Path(arguments[0]) if arguments else root.parent / "ku-lms-cli"
 source = (reference / "src/ku_lms_cli/live.py").read_text()
 tests = (reference / "tests/test_live_provider.py").read_text()
 source_tree, test_tree = ast.parse(source), ast.parse(tests)
-selected_names = {"_public_assignment", "_public_planner_item", "_public_todo_item", "_remaining_candidate"}
-selected = [node for node in source_tree.body if isinstance(node, ast.FunctionDef) and node.name in selected_names]
+selected_names = {"_public_assignment", "_public_planner_item", "_public_todo_item", "_remaining_candidate", "_recording_candidates", "_fetch_recording_pages", "_recording_accessible", "_looks_like_handout", "_public_recording"}
+selected = [node for node in source_tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in selected_names]
 assert len(selected) == len(selected_names)
 provider = next(node for node in source_tree.body if isinstance(node, ast.ClassDef) and node.name == "LiveLmsProvider")
 deadlines = next(node for node in provider.body if isinstance(node, ast.FunctionDef) and node.name == "deadlines")
@@ -31,11 +32,11 @@ class FrozenDatetime(datetime):
     def now(cls, tz=None):
         return datetime(2026, 9, 11, tzinfo=timezone.utc)
 
-scope = {"datetime": FrozenDatetime, "timezone": timezone, "Any": object}
+scope = {"datetime": FrozenDatetime, "timezone": timezone, "Any": object, "LiveCommandError": RuntimeError}
 exec(compile(ast.Module(body=selected, type_ignores=[]), "public-reference-projections", "exec"), scope)
 fake = next(node for node in test_tree.body if isinstance(node, ast.ClassDef) and node.name == "FakeSession")
 fetch = next(node for node in fake.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "fetch_json")
-paths = {"courses": "/api/v1/courses?", "assignments": "/api/v1/courses/101/assignments", "upcoming": "/api/v1/planner/items?", "todo": "/api/v1/users/self/todo?"}
+paths = {"recordings": "/api/v1/courses/101/modules", "courses": "/api/v1/courses?", "assignments": "/api/v1/courses/101/assignments", "upcoming": "/api/v1/planner/items?", "todo": "/api/v1/users/self/todo?"}
 raw = {}
 for branch in fetch.body:
     if isinstance(branch, ast.If) and isinstance(branch.test, ast.Call):
@@ -44,16 +45,26 @@ for branch in fetch.body:
             if prefix == path:
                 literal = next(node for node in branch.body if isinstance(node, ast.Return))
                 raw[name] = ast.literal_eval(literal.value)
-assert len(raw) == 4
+assert len(raw) == 5
+
+class RecordingFixture:
+    async def fetch_json(self, path):
+        assert path == '/api/v1/courses/101/modules?per_page=100&include[]=items'
+        return raw['recordings']
+
 
 def expected(data):
     assignments = [scope['_public_assignment'](item) for item in data['assignments']]
-    return {
+    result = {
         'assignments': assignments,
         'deadlines': scope['deadlines'](SimpleNamespace(assignments=lambda course: assignments), '국제법'),
         'upcoming': [scope['_public_planner_item'](item) for item in data['upcoming']],
         'todo': [scope['_public_todo_item'](item) for item in data['todo']],
     }
+    if 'recordings' in data:
+        candidates = asyncio.run(scope['_recording_candidates'](RecordingFixture(), {'id':101,'name':'국제법'}))
+        result['recordings'] = [scope['_public_recording'](item) for item in candidates]
+    return result
 
 # Additional public synthetic edge cases evaluated by the same Python functions.
 edge = {
