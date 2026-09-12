@@ -1,3 +1,4 @@
+import { PagedList } from "./PagedList";
 import { type Result } from "../../src/protocol";
 import {
   isoTime,
@@ -46,8 +47,8 @@ export function ResultList({
         {result.recordings.length === 0 ? (
           <div className="notice">조회 가능한 녹화 강의 후보가 없습니다.</div>
         ) : (
-          <ul>
-            {result.recordings.map((item) => (
+          <PagedList items={result.recordings}>
+            {(item) => (
               <li key={item.lmsHandle}>
                 <div className="item-body">
                   <p>{item.module || "모듈 이름 없음"}</p>
@@ -84,8 +85,8 @@ export function ResultList({
                   )}
                 </div>
               </li>
-            ))}
-          </ul>
+            )}
+          </PagedList>
         )}
       </>
     );
@@ -96,8 +97,8 @@ export function ResultList({
         {result.courses.length === 0 ? (
           <div className="notice">현재 조회 가능한 과목이 없습니다.</div>
         ) : (
-          <ul>
-            {result.courses.map((course, index) => (
+          <PagedList items={result.courses}>
+            {(course, index) => (
               <li key={index}>
                 <div className="item-body">
                   <strong>{course.name}</strong>
@@ -119,8 +120,8 @@ export function ResultList({
                   </div>
                 </div>
               </li>
-            ))}
-          </ul>
+            )}
+          </PagedList>
         )}
       </>
     );
@@ -138,8 +139,8 @@ export function ResultList({
       {items.length === 0 ? (
         <div className="notice">조회된 항목이 없습니다.</div>
       ) : (
-        <ul>
-          {items.map((item, index) => (
+        <PagedList<Deadline | Upcoming | Todo> items={items}>
+          {(item, index) => (
             <li key={index}>
               <div className="item-body">
                 <strong>{item.title || "제목 없음"}</strong>
@@ -178,8 +179,8 @@ export function ResultList({
                 )}
               </div>
             </li>
-          ))}
-        </ul>
+          )}
+        </PagedList>
       )}
     </>
   );
