@@ -28,33 +28,41 @@ export function App() {
   const [state, setState] = useState<Result | { status: 'idle' | 'loading' }>({ status: 'idle' });
   const generation = useRef(0);
   function clear() { generation.current++; setState({ status: 'idle' }); }
-  useEffect(() => {
-    const reset = () => { generation.current++; setState({ status: 'idle' }); setCourse(''); setView(previous => ['ASSIGNMENTS_LIST', 'DEADLINES_LIST', 'RECORDINGS_LIST'].includes(previous) ? 'COURSES_LIST' : previous); };
-    const update = (_id: number, info: { status?: string }) => { if (info.status === 'loading') reset(); };
-    chrome.tabs.onActivated.addListener(reset);
-    chrome.tabs.onUpdated.addListener(update);
-    return () => { chrome.tabs.onActivated.removeListener(reset); chrome.tabs.onUpdated.removeListener(update); generation.current++; };
-  }, []);
+  const courses = useRef<Extract<Result, { courses: unknown }> | null>(null);
+  useEffect(() => () => { generation.current++; }, []);
+  function showCourses() {
+    setCourse('');
+    setView('COURSES_LIST');
+    if (courses.current) {
+      generation.current++;
+      setState(courses.current);
+    } else {
+      void load({version:1,type:'COURSES_LIST'});
+    }
+  }
   async function load(query: Request) {
     if (!isRequest(query)) { clear(); return; }
     const current = ++generation.current;
     setState({ status: 'loading' });
     const result = await queryActive(query);
-    if (current === generation.current) setState(result);
+    if (current === generation.current) {
+      if (result.status === 'success' && 'courses' in result) courses.current = result;
+      if (result.status === 'error' && ['LOGIN_REQUIRED', 'FORBIDDEN'].includes(result.code)) courses.current = null;
+      setState(result);
+    }
   }
   const needsCourse = view === 'ASSIGNMENTS_LIST' || view === 'DEADLINES_LIST' || view === 'RECORDINGS_LIST';
   const query: Request = needsCourse ? {version:1,type:view,course} : view === 'UPCOMING_LIST'
     ? {version:1,type:view,...(start ? {start_date:start} : {}),...(end ? {end_date:end} : {})} : {version:1,type:view === 'CAPTIONS' ? 'COURSES_LIST' : view};
   return <main>
-    <header><span className="mark" aria-hidden="true">u</span><h1>uniDock</h1><span className="badge">읽기 전용</span></header>
     <nav className="views" aria-label="주 메뉴">
-      <button aria-pressed={view === 'COURSES_LIST' || needsCourse} onClick={() => {setCourse('');setView('COURSES_LIST');void load({version:1,type:'COURSES_LIST'});}}>내 과목</button>
+      <button aria-pressed={view === 'COURSES_LIST' || needsCourse} onClick={showCourses}>내 과목</button>
       <button aria-pressed={view === 'UPCOMING_LIST'} onClick={() => {setCourse('');setView('UPCOMING_LIST');void load({version:1,type:'UPCOMING_LIST',...(start ? {start_date:start} : {}),...(end ? {end_date:end} : {})});}}>전체 일정</button>
       <button aria-pressed={view === 'TODO_LIST'} onClick={() => {setCourse('');setView('TODO_LIST');void load({version:1,type:'TODO_LIST'});}}>Todo</button>
       <button aria-pressed={view === 'CAPTIONS'} onClick={() => {clear();setCourse('');setView('CAPTIONS');}}>자막 TXT</button>
     </nav>
     {needsCourse && <section className="course-context">
-      <button className="back-link" onClick={() => {setCourse('');setView('COURSES_LIST');void load({version:1,type:'COURSES_LIST'});}}>← 과목 선택</button>
+      <button className="back-link" onClick={showCourses}>← 과목 선택</button>
       <h2>{course}</h2>
       <nav className="subviews" aria-label="과목 메뉴">{([['ASSIGNMENTS_LIST','과제'],['DEADLINES_LIST','마감일'],['RECORDINGS_LIST','녹화 강의']] as const).map(([type,label]) => <button key={type} aria-pressed={view === type} onClick={() => {setView(type);void load({version:1,type,course});}}>{label}</button>)}</nav>
     </section>}
