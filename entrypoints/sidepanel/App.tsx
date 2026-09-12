@@ -19,7 +19,7 @@ const messages: Record<ErrorCode, string> = {
   TAB_OPEN_FAILED: '새 탭을 열지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.',
   BUSY: '이전 조회를 처리하고 있습니다. 잠시 후 다시 조회하세요.',
 };
-const tabs = [ ['COURSES_LIST', '내 과목'], ['ASSIGNMENTS_LIST', '과제'], ['DEADLINES_LIST', '마감일'], ['UPCOMING_LIST', '예정 일정'], ['TODO_LIST', 'Todo'], ['RECORDINGS_LIST', '녹화 강의'], ['CAPTIONS', '자막 TXT'] ] as const;
+const tabs = [ ['COURSES_LIST', '내 과목'], ['ASSIGNMENTS_LIST', '과제'], ['DEADLINES_LIST', '마감일'], ['UPCOMING_LIST', '예정 일정'], ['TODO_LIST', 'Todo'], ['RECORDINGS_LIST', '녹화 강의'], ['CAPTIONS', '자막 추출'] ] as const;
 export function App() {
   const [view, setView] = useState<(typeof tabs)[number][0]>('COURSES_LIST');
   const [course, setCourse] = useState('');
@@ -59,7 +59,7 @@ export function App() {
       <button aria-pressed={view === 'COURSES_LIST' || needsCourse} onClick={showCourses}>내 과목</button>
       <button aria-pressed={view === 'UPCOMING_LIST'} onClick={() => {setCourse('');setView('UPCOMING_LIST');void load({version:1,type:'UPCOMING_LIST',...(start ? {start_date:start} : {}),...(end ? {end_date:end} : {})});}}>전체 일정</button>
       <button aria-pressed={view === 'TODO_LIST'} onClick={() => {setCourse('');setView('TODO_LIST');void load({version:1,type:'TODO_LIST'});}}>Todo</button>
-      <button aria-pressed={view === 'CAPTIONS'} onClick={() => {clear();setCourse('');setView('CAPTIONS');}}>자막 TXT</button>
+      <button aria-pressed={view === 'CAPTIONS'} onClick={() => {clear();setCourse('');setView('CAPTIONS');}}>자막 추출</button>
     </nav>
     {needsCourse && <section className="course-context">
       <button className="back-link" onClick={showCourses}>← 과목 선택</button>
@@ -79,6 +79,6 @@ export function App() {
       {state.status === 'success' && <ResultList result={state} onRecordings={name => {setCourse(name);setView('RECORDINGS_LIST');void load({version:1,type:'RECORDINGS_LIST',course:name});}} onRecording={handle => {void load({version:1,type:'RECORDING_OPEN',handle});}} onCourse={name => {setCourse(name);setView('ASSIGNMENTS_LIST');void load({version:1,type:'ASSIGNMENTS_LIST',course:name});}}/>}
     </section></>}
     <a className="lms-link" href="https://mylms.korea.ac.kr/" target="_blank" rel="noreferrer">LMS 열기 ↗</a>
-    <footer>조회 시 현재 LMS 세션의 정보를 이 기기에 표시합니다.<br/>개발자 서버로 전송하지 않으며, 직접 다운로드한 자막 TXT 외에는 저장하지 않습니다. <a href="privacy.html" target="_blank" rel="noreferrer">개인정보 처리방침</a><p>고려대학교와 제휴하지 않은 비공식 도구입니다.</p></footer>
+    <footer>조회 시 현재 LMS 세션의 정보를 이 기기에 표시합니다.<br/>개발자 서버로 전송하지 않으며, 직접 다운로드한 자막 추출 외에는 저장하지 않습니다. <a href="privacy.html" target="_blank" rel="noreferrer">개인정보 처리방침</a><p>고려대학교와 제휴하지 않은 비공식 도구입니다.</p></footer>
   </main>;
 }

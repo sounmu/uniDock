@@ -1,106 +1,131 @@
-/** Self-contained: Chrome serializes this function into the selected tab.
- * DOM world fetches ONLY declared same-origin track sources. MAIN world reads
- * already-loaded captionScriptList values; never calls player methods.
+/** Self-contained: serialized by chrome.scripting into each permitted frame.
+ * DOM pass runs everywhere first. Only an empty DOM result permits the KU VTT pass.
  */
-export async function collectCaptionSources(mode: 'dom' | 'player') {
-  const out: {label:string;language:string;source:string;format:string;text:string}[] = [];
-  let blocked = false, limited = false, frames = 0, bytes = 0;
-  const korean = (lang: string, label: string) => /^(ko(?:-|$)|kor$|kr$)/i.test(lang.replaceAll('_','-').trim()) || /korean|한국|한글|국문/i.test(`${lang} ${label}`);
-  const own = (value: unknown, key: string): unknown => {
-    if (!value || typeof value !== 'object') return undefined;
-    const property = Object.getOwnPropertyDescriptor(value,key);
-    return property && 'value' in property ? property.value : undefined;
+export async function collectCaptionSources(mode: 'dom' | 'player' | 'script') {
+  const items: {time:string;text:string}[] = [];
+  const result = {items,vtt:'',script:'',label:'',source:mode === 'dom' ? 'caption_script_dom' : mode === 'script' ? 'player_media_script' : 'player_vtt',blocked:false,limited:false,pageUrl:location.href,pageTitle:document.title};
+  const own = (value: unknown,key: string): unknown => {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(value,key);
+    return descriptor && 'value' in descriptor ? descriptor.value : undefined;
   };
-  const plain = (value: unknown): string => typeof value === 'string' ? value : '';
-  const sensitive = (text: string) => /https?:\/\/|[\w.%+-]+@[\w.-]+\.[a-z]{2,}|\b\d{8,}\b|(?:token|cookie|password|authorization|saml|oauth|session|course[_ -]?id)\s*[:=]/i.test(text);
-  const add = (label: string, language: string, source: string, format: string, text: string) => {
-    if (!text.trim() || !korean(language,label)) return;
-    if (text.length > 1000000 || bytes + text.length > 2000000 || out.length >= 20) {limited = true; return;}
-    if (label.length > 200 || language.length > 100 || sensitive(text.replace(/<[^>]*>/g,'')) || sensitive(label) || sensitive(language)) {blocked = true;return;}
-    bytes += text.length;
-    out.push({label,language,source,format,text});
-  };
-  const cueText = (cues: ArrayLike<unknown> | null | undefined): string => {
-    if (!cues || cues.length > 20000) {if (cues) limited = true;return '';}
-    const values: string[] = [];
-    let length = 0;
-    for (let i=0;i<cues.length;i++) {
-      const cue = mode === 'player' ? own(cues,String(i)) : cues[i];
-      const text = plain(cue && typeof cue === 'object' ? (mode === 'player' ? own(cue,'text') : (cue as {text?:unknown}).text) : undefined); length += text.length;
-      if (length > 1000000) {limited = true;return '';}
-      values.push(text);
+  // KU's Base.extend models keep default fields on their prototypes. Never invoke accessors.
+  const data = (value: unknown,key: string): unknown => {
+    for (let depth=0;value && typeof value === 'object' && depth<5;depth++) {
+      const descriptor = Object.getOwnPropertyDescriptor(value,key);
+      if (descriptor) return 'value' in descriptor ? descriptor.value : undefined;
+      value = Object.getPrototypeOf(value);
     }
-    return values.join('\n');
+    return undefined;
   };
+  const string = (value: unknown): string => typeof value === 'string' ? value : '';
+  if (mode === 'dom') {
+    const rows = document.querySelectorAll('#cs-script-list > li.cs-script-item');
+    if (rows.length > 20000) {result.limited=true;return result;}
+    let size = 0;
+    for (const row of rows) {
+      const time = row.querySelector('.cs-script-item-time')?.textContent?.trim() ?? '';
+      const text = row.querySelector('.cs-script-item-text')?.textContent?.replace(/\s+/g,' ').trim() ?? '';
+      if (!text) continue;
+      size += text.length;
+      if (size > 1000000) {result.limited=true;items.length=0;return result;}
+      if (!time) {result.blocked=true;items.length=0;return result;}
+      items.push({time,text});
+    }
+    return result;
+  }
+  if (location.origin !== 'https://kucom.korea.ac.kr' || !location.pathname.startsWith('/em/')) return result;
+  if (mode === 'script') {
+    // KU UPF recordings can provide MediaScriptData TXT instead of closed captions.
+    // Read the already-loaded text; do not execute player methods or synthesize timing.
+    const list = data(own(window,'uniPlayerConfig'),'_mediaScriptList');
+    if (!Array.isArray(list)) return result;
+    if (list.length > 20) {result.limited=true;return result;}
+    const candidates: {label:string;lang:string;text:string}[] = [];
+    for (let index=0;index<list.length;index++) {
+      const row = own(list,String(index));
+      const text = string(data(row,'script'));
+      if (text.trim()) candidates.push({label:string(data(row,'label')),lang:string(data(row,'lang')),text});
+    }
+    const selected = candidates.find(row => /^(?:ko(?:-|$)|kor$|kr$)/i.test(row.lang.replaceAll('_','-')) || /korean|한국|한글|국문/i.test(`${row.lang} ${row.label}`)) ?? candidates[0];
+    if (selected) {
+      if (selected.text.length > 1000000) {result.limited=true;return result;}
+      result.script=selected.text;
+      result.label=selected.label || selected.lang || '플레이어 스크립트';
+    }
+    return result;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(),10000);
-  async function visit(win: Window, depth: number): Promise<void> {
-    if (controller.signal.aborted) {limited=true;return;}
-    if (depth > 3 || ++frames > 20) {limited = true;return;}
-    let doc: Document;
-    try {doc = win.document; if (win.location.origin !== location.origin) {blocked = true;return;}} catch {blocked = true;return;}
-    if (mode === 'player') {
-      // Own data property avoids executing a getter or calling a player API.
-      const descriptor = Object.getOwnPropertyDescriptor(win,'captionScriptList');
-      const list: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
-      if (Array.isArray(list)) {
-        if (list.length > 20) limited = true;
-        for (let index=0;index<Math.min(list.length,20);index++) {
-          const row = own(list,String(index));
-          if (!row || typeof row !== 'object') continue;
-          const label = plain(own(row,'label') || own(row,'lang')), language = plain(own(row,'lang'));
-          if (!korean(language,label)) continue;
-          const cues = own(own(row,'caption'),'cues');
-          if (Array.isArray(cues)) add(label,language,'player_caption_api','txt',cueText(cues));
+  const read = async (value: string, base: string, extension: 'xml' | 'vtt') => {
+    const url = new URL(value,base);
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash || !url.pathname.toLowerCase().endsWith(`.${extension}`)) throw new Error('UNSAFE_URL');
+    const response = await fetch(url.href,{method:'GET',credentials:url.origin === location.origin ? 'same-origin' : 'omit',redirect:'error',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal});
+    if (!response.ok || Number(response.headers.get('content-length')) > 1000000) throw new Error('FETCH');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('FETCH');
+    const decoder = new TextDecoder();let body = '',size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();if (chunk.done) break;
+        size += chunk.value.byteLength;if (size > 1000000) throw new Error('LIMIT');
+        body += decoder.decode(chunk.value,{stream:true});
+      }
+      body += decoder.decode();
+    } finally {await reader.cancel().catch(() => {});}
+    return {body,url:url.href};
+  };
+  try {
+    const config = own(window,'uniPlayerConfig');
+    if (!config) return result;
+    // Verified against KU uni-player 1.2.0.63: getContentPlayingInfoData simply
+    // returns this field. Read it directly so no player method is executed.
+    const info = data(config,'_contentPlayingInfoData');
+    if (!info || data(info,'useCaption') === false) return result;
+    const stories = data(info,'storyList');
+    if (!Array.isArray(stories) || stories.length > 200) {result.blocked=true;return result;}
+    let main: unknown;
+    for (let index=0;index<stories.length;index++) {
+      const story = own(stories,String(index));
+      if (story && data(story,'isIntro') !== true) {main=story;break;}
+    }
+    if (!main) return result;
+    const directory = (value: string): string => {
+      const url = new URL(value,location.href);
+      if (!url.pathname.endsWith('/')) url.pathname += '/';
+      return url.href;
+    };
+    const staticCaption = string(data(info,'captionUri'));
+    const contentBase = data(info,'contentType') === 'remix' ? string(data(main,'remixWebUri')) : string(data(info,'contentUri'));
+    const base = staticCaption || contentBase;
+    if (!base) return result;
+    const resourceBase = directory(base);
+    const captionUrl = staticCaption ? 'caption_list.xml' : string(data(data(main,'storyFileNameList'),'caption'));
+    if (!captionUrl) return result;
+    const xml = await read(captionUrl,resourceBase,'xml');
+    if (/<!DOCTYPE|<!ENTITY/i.test(xml.body)) throw new Error('INVALID_XML');
+    const doc = new DOMParser().parseFromString(xml.body,'application/xml');
+    if (doc.querySelector('parsererror') || doc.documentElement.localName.toLowerCase() === 'html') throw new Error('INVALID_XML');
+    // Caption lists may express fields as attributes or child elements.
+    const candidates: {url:string;label:string;language:string}[] = [];
+    for (const element of Array.from(doc.querySelectorAll('*')).slice(0,2000)) {
+      const field = (names: string[]) => {
+        for (const name of names) {
+          const value = element.getAttribute(name) ?? Array.from(element.children).find(child => child.localName.toLowerCase() === name.toLowerCase())?.textContent;
+          if (value?.trim()) return value.trim();
         }
-      }
-    } else {
-      const tracks = Array.from(doc.querySelectorAll<HTMLTrackElement>('video track, audio track'));
-      if (tracks.length > 20) limited = true;
-      for (const track of tracks.slice(0,20)) {
-        if (controller.signal.aborted) {limited=true;break;}
-        if (!['subtitles','captions'].includes(track.kind) || !korean(track.srclang,track.label)) continue;
-        const loaded = cueText(track.track?.cues);
-        if (loaded.trim()) { add(track.label,track.srclang,'text_track_cues','txt',loaded);continue; }
-        // No mode changes, media play, seek, player methods or resource discovery.
-        if (!track.getAttribute('src')) continue;
-        try {
-          const url = new URL(track.src,win.location.href);
-          if (url.protocol !== 'https:' || url.origin !== location.origin || url.username || url.password || url.hash || !/\.(?:vtt|srt|ttml|dfxp|smi)$/i.test(url.pathname) || /(?:^|\/)(?:logout|delete|submit|enroll)(?:[/.]|$)/i.test(url.pathname)) {blocked = true;continue;}
-          const response = await fetch(url.href,{method:'GET',credentials:'same-origin',redirect:'manual',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal});
-          if (!response.ok || response.type === 'opaqueredirect') {blocked = true;continue;}
-          const mime = response.headers.get('content-type') ?? '';
-          if (!/^(?:text\/(?:vtt|plain)|application\/(?:x-subrip|ttml\+xml|xml|json|octet-stream))(?:;|$)/i.test(mime)) {blocked = true;continue;}
-          if (Number(response.headers.get('content-length')) > 1000000) {limited = true;continue;}
-          const reader = response.body?.getReader();
-          if (!reader) continue;
-          const decoder = new TextDecoder(); let text = '', size = 0;
-          try {
-            while (true) {
-              const chunk = await reader.read(); if (chunk.done) break;
-              size += chunk.value.byteLength;
-              if (size > 1000000) {limited = true;break;}
-              text += decoder.decode(chunk.value,{stream:true});
-            }
-            text += decoder.decode();
-            if (size <= 1000000) add(track.label,track.srclang,'track_element','auto',text);
-          } finally {await reader.cancel().catch(() => {});}
-        } catch {blocked = true;}
-      }
-      // Only the player's dedicated transcript DOM, explicitly marked Korean.
-      for (const root of Array.from(doc.querySelectorAll<HTMLElement>('#cs-script-list')).slice(0,5)) {
-        const language = root.getAttribute('lang') ?? '';
-        const label = root.getAttribute('aria-label') ?? '';
-        if (!korean(language,label)) continue;
-        const elements = Array.from(root.querySelectorAll('.cs-script-item-text'));
-        if (elements.length > 20000) {limited = true;continue;}
-        add(label || '한국어 스크립트',language,'caption_script_dom','txt',cueText(elements.map(element => ({text:element.textContent ?? ''}))));
-      }
+        return '';
+      };
+      const url = field(['uri','src','url','file','filename']) || (element.children.length === 0 ? element.textContent?.trim() ?? '' : '');
+      if (!/\.vtt(?:\?|$)/i.test(url)) continue;
+      const label = field(['label','name','title']);
+      const language = field(['lang','language','srclang','code']);
+      candidates.push({url,label,language});
     }
-    for (const frame of Array.from(doc.querySelectorAll<HTMLIFrameElement>('iframe')).slice(0,20)) {
-      try {if (frame.contentWindow) await visit(frame.contentWindow,depth+1);} catch {blocked = true;}
-    }
-  }
-  try {await visit(window,0);} catch {blocked = true;} finally {clearTimeout(timer);}
-  return {tracks:out,blocked,limited};
+    const selected = candidates.find(item => /^(?:ko(?:-|$)|kor$|kr$)/i.test(item.language.replaceAll('_','-')) || /korean|한국|한글|국문/i.test(`${item.language} ${item.label}`)) ?? candidates[0];
+    if (!selected) return result;
+    result.vtt = (await read(selected.url,resourceBase,'vtt')).body;
+    result.label = selected.label || selected.language || '자막';
+  } catch {result.blocked=true;} finally {clearTimeout(timer);}
+  return result;
 }

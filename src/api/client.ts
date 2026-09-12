@@ -86,8 +86,7 @@ export async function listQuery(origin: string, query: Request, fetcher: typeof 
             for (const item of items.flatMap(item => rows([item]))) {
               if (!recordingCandidate(item,now)) continue;
               const itemId = internalId(item.id);
-              const ids = [match.id, internalId(module.id) ?? '', itemId ?? '', internalId(item.content_id) ?? ''];
-              targets.push({module:recordingLabel(module.name,ids),title:recordingLabel(item.title,ids),courseId:match.id,itemId,
+              targets.push({module:recordingLabel(module.name),title:recordingLabel(item.title),courseId:match.id,itemId,
                 moduleAccess:availabilitySnapshot(module),itemAccess:availabilitySnapshot(item)});
               if (targets.length > 10000) throw new Error('LIMIT');
             }

@@ -18,7 +18,8 @@
     "contract:check": "python3 -B scripts/generate_contract.py --check && python3 -B scripts/generate_caption_contract.py --check",
     "release": "npm run notices && npm run check && npm audit --audit-level=moderate && node scripts/package-release.mjs",
     "store:assets": "node scripts/brand-assets.mjs && node scripts/store-assets.mjs",
-    "notices": "node scripts/notices.mjs"
+    "notices": "node scripts/notices.mjs",
+    "test:captions:live": "node scripts/test-caption-live.mjs"
   },
   "dependencies": {
     "react": "19.3.0",
@@ -32,6 +33,7 @@
     "@types/react-dom": "19.3.0",
     "@wxt-dev/module-react": "1.2.2",
     "eslint": "10.10.0",
+    "jsdom": "^30.0.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.70.0",
     "vitest": "5.0.0",

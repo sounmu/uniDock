@@ -1,12 +1,20 @@
-import { safeCaptionText } from './normalize';
-export function downloadCaption(text: string, now = new Date()): void {
-  if (!safeCaptionText(text.trimEnd())) throw new Error('UNSAFE_CAPTION');
-  const blob = new Blob([text],{type:'text/plain;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  try {
-    link.href = url;
-    link.download = `uniDock-ko-${now.toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z')}.txt`;
-    document.body.append(link); link.click();
-  } finally {link.remove();setTimeout(() => URL.revokeObjectURL(url),1000);}
+import { normalizeItems, transcriptText, type Transcript } from './transcript';
+export function exportTranscript(value: Transcript): {json:string;text:string} {
+  const items = normalizeItems(value.items);
+  if (!items.length || items.length !== value.itemCount || !Number.isFinite(Date.parse(value.extractedAt))) throw new Error('INVALID_CAPTION');
+  const source = new URL(value.sourceUrl);
+  if (source.protocol !== 'https:' || source.username || source.password) throw new Error('INVALID_CAPTION');
+  // Explicit projection prevents player resource URLs/configuration leaking into JSON.
+  const transcript: Transcript = {sourceUrl:value.sourceUrl,pageTitle:value.pageTitle,extractedAt:value.extractedAt,itemCount:items.length,items};
+  return {json:JSON.stringify(transcript,null,2)+'\n',text:transcriptText(transcript)};
+}
+export async function downloadCaption(value: Transcript): Promise<void> {
+  const files = exportTranscript(value);
+  const stem = `output/uniDock-${value.extractedAt.replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z')}`;
+  for (const [extension,body,type] of [['txt',files.text,'text/plain'],['json',files.json,'application/json']] as const) {
+    const url = URL.createObjectURL(new Blob([body],{type:`${type};charset=utf-8`}));
+    try {
+      await chrome.downloads.download({url,filename:`${stem}.${extension}`,conflictAction:'uniquify',saveAs:false});
+    } finally {setTimeout(() => URL.revokeObjectURL(url),60000);}
+  }
 }

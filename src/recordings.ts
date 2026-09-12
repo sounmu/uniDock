@@ -27,10 +27,12 @@ export function recordingCandidate(item: Metadata, now = Date.now()): boolean {
   return !(compact.includes('교안') || compact.includes('강의자료') || compact === '자료')
     && Boolean((typeof item.html_url === 'string' && item.html_url) || (typeof item.url === 'string' && item.url));
 }
-export function recordingLabel(value: unknown, ids: string[]): string {
+export function recordingLabel(value: unknown): string {
   if (value == null) return '';
   if (typeof value !== 'string' || value.length > 2000) throw new Error('INVALID_RESPONSE');
-  return redactText(value, ids);
+  // Numeric metadata IDs can also be dates or lesson numbers in display labels.
+  // Keep IDs out of the public projection instead of replacing matching digits.
+  return redactText(value);
 }
 // Retain only availability fields, never raw API objects or URLs.
 export function availabilitySnapshot(row: Metadata): Metadata {

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { accessible, recordingCandidate } from '../src/recordings';
+import { accessible, recordingCandidate, recordingLabel } from '../src/recordings';
 import { NavigationCatalog } from '../src/navigation-catalog';
 import { listQuery } from '../src/api/client';
 import { isRequest, parseResult } from '../src/protocol';
@@ -49,6 +49,25 @@ it('uses LMS-only fallback without an item ID', async () => {
   const result = await listQuery(origin,{version:1,type:'RECORDINGS_LIST',course:'과목'},fetcher,now,store);
   if (result.status !== 'success' || !('recordings' in result)) throw new Error('Missing list');
   expect(result.recordings[0]?.launchHandle).toBe('');
+});
+it.each(['course','module','item','content'])('preserves dates and lesson numbers matching the %s ID through the public response', async collision => {
+  const store = catalog();
+  const title = '[26.09.03] 2. Image Formation';
+  const moduleName = '2026년 2주차';
+  const courseId = collision === 'course' ? 2 : 2026;
+  const itemId = collision === 'item' ? 2 : 903;
+  const fetcher = vi.fn().mockResolvedValueOnce(json([{id:courseId,name:'과목'}]))
+    .mockResolvedValueOnce(json([{id:collision === 'module' ? 2 : 26,name:moduleName,
+      items:[{...item(itemId,title),content_id:collision === 'content' ? 2 : 3}]}]));
+  const query = {version:1,type:'RECORDINGS_LIST',course:'과목'} as const;
+  const result = parseResult(await listQuery(origin,query,fetcher,now,store),query);
+  if (result.status !== 'success' || !('recordings' in result)) throw new Error('Missing list');
+  expect(result.recordings).toEqual([{module:moduleName,title,type:'ExternalTool',
+    lmsHandle:expect.any(String),launchHandle:expect.any(String)}]);
+  expect(store.take(result.recordings[0]!.launchHandle,origin)).toBe(`${origin}/courses/${courseId}/modules/items/${itemId}`);
+});
+it.each(['https://example.invalid/launch?token=secret','a@example.invalid','token=secret','course_id=2','12345678'])('still masks sensitive recording label text: %s', value => {
+  expect(recordingLabel(`강의 ${value}`)).toBe('강의 [REDACTED]');
 });
 it('expires, replaces and consumes handles without deriving them from IDs', () => {
   const store = catalog();
