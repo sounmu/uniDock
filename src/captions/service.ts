@@ -20,7 +20,13 @@ export type CaptionResult =
         | "TIMEOUT"
         | "RELOAD_TAB";
     };
-export async function detectCaptions(): Promise<CaptionResult> {
+export interface CaptionTarget {
+  tabId: number;
+  windowId: number;
+}
+export async function detectCaptions(
+  onTarget?: (target: CaptionTarget) => boolean,
+): Promise<CaptionResult> {
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -35,6 +41,8 @@ export async function detectCaptions(): Promise<CaptionResult> {
     )
       return { status: "error", code: "ACTIVATE_TAB" };
     const id = tab.id;
+    if (onTarget && !onTarget({ tabId: id, windowId: tab.windowId }))
+      return { status: "error", code: "RELOAD_TAB" };
     const work = async (): Promise<CaptionResult> => {
       const dom = await chrome.scripting.executeScript({
         target: { tabId: id, allFrames: true },

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { detectCaptions, type CaptionResult } from "../../src/captions/service";
+import {
+  detectCaptions,
+  type CaptionTarget,
+  type CaptionResult,
+} from "../../src/captions/service";
 import { downloadCaption } from "../../src/captions/download";
 const messages = {
   ACTIVATE_TAB:
@@ -19,18 +23,43 @@ export function CaptionsPanel() {
   });
   const [notice, setNotice] = useState("");
   const generation = useRef(0);
+  const target = useRef<CaptionTarget | null>(null);
   useEffect(() => {
     const clear = () => {
       generation.current++;
+      target.current = null;
       setState({ status: "idle" });
       setNotice("");
     };
-    chrome.tabs.onActivated.addListener(clear);
-    chrome.tabs.onUpdated.addListener(clear);
+    const activated = (info: { tabId: number; windowId: number }) => {
+      if (
+        !target.current ||
+        (info.windowId === target.current.windowId &&
+          info.tabId !== target.current.tabId)
+      )
+        clear();
+    };
+    const updated = (
+      tabId: number,
+      change: { status?: string; url?: string },
+    ) => {
+      if (
+        tabId === target.current?.tabId &&
+        (change.status === "loading" || change.url !== undefined)
+      )
+        clear();
+    };
+    const removed = (tabId: number) => {
+      if (tabId === target.current?.tabId) clear();
+    };
+    chrome.tabs.onActivated.addListener(activated);
+    chrome.tabs.onUpdated.addListener(updated);
+    chrome.tabs.onRemoved.addListener(removed);
     return () => {
       generation.current++;
-      chrome.tabs.onActivated.removeListener(clear);
-      chrome.tabs.onUpdated.removeListener(clear);
+      chrome.tabs.onActivated.removeListener(activated);
+      chrome.tabs.onUpdated.removeListener(updated);
+      chrome.tabs.onRemoved.removeListener(removed);
     };
   }, []);
   useEffect(() => {
@@ -45,7 +74,11 @@ export function CaptionsPanel() {
     const current = ++generation.current;
     setState({ status: "loading" });
     setNotice("");
-    const result = await detectCaptions();
+    const result = await detectCaptions((selected) => {
+      if (current !== generation.current) return false;
+      target.current = selected;
+      return true;
+    });
     if (current === generation.current) setState(result);
   }
   return (
