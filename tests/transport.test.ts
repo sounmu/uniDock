@@ -79,3 +79,39 @@ it("sends new read requests and rejects mismatched result kinds", async () => {
     upcoming: [],
   });
 });
+
+it("binds recording opens to their listing tab even after the active tab changes", async () => {
+  const { sendMessage } = setup();
+  sendMessage.mockResolvedValue({ status: "success", opened: true });
+  const target = { id: 7, url };
+  const handle = crypto.randomUUID();
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDING_OPEN", handle },
+      { target },
+    ),
+  ).toEqual({ status: "success", opened: true });
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+  expect(sendMessage).toHaveBeenCalledWith(
+    7,
+    { version: 1, type: "RECORDING_OPEN", handle },
+    { frameId: 0 },
+  );
+});
+it("rejects a bound tab that navigated before sending an open", async () => {
+  const { sendMessage, get } = setup();
+  get.mockResolvedValue({ id: 7, url: `${url}other` });
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDING_OPEN", handle: crypto.randomUUID() },
+      { target: { id: 7, url } },
+    ),
+  ).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+it("reports the selected source tab before delivering its result", async () => {
+  setup();
+  const onTarget = vi.fn();
+  await queryActive({ version: 1, type: "COURSES_LIST" }, { onTarget });
+  expect(onTarget).toHaveBeenCalledExactlyOnceWith({ id: 7, url });
+});

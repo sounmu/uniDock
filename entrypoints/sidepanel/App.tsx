@@ -6,7 +6,7 @@ import {
   type Request,
   type Result,
 } from "../../src/protocol";
-import { queryActive } from "../../src/transport";
+import { queryActive, type QueryTarget } from "../../src/transport";
 import { ResultList } from "./ResultList";
 const messages: Record<ErrorCode, string> = {
   LOGIN_REQUIRED:
@@ -49,8 +49,20 @@ export function App() {
   });
   const generation = useRef(0);
   const inFlight = useRef<Promise<Result> | null>(null);
+  const recordingTarget = useRef<QueryTarget | null>(null);
+  const opening = useRef(false);
+  const [recordingAction, setRecordingAction] = useState({
+    pending: false,
+    used: new Set<string>(),
+    notice: "",
+  });
+  function resetRecordingAction() {
+    recordingTarget.current = null;
+    setRecordingAction({ pending: false, used: new Set(), notice: "" });
+  }
   function clear() {
     generation.current++;
+    resetRecordingAction();
     setState({ status: "idle" });
   }
   const courses = useRef<Extract<Result, { courses: unknown }> | null>(null);
@@ -61,6 +73,7 @@ export function App() {
     [],
   );
   function showCourses() {
+    resetRecordingAction();
     setCourse("");
     setView("COURSES_LIST");
     if (courses.current) {
@@ -76,11 +89,20 @@ export function App() {
       return;
     }
     const current = ++generation.current;
+    resetRecordingAction();
     setState({ status: "loading" });
     // Finish the active request, then execute only the latest selected view.
     if (inFlight.current) await inFlight.current;
     if (current !== generation.current) return;
-    const work = queryActive(query);
+    const work =
+      query.type === "RECORDINGS_LIST"
+        ? queryActive(query, {
+            onTarget: (target) => {
+              if (current === generation.current)
+                recordingTarget.current = target;
+            },
+          })
+        : queryActive(query);
     inFlight.current = work;
     const result = await work;
     if (inFlight.current === work) inFlight.current = null;
@@ -94,6 +116,49 @@ export function App() {
         courses.current = null;
       setState(result);
     }
+  }
+  async function openRecording(handle: string) {
+    if (opening.current || inFlight.current || recordingAction.used.has(handle))
+      return;
+    const target = recordingTarget.current;
+    if (!target) {
+      setRecordingAction((previous) => ({
+        ...previous,
+        notice: messages.RELOAD_TAB,
+      }));
+      return;
+    }
+    const current = generation.current;
+    opening.current = true;
+    setRecordingAction((previous) => ({
+      ...previous,
+      pending: true,
+      notice: "",
+    }));
+    const work = queryActive(
+      { version: 1, type: "RECORDING_OPEN", handle },
+      { target },
+    );
+    inFlight.current = work;
+    const result = await work;
+    if (inFlight.current === work) inFlight.current = null;
+    opening.current = false;
+    if (current !== generation.current) return;
+    setRecordingAction((previous) => ({
+      pending: false,
+      used:
+        result.status === "success" ||
+        (result.status === "error" &&
+          ["STALE_SELECTION", "TAB_OPEN_FAILED", "TIMEOUT"].includes(
+            result.code,
+          ))
+          ? new Set([...previous.used, handle])
+          : previous.used,
+      notice:
+        result.status === "success"
+          ? "새 LMS/LTI 탭을 열었습니다."
+          : messages[result.code],
+    }));
   }
   const needsCourse =
     view === "ASSIGNMENTS_LIST" ||
@@ -241,7 +306,13 @@ export function App() {
               기준이며 실제 제출 가능 여부는 LMS에서 확인하세요.
             </p>
           )}
-          <section aria-live="polite" aria-busy={state.status === "loading"}>
+          <section
+            aria-live="polite"
+            aria-busy={state.status === "loading" || recordingAction.pending}
+          >
+            {view === "RECORDINGS_LIST" && recordingAction.notice && (
+              <p className="notice">{recordingAction.notice}</p>
+            )}
             {state.status === "idle" && (
               <div className="notice">
                 <strong>
@@ -283,9 +354,9 @@ export function App() {
                     course: name,
                   });
                 }}
-                onRecording={(handle) => {
-                  void load({ version: 1, type: "RECORDING_OPEN", handle });
-                }}
+                onRecording={(handle) => void openRecording(handle)}
+                recordingPending={recordingAction.pending}
+                usedRecordingHandles={recordingAction.used}
                 onCourse={(name) => {
                   setCourse(name);
                   setView("ASSIGNMENTS_LIST");

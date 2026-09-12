@@ -24,11 +24,15 @@ export function ResultList({
   onCourse,
   onRecording,
   onRecordings,
+  recordingPending = false,
+  usedRecordingHandles,
 }: {
   result: Extract<Result, { status: "success" }>;
   onCourse: (name: string) => void;
   onRecording?: (handle: string) => void;
   onRecordings?: (name: string) => void;
+  recordingPending?: boolean;
+  usedRecordingHandles?: ReadonlySet<string>;
 }) {
   if ("opened" in result)
     return <div className="notice">새 LMS/LTI 탭을 열었습니다.</div>;
@@ -50,13 +54,22 @@ export function ResultList({
                   <div className="recording-actions">
                     <button
                       className="secondary"
-                      disabled={!onRecording}
+                      disabled={
+                        !onRecording ||
+                        recordingPending ||
+                        usedRecordingHandles?.has(item.lmsHandle)
+                      }
                       onClick={() => onRecording?.(item.lmsHandle)}
                     >
                       LMS에서 보기 ↗
                     </button>
                     <button
-                      disabled={!item.launchHandle || !onRecording}
+                      disabled={
+                        !item.launchHandle ||
+                        !onRecording ||
+                        recordingPending ||
+                        usedRecordingHandles?.has(item.launchHandle)
+                      }
                       onClick={() => onRecording?.(item.launchHandle)}
                     >
                       LTI 탭 열기 ↗

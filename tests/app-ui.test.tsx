@@ -78,3 +78,73 @@ it("runs the queued request even after the previous request fails", async () => 
   expect(query).toHaveBeenCalledTimes(2);
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
 });
+
+const recordingTarget = {
+  id: 7,
+  url: "https://mylms.korea.ac.kr/courses/1/modules",
+};
+const recordings = ["첫 강의", "두 번째 강의"].map((title) => ({
+  module: "주차",
+  title,
+  type: "ExternalTool" as const,
+  lmsHandle: crypto.randomUUID(),
+  launchHandle: crypto.randomUUID(),
+}));
+async function showRecordings() {
+  query
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] })
+    .mockImplementationOnce(async (_query, options) => {
+      options.onTarget(recordingTarget);
+      return { status: "success", recordings };
+    });
+  ui = await mount(<App />);
+  await click("조회");
+  await click("녹화 보기");
+}
+it("keeps recordings visible and opens subsequent selections in the original LMS tab", async () => {
+  await showRecordings();
+  query.mockResolvedValue({ status: "success", opened: true });
+  await click("LTI 탭 열기 ↗");
+  expect(document.body.textContent).toContain("두 번째 강의");
+  const buttons = [...document.querySelectorAll("button")].filter(
+    (b) => b.textContent === "LTI 탭 열기 ↗",
+  );
+  expect(buttons[0]!.disabled).toBe(true);
+  expect(buttons[1]!.disabled).toBe(false);
+  await click("LTI 탭 열기 ↗", 1);
+  expect(query.mock.calls.slice(2).map((call) => call[1])).toEqual([
+    { target: recordingTarget },
+    { target: recordingTarget },
+  ]);
+  expect(query).toHaveBeenCalledTimes(4);
+});
+it("prevents duplicate opens and preserves the list on a retryable failure", async () => {
+  await showRecordings();
+  const pending = deferred<Result>();
+  query.mockReturnValueOnce(pending.promise);
+  await click("LTI 탭 열기 ↗");
+  await click("LTI 탭 열기 ↗");
+  expect(query).toHaveBeenCalledTimes(3);
+  await act(async () => pending.resolve({ status: "error", code: "BUSY" }));
+  expect(document.body.textContent).toContain("두 번째 강의");
+  query.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
+  await click("LTI 탭 열기 ↗");
+  expect(document.body.textContent).toContain("선택이 만료");
+  expect(
+    [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "LTI 탭 열기 ↗",
+    )!.disabled,
+  ).toBe(true);
+});
+it("does not replace the next menu when an open finishes late", async () => {
+  await showRecordings();
+  const pending = deferred<Result>();
+  query
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValueOnce({ status: "success", todo: [] });
+  await click("LTI 탭 열기 ↗");
+  await click("Todo");
+  await act(async () => pending.resolve({ status: "success", opened: true }));
+  expect(document.body.textContent).toContain("조회된 항목이 없습니다");
+  expect(document.body.textContent).not.toContain("새 LMS/LTI 탭을 열었습니다");
+});
