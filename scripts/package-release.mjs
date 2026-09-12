@@ -8,14 +8,16 @@ const root=path.resolve('.output/chrome-mv3');
 const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
 assert.equal(manifest.manifest_version,3);
 assert.equal(manifest.minimum_chrome_version,'114');
-assert.deepEqual([...manifest.permissions].sort(),['activeTab','scripting','sidePanel'].sort());
-assert.deepEqual([...manifest.host_permissions].sort(),['https://canvas.korea.ac.kr/*','https://mylms.korea.ac.kr/*']);
+const lmsHosts=['https://canvas.korea.ac.kr/*','https://mylms.korea.ac.kr/*'];
+assert.deepEqual([...manifest.permissions].sort(),['activeTab','downloads','scripting','sidePanel'].sort());
+assert.deepEqual([...manifest.host_permissions].sort(),[...lmsHosts,'https://kucom.korea.ac.kr/*'].sort());
 for(const key of ['externally_connectable','web_accessible_resources','update_url','key','oauth2','optional_host_permissions']) assert.equal(manifest[key],undefined);
 assert.equal(manifest.side_panel.default_path,'sidepanel.html');
 assert.equal(manifest.background.service_worker,'background.js');
 assert.equal(manifest.content_scripts.length,1);
 assert.equal(manifest.content_scripts[0].all_frames,false);
-assert.deepEqual([...manifest.content_scripts[0].matches].sort(),[...manifest.host_permissions].sort());
+// KU player access is for on-demand caption extraction, not the LMS content script.
+assert.deepEqual([...manifest.content_scripts[0].matches].sort(),lmsHosts);
 assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'");
 const files=[];
 function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){assert(!entry.isSymbolicLink());const full=path.join(dir,entry.name);if(entry.isDirectory())walk(full);else files.push(path.relative(root,full));}}
