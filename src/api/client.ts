@@ -35,7 +35,11 @@ export async function listQuery(
   catalog?: NavigationCatalog,
 ): Promise<Result> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 20000);
   // One budget covers course resolution plus all item pages.
   let pages = 0;
   async function collect<T>(
@@ -47,6 +51,7 @@ export async function listQuery(
     const visited = new Set<string>();
     const items: T[] = [];
     while (next) {
+      if (controller.signal.aborted) throw new Error("TIMEOUT");
       if (visited.has(next) || pages++ >= 100) throw new Error("LIMIT");
       visited.add(next);
       const response = await fetcher(readUrl(next, origin, path).href, {
@@ -71,6 +76,7 @@ export async function listQuery(
       if (!/^application\/json\b/i.test(type))
         throw new Error("INVALID_RESPONSE");
       const raw = await readJsonBounded(response);
+      if (controller.signal.aborted) throw new Error("TIMEOUT");
       items.push(...project(raw));
       if (items.length > 10000) throw new Error("LIMIT");
       next = nextPage(response.headers.get("link"), origin, path);
@@ -150,53 +156,77 @@ export async function listQuery(
         if (query.type === "RECORDINGS_LIST") {
           if (!catalog) throw new Error("POLICY");
           catalog.clear();
-          const path = `/api/v1/courses/${match.id}/modules`;
+          const courseId = match.id;
+          const path = `/api/v1/courses/${courseId}/modules`;
           const modules = await collect(
             `${path}?per_page=100&include[]=items&include[]=content_details`,
             path,
             rows,
           );
-          const targets: RecordingTarget[] = [];
-          for (const module of modules) {
-            if (!accessible(module, now)) continue;
-            let items = Array.isArray(module.items) ? module.items : [];
-            if (
-              module.items_count != null &&
-              (!Number.isSafeInteger(module.items_count) ||
-                Number(module.items_count) < 0)
-            )
-              throw new Error("INVALID_RESPONSE");
-            if (
-              Number(module.items_count) > items.length ||
-              (module.items == null && module.items_count !== 0)
-            ) {
-              const moduleId = internalId(module.id);
-              if (!moduleId) throw new Error("INVALID_RESPONSE");
-              const itemPath = `${path}/${moduleId}/items`;
-              items = await collect(
-                `${itemPath}?per_page=100&include[]=content_details`,
-                itemPath,
-                rows,
-              );
-            }
-            if (items.length > 10000) throw new Error("LIMIT");
-            for (const item of items.flatMap((item) => rows([item]))) {
-              if (!recordingCandidate(item, now)) continue;
-              const itemId = internalId(item.id);
-              targets.push({
-                module: recordingLabel(module.name),
-                title: recordingLabel(item.title),
-                courseId: match.id,
-                itemId,
-                moduleAccess: availabilitySnapshot(module),
-                itemAccess: availabilitySnapshot(item),
-              });
-              if (targets.length > 10000) throw new Error("LIMIT");
+          // Project each module separately so completion order cannot reorder the UI.
+          const targetsByModule: RecordingTarget[][] = Array.from(
+            { length: modules.length },
+            () => [],
+          );
+          let nextModule = 0,
+            totalTargets = 0;
+          let failure: { error: unknown } | undefined;
+          async function worker() {
+            while (nextModule < modules.length && !controller.signal.aborted) {
+              const index = nextModule++;
+              const module = modules[index]!;
+              try {
+                if (!accessible(module, now)) continue;
+                const targets = targetsByModule[index]!;
+                let items = Array.isArray(module.items) ? module.items : [];
+                if (
+                  module.items_count != null &&
+                  (!Number.isSafeInteger(module.items_count) ||
+                    Number(module.items_count) < 0)
+                )
+                  throw new Error("INVALID_RESPONSE");
+                if (
+                  Number(module.items_count) > items.length ||
+                  (module.items == null && module.items_count !== 0)
+                ) {
+                  const moduleId = internalId(module.id);
+                  if (!moduleId) throw new Error("INVALID_RESPONSE");
+                  const itemPath = `${path}/${moduleId}/items`;
+                  items = await collect(
+                    `${itemPath}?per_page=100&include[]=content_details`,
+                    itemPath,
+                    rows,
+                  );
+                }
+                if (items.length > 10000) throw new Error("LIMIT");
+                for (const item of items.flatMap((item) => rows([item]))) {
+                  if (!recordingCandidate(item, now)) continue;
+                  const itemId = internalId(item.id);
+                  targets.push({
+                    module: recordingLabel(module.name),
+                    title: recordingLabel(item.title),
+                    courseId,
+                    itemId,
+                    moduleAccess: availabilitySnapshot(module),
+                    itemAccess: availabilitySnapshot(item),
+                  });
+                  if (++totalTargets > 10000) throw new Error("LIMIT");
+                }
+              } catch (error) {
+                // Preserve the original failure instead of reporting sibling aborts as timeouts.
+                failure ??= { error };
+                controller.abort();
+              }
             }
           }
+          await Promise.all(
+            Array.from({ length: Math.min(3, modules.length) }, () => worker()),
+          );
+          if (failure) throw failure.error;
+          if (controller.signal.aborted) throw new Error("TIMEOUT");
           return {
             status: "success",
-            recordings: catalog.replace(origin, targets),
+            recordings: catalog.replace(origin, targetsByModule.flat()),
           };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;
@@ -211,13 +241,14 @@ export async function listQuery(
       }
     }
   } catch (error) {
-    const code: ErrorCode = controller.signal.aborted
+    const code: ErrorCode = timedOut
       ? "TIMEOUT"
       : error instanceof Error && errors.includes(error.message as ErrorCode)
         ? (error.message as ErrorCode)
         : "NETWORK";
     return { status: "error", code };
   } finally {
+    controller.abort();
     clearTimeout(timer);
   }
 }

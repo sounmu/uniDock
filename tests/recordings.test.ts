@@ -368,3 +368,192 @@ it("matches the original Python recording fixture public projection", async () =
     })),
   ).toEqual(fixture.expected.recordings);
 });
+
+const recordingQuery = {
+  version: 1,
+  type: "RECORDINGS_LIST",
+  course: "과목",
+} as const;
+function delayedResponse(
+  body: unknown,
+  delay: number,
+  signal?: AbortSignal | null,
+  link?: string,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new Error("ABORTED"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve(json(body, link));
+    }, delay);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+it("fetches at most three modules concurrently and preserves module and page order", async () => {
+  vi.useFakeTimers();
+  const store = catalog();
+  let active = 0,
+    peak = 0,
+    finished = false;
+  const started: number[] = [];
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "과목" }]);
+    if (url.pathname.endsWith("/modules"))
+      return json(
+        [1, 2, 3, 4].map((id) => ({ id, name: `주차 ${id}`, items_count: 2 })),
+      );
+    const id = Number(/\/modules\/(\d+)\//.exec(url.pathname)![1]);
+    started.push(id);
+    peak = Math.max(peak, ++active);
+    const page = url.searchParams.has("page");
+    const delay =
+      id === 1 ? (page ? 30 : 100) : id === 2 ? 10 : id === 3 ? 20 : 5;
+    try {
+      return await delayedResponse(
+        [item(id * 100 + (page ? 2 : 1), `강의 ${id}-${page ? 2 : 1}`)],
+        delay,
+        options?.signal,
+        id === 1 && !page
+          ? `<${origin}${url.pathname}?page=2>; rel="next"`
+          : undefined,
+      );
+    } finally {
+      active--;
+    }
+  });
+  const pending = listQuery(origin, recordingQuery, fetcher, now, store).then(
+    (result) => {
+      finished = true;
+      return result;
+    },
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(started).toEqual([1, 2, 3]);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(started).toEqual([1, 2, 3, 4]);
+  await vi.advanceTimersByTimeAsync(119);
+  expect(finished).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  const result = await pending;
+  expect(peak).toBe(3);
+  expect(active).toBe(0);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("Missing list");
+  expect(result.recordings.map((row) => row.title)).toEqual([
+    "강의 1-1",
+    "강의 1-2",
+    "강의 2-1",
+    "강의 3-1",
+    "강의 4-1",
+  ]);
+});
+it("aborts sibling requests on a module error without publishing partial results", async () => {
+  vi.useFakeTimers();
+  const store = catalog();
+  const replace = vi.spyOn(store, "replace");
+  const aborted: number[] = [];
+  const started: number[] = [];
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "과목" }]);
+    if (url.pathname.endsWith("/modules"))
+      return json([1, 2, 3, 4].map((id) => ({ id, items_count: 1 })));
+    const id = Number(/\/modules\/(\d+)\//.exec(url.pathname)![1]);
+    started.push(id);
+    if (id === 1) {
+      await delayedResponse([], 10, options?.signal);
+      return new Response(null, { status: 403 });
+    }
+    return new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener(
+        "abort",
+        () => {
+          aborted.push(id);
+          reject(new Error("ABORTED"));
+        },
+        { once: true },
+      );
+    });
+  });
+  const pending = listQuery(origin, recordingQuery, fetcher, now, store);
+  await vi.advanceTimersByTimeAsync(10);
+  expect(await pending).toEqual({ status: "error", code: "FORBIDDEN" });
+  expect(started).toEqual([1, 2, 3]);
+  expect(aborted.sort()).toEqual([2, 3]);
+  expect(replace).not.toHaveBeenCalled();
+});
+it("shares the 100-page budget across all concurrent modules", async () => {
+  const store = catalog();
+  const replace = vi.spyOn(store, "replace");
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "과목" }]);
+    if (url.pathname.endsWith("/modules"))
+      return json(
+        Array.from({ length: 99 }, (_, i) => ({ id: i + 1, items_count: 1 })),
+      );
+    return json([item(501)]);
+  });
+  expect(await listQuery(origin, recordingQuery, fetcher, now, store)).toEqual({
+    status: "error",
+    code: "LIMIT",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(100);
+  expect(replace).not.toHaveBeenCalled();
+});
+it("includes course lookup time in the shared 20-second timeout", async () => {
+  vi.useFakeTimers();
+  const store = catalog();
+  let aborted = 0;
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/courses")
+      return delayedResponse(
+        [{ id: 101, name: "과목" }],
+        18000,
+        options?.signal,
+      );
+    if (url.pathname.endsWith("/modules"))
+      return json([1, 2, 3].map((id) => ({ id, items_count: 1 })));
+    options?.signal?.addEventListener(
+      "abort",
+      () => {
+        aborted++;
+      },
+      { once: true },
+    );
+    return delayedResponse([item(501)], 3000, options?.signal);
+  });
+  const pending = listQuery(origin, recordingQuery, fetcher, now, store);
+  await vi.advanceTimersByTimeAsync(20000);
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+  expect(aborted).toBe(3);
+});
+it("enforces the aggregate recording limit across modules", async () => {
+  const store = catalog();
+  const replace = vi.spyOn(store, "replace");
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(json([{ id: 101, name: "과목" }]))
+    .mockResolvedValueOnce(
+      json(
+        [1, 2, 3].map((id) => ({
+          id,
+          items: Array.from({ length: 4000 }, (_, i) => item(i + 1)),
+        })),
+      ),
+    );
+  expect(await listQuery(origin, recordingQuery, fetcher, now, store)).toEqual({
+    status: "error",
+    code: "LIMIT",
+  });
+  expect(replace).not.toHaveBeenCalled();
+});
