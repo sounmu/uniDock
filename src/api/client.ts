@@ -1,3 +1,4 @@
+import { readJsonBounded } from './body';
 import { NavigationCatalog, type RecordingTarget } from '../navigation-catalog';
 import { accessible, availabilitySnapshot, internalId, recordingCandidate, recordingLabel } from '../recordings';
 import { projectCourses } from '../domain';
@@ -30,8 +31,7 @@ export async function listQuery(origin: string, query: Request, fetcher: typeof 
       const type = response.headers.get('content-type') ?? '';
       if (type.includes('text/html')) throw new Error('LOGIN_REQUIRED');
       if (!/^application\/json\b/i.test(type)) throw new Error('INVALID_RESPONSE');
-      let raw: unknown;
-      try { raw = await response.json(); } catch { throw new Error('INVALID_RESPONSE'); }
+      const raw = await readJsonBounded(response);
       items.push(...project(raw));
       if (items.length > 10000) throw new Error('LIMIT');
       next = nextPage(response.headers.get('link'), origin, path);

@@ -2,6 +2,7 @@ import { collectCaptionSources } from './extract';
 import { normalizeCaptions, type Caption } from './normalize';
 export type CaptionResult = {status:'success';captions:Caption[];blocked:boolean} | {status:'error';code:'ACTIVATE_TAB'|'NO_KOREAN_CAPTIONS'|'UNSAFE_CAPTION'|'TIMEOUT'|'RELOAD_TAB'};
 export async function detectCaptions(): Promise<CaptionResult> {
+  let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const [tab] = await chrome.tabs.query({active:true,currentWindow:true});
@@ -9,10 +10,12 @@ export async function detectCaptions(): Promise<CaptionResult> {
     const id = tab.id;
     const work = async (): Promise<CaptionResult> => {
       const dom = await chrome.scripting.executeScript({target:{tabId:id},world:'ISOLATED',func:collectCaptionSources,args:['dom']});
+      if (expired) return {status:'error',code:'TIMEOUT'};
       // Lock the second read to the same document, not a replacement login page.
       const documentId = dom[0]?.documentId;
       if (!documentId) return {status:'error',code:'RELOAD_TAB'};
       const player = await chrome.scripting.executeScript({target:{tabId:id,documentIds:[documentId]},world:'MAIN',func:collectCaptionSources,args:['player']});
+      if (expired) return {status:'error',code:'TIMEOUT'};
       const current = await chrome.tabs.get(id);
       if (current.url !== tab.url || player[0]?.documentId !== documentId) return {status:'error',code:'RELOAD_TAB'};
       const sources: unknown[] = []; let blocked = false;
@@ -26,6 +29,6 @@ export async function detectCaptions(): Promise<CaptionResult> {
       if (!normalized.captions.length) return {status:'error',code:blocked ? 'UNSAFE_CAPTION' : 'NO_KOREAN_CAPTIONS'};
       return {status:'success',captions:normalized.captions,blocked};
     };
-    return await Promise.race([work(),new Promise<CaptionResult>(resolve => {timer=setTimeout(() => resolve({status:'error',code:'TIMEOUT'}),15000);})]);
+    return await Promise.race([work(),new Promise<CaptionResult>(resolve => {timer=setTimeout(() => {expired=true;resolve({status:'error',code:'TIMEOUT'});},15000);})]);
   } catch {return {status:'error',code:'ACTIVATE_TAB'};} finally {clearTimeout(timer);}
 }

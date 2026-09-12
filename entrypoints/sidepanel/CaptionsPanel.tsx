@@ -26,7 +26,7 @@ export function CaptionsPanel() {
     const result = await detectCaptions(); if (current === generation.current) setState(result);
   }
   return <section>
-    <p className="hint">강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 한국어 자막 트랙과 이미 로드된 플레이어 자막만 읽습니다. 영상 재생은 직접 조작하세요.</p>
+    <p className="hint">강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를 누르면 현재 탭의 한국어 자막 트랙과 이미 로드된 플레이어 자막을 이 기기에서 읽고, 다운로드를 누른 경우 TXT로 저장합니다. 개발자 서버로 전송하지 않습니다. 영상 재생은 직접 조작하세요.</p>
     <button disabled={state.status === 'loading'} onClick={() => void detect()}>{state.status === 'loading' ? '감지 중…' : '공식 한국어 자막 감지'}</button>
     <div aria-live="polite" aria-busy={state.status === 'loading'}>
       {state.status === 'error' && <p className="notice">{messages[state.code]}</p>}

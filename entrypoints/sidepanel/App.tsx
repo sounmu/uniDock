@@ -47,6 +47,7 @@ export function App() {
   return <main>
     <header><span className="mark" aria-hidden="true">u</span><div><h1>uniDock</h1><p>고려대학교 LMS</p></div><span className="badge">읽기 전용</span></header>
     <section className="intro"><span className="eyebrow">MY CAMPUS</span><h2>오늘의 배움,<br/>한곳에서.</h2><p>과제와 일정을 기존 LMS 세션으로 확인하세요.</p></section>
+    <p className="hint">고려대학교와 제휴하지 않은 비공식 도구입니다. 조회를 누르면 현재 LMS 세션으로 과목·제출 상태·일정을 읽어 이 기기에 표시합니다. 개발자 서버로 전송하지 않습니다. <a href="privacy.html" target="_blank" rel="noreferrer">개인정보 처리방침</a></p>
     <nav className="views" aria-label="조회 기능">{tabs.map(([type, label]) => <button key={type} aria-pressed={view === type} onClick={() => {clear();setView(type);}}>{label}</button>)}</nav>
     {needsCourse && <label className="field">과목명<input value={course} maxLength={2000} placeholder="전체 과목명 또는 일부" onChange={event => {clear();setCourse(event.target.value);}}/><small>내 과목의 ‘과제 보기’로도 선택할 수 있습니다.</small></label>}
     {view === 'UPCOMING_LIST' && <div className="date-fields"><label className="field">시작일 (선택)<input type="date" value={start} onChange={event => {clear();setStart(event.target.value);}}/></label><label className="field">종료일 (선택)<input type="date" value={end} onChange={event => {clear();setEnd(event.target.value);}}/></label></div>}

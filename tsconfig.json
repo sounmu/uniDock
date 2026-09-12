@@ -5,7 +5,8 @@
     "noUncheckedIndexedAccess": true,
     "types": [
       "chrome",
-      "vitest/globals"
+      "vitest/globals",
+      "node"
     ],
     "jsx": "react-jsx"
   }

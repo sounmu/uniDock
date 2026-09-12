@@ -6,6 +6,11 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
   const out: {label:string;language:string;source:string;format:string;text:string}[] = [];
   let blocked = false, limited = false, frames = 0, bytes = 0;
   const korean = (lang: string, label: string) => /^(ko(?:-|$)|kor$|kr$)/i.test(lang.replaceAll('_','-').trim()) || /korean|한국|한글|국문/i.test(`${lang} ${label}`);
+  const own = (value: unknown, key: string): unknown => {
+    if (!value || typeof value !== 'object') return undefined;
+    const property = Object.getOwnPropertyDescriptor(value,key);
+    return property && 'value' in property ? property.value : undefined;
+  };
   const plain = (value: unknown): string => typeof value === 'string' ? value : '';
   const sensitive = (text: string) => /https?:\/\/|[\w.%+-]+@[\w.-]+\.[a-z]{2,}|\b\d{8,}\b|(?:token|cookie|password|authorization|saml|oauth|session|course[_ -]?id)\s*[:=]/i.test(text);
   const add = (label: string, language: string, source: string, format: string, text: string) => {
@@ -20,8 +25,8 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
     const values: string[] = [];
     let length = 0;
     for (let i=0;i<cues.length;i++) {
-      const cue = cues[i];
-      const text = plain(cue && typeof cue === 'object' ? (cue as {text?:unknown}).text : undefined); length += text.length;
+      const cue = mode === 'player' ? own(cues,String(i)) : cues[i];
+      const text = plain(cue && typeof cue === 'object' ? (mode === 'player' ? own(cue,'text') : (cue as {text?:unknown}).text) : undefined); length += text.length;
       if (length > 1000000) {limited = true;return '';}
       values.push(text);
     }
@@ -30,6 +35,7 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(),10000);
   async function visit(win: Window, depth: number): Promise<void> {
+    if (controller.signal.aborted) {limited=true;return;}
     if (depth > 3 || ++frames > 20) {limited = true;return;}
     let doc: Document;
     try {doc = win.document; if (win.location.origin !== location.origin) {blocked = true;return;}} catch {blocked = true;return;}
@@ -39,11 +45,12 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
       const list: unknown = descriptor && 'value' in descriptor ? descriptor.value : undefined;
       if (Array.isArray(list)) {
         if (list.length > 20) limited = true;
-        for (const row of list.slice(0,20)) {
+        for (let index=0;index<Math.min(list.length,20);index++) {
+          const row = own(list,String(index));
           if (!row || typeof row !== 'object') continue;
-          const label = plain(row.label || row.lang), language = plain(row.lang);
+          const label = plain(own(row,'label') || own(row,'lang')), language = plain(own(row,'lang'));
           if (!korean(language,label)) continue;
-          const cues: unknown = row.caption?.cues;
+          const cues = own(own(row,'caption'),'cues');
           if (Array.isArray(cues)) add(label,language,'player_caption_api','txt',cueText(cues));
         }
       }
@@ -51,6 +58,7 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
       const tracks = Array.from(doc.querySelectorAll<HTMLTrackElement>('video track, audio track'));
       if (tracks.length > 20) limited = true;
       for (const track of tracks.slice(0,20)) {
+        if (controller.signal.aborted) {limited=true;break;}
         if (!['subtitles','captions'].includes(track.kind) || !korean(track.srclang,track.label)) continue;
         const loaded = cueText(track.track?.cues);
         if (loaded.trim()) { add(track.label,track.srclang,'text_track_cues','txt',loaded);continue; }
@@ -58,7 +66,7 @@ export async function collectCaptionSources(mode: 'dom' | 'player') {
         if (!track.getAttribute('src')) continue;
         try {
           const url = new URL(track.src,win.location.href);
-          if (url.protocol !== 'https:' || url.origin !== location.origin || url.username || url.password || url.hash) {blocked = true;continue;}
+          if (url.protocol !== 'https:' || url.origin !== location.origin || url.username || url.password || url.hash || !/\.(?:vtt|srt|ttml|dfxp|smi)$/i.test(url.pathname) || /(?:^|\/)(?:logout|delete|submit|enroll)(?:[/.]|$)/i.test(url.pathname)) {blocked = true;continue;}
           const response = await fetch(url.href,{method:'GET',credentials:'same-origin',redirect:'manual',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal});
           if (!response.ok || response.type === 'opaqueredirect') {blocked = true;continue;}
           const mime = response.headers.get('content-type') ?? '';

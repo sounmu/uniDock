@@ -172,8 +172,20 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 ## 검증 결과
 
-- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **170개(8개 파일)**, production build 통과.
+- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **174개(9개 파일)**, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
 - production manifest: `sidePanel`, `activeTab`, `scripting`과 기존 LMS 두 호스트, Chrome 114 minimum 유지. 쿠키/다운로드/상시 외부 호스트 권한 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 실제 LMS 세션 요청 및 브라우저 UI 육안 검증: 미실시. 위 수동 절차로 확인 필요.
+
+
+## Chrome Web Store 배포 준비
+
+`npm run release`는 라이선스 고지를 갱신하고 lint·typecheck·174개 테스트·production build·의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.0-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
+
+- [보안 검토](docs/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
+- [스토어 등록 문안](docs/store/LISTING.md), [출시 체크리스트](docs/store/RELEASE-CHECKLIST.md).
+- [개인정보처리방침](public/privacy.html): 확장 내에서도 열 수 있으며 출시 전 공개 HTTPS 주소에 게시해야 합니다.
+- `store/assets/`: 공개 fixture 기반 샘플 이미지 2개(1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 재생성하며 로컬 Chrome이 필요합니다.
+
+2026-09-11 배포 후보 검증: 전체 검사 통과, Python 계약 2종 일치, npm audit 알려진 취약점 0개, ZIP 허용 파일 12개 확인. 실제 계정 로그인·Chrome 114 및 최신 Chrome 통합 검증은 미실시입니다. 배포자 이름·지원 연락처·공개 정책 URL과 심사용 접근 방법을 확정한 후 체크리스트를 완료해야 합니다.

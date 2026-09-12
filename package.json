@@ -15,7 +15,10 @@
     "test": "vitest run",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "contract:refresh": "python3 -B scripts/generate_contract.py && python3 -B scripts/generate_caption_contract.py",
-    "contract:check": "python3 -B scripts/generate_contract.py --check && python3 -B scripts/generate_caption_contract.py --check"
+    "contract:check": "python3 -B scripts/generate_contract.py --check && python3 -B scripts/generate_caption_contract.py --check",
+    "release": "npm run notices && npm run check && npm audit --audit-level=moderate && node scripts/package-release.mjs",
+    "store:assets": "node scripts/brand-assets.mjs && node scripts/store-assets.mjs",
+    "notices": "node scripts/notices.mjs"
   },
   "dependencies": {
     "react": "19.3.0",
@@ -24,6 +27,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/chrome": "0.2.9",
+    "@types/node": "22.20.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@wxt-dev/module-react": "1.2.2",

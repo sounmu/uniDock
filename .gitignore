@@ -5,3 +5,6 @@ coverage/
 .env*
 *.log
 .DS_Store
+release/
+.store-build/
+store/assets/*.html
