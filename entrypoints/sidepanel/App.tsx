@@ -48,6 +48,7 @@ export function App() {
     status: "idle",
   });
   const generation = useRef(0);
+  const inFlight = useRef<Promise<Result> | null>(null);
   function clear() {
     generation.current++;
     setState({ status: "idle" });
@@ -76,7 +77,13 @@ export function App() {
     }
     const current = ++generation.current;
     setState({ status: "loading" });
-    const result = await queryActive(query);
+    // Finish the active request, then execute only the latest selected view.
+    if (inFlight.current) await inFlight.current;
+    if (current !== generation.current) return;
+    const work = queryActive(query);
+    inFlight.current = work;
+    const result = await work;
+    if (inFlight.current === work) inFlight.current = null;
     if (current === generation.current) {
       if (result.status === "success" && "courses" in result)
         courses.current = result;
