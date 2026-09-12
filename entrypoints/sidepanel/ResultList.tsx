@@ -9,15 +9,16 @@ import {
 function isAssignment(item: Deadline | Upcoming | Todo): item is Assignment {
   return "submission_workflow_state" in item;
 }
+const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Seoul",
+});
 export function dateLabel(value: string): string {
   if (!value) return "일정 없음";
   const time = isoTime(value);
   if (!Number.isFinite(time)) return "날짜 확인 필요";
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Seoul",
-  }).format(time);
+  return dateFormatter.format(time);
 }
 export function ResultList({
   result,
