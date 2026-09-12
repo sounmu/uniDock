@@ -98,7 +98,7 @@ export async function listQuery(
           todo: await collect(
             "/api/v1/users/self/todo?per_page=100",
             "/api/v1/users/self/todo",
-            projectTodo,
+            (raw) => projectTodo(raw, origin),
           ),
         };
       case "UPCOMING_LIST": {
@@ -110,7 +110,7 @@ export async function listQuery(
           upcoming: await collect(
             `/api/v1/planner/items?${params}`,
             "/api/v1/planner/items",
-            projectUpcoming,
+            (raw) => projectUpcoming(raw, origin),
           ),
         };
       }

@@ -1,3 +1,4 @@
+import { itemUrl } from "./security/item-link";
 import { redactText } from "./security/redaction";
 export interface Deadline {
   title: string;
@@ -17,6 +18,7 @@ export interface Assignment extends Deadline {
   submission_types: string[];
 }
 export interface Upcoming {
+  html_url?: string;
   title: string;
   date: string;
   type: string;
@@ -25,6 +27,7 @@ export interface Upcoming {
   new_activity: boolean;
 }
 export interface Todo {
+  html_url?: string;
   title: string;
   due_at: string;
   type: string;
@@ -163,11 +166,13 @@ export function projectDeadlines(assignments: Assignment[]): Deadline[] {
     remaining_candidate,
   }));
 }
-export function projectUpcoming(raw: unknown): Upcoming[] {
+export function projectUpcoming(raw: unknown, origin?: string): Upcoming[] {
   return rows(raw).map((row) => {
     const item = record(row.plannable),
       submission = record(row.submissions);
+    const url = itemUrl(row.html_url, origin) ?? itemUrl(item.html_url, origin);
     return {
+      ...(url ? { html_url: url } : {}),
       title: label(item.title || item.name || row.title, row, item),
       date: text(row.plannable_date || item.due_at),
       type: label(row.plannable_type || item.type, row, item),
@@ -177,10 +182,12 @@ export function projectUpcoming(raw: unknown): Upcoming[] {
     };
   });
 }
-export function projectTodo(raw: unknown): Todo[] {
+export function projectTodo(raw: unknown, origin?: string): Todo[] {
   return rows(raw).map((row) => {
     const item = record(row.assignment);
+    const url = itemUrl(row.html_url, origin) ?? itemUrl(item.html_url, origin);
     return {
+      ...(url ? { html_url: url } : {}),
       title: label(item.name || item.title || row.type, row, item),
       due_at: text(item.due_at),
       type: label(row.type, row, item),

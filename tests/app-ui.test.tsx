@@ -148,3 +148,46 @@ it("does not replace the next menu when an open finishes late", async () => {
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
   expect(document.body.textContent).not.toContain("새 LMS/LTI 탭을 열었습니다");
 });
+
+it("links schedule and Todo titles to their LMS posts", async () => {
+  const html_url = "https://mylms.korea.ac.kr/courses/12/assignments/34";
+  query.mockResolvedValueOnce({
+    status: "success",
+    upcoming: [
+      {
+        title: "일정 게시글",
+        date: "",
+        course: "",
+        type: "assignment",
+        submitted: false,
+        new_activity: false,
+        html_url,
+      },
+    ],
+  });
+  query.mockResolvedValueOnce({
+    status: "success",
+    todo: [
+      {
+        title: "할 일 게시글",
+        due_at: "",
+        course: "",
+        type: "submitting",
+        ignore: false,
+        html_url,
+      },
+    ],
+  });
+  ui = await mount(<App />);
+  for (const [menu, title] of [
+    ["전체 일정", "일정 게시글"],
+    ["Todo", "할 일 게시글"],
+  ]) {
+    await click(menu!);
+    const link = ui.host.querySelector<HTMLAnchorElement>(".item-title-link");
+    expect(link?.textContent).toBe(title);
+    expect(link?.href).toBe(html_url);
+    expect(link?.target).toBe("_blank");
+    expect(link?.rel).toBe("noreferrer");
+  }
+});

@@ -143,7 +143,20 @@ export function ResultList({
           {(item, index) => (
             <li key={index}>
               <div className="item-body">
-                <strong>{item.title || "제목 없음"}</strong>
+                <strong>
+                  {"html_url" in item && item.html_url ? (
+                    <a
+                      className="item-title-link"
+                      href={item.html_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {item.title || "제목 없음"}
+                    </a>
+                  ) : (
+                    item.title || "제목 없음"
+                  )}
+                </strong>
                 {"course" in item && item.course && <p>{item.course}</p>}
                 <p>
                   {"date" in item ? "예정" : "마감"} ·{" "}

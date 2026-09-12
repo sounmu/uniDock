@@ -1,3 +1,4 @@
+import { itemUrl } from "./security/item-link";
 import { type Recording } from "./recordings";
 import { type Course, projectCourses } from "./domain";
 import {
@@ -126,6 +127,7 @@ const fields = {
   },
   deadlines: { title: "text", due_at: "text", remaining_candidate: "boolean" },
   upcoming: {
+    html_url: "optionalUrl",
     title: "text",
     date: "text",
     type: "text",
@@ -134,6 +136,7 @@ const fields = {
     new_activity: "boolean",
   },
   todo: {
+    html_url: "optionalUrl",
     title: "text",
     due_at: "text",
     type: "text",
@@ -187,39 +190,50 @@ export function parseResult(value: unknown, expected?: Request): Result {
         if (!item || typeof item !== "object") throw new Error();
         const data = item as Record<string, unknown>;
         return Object.fromEntries(
-          Object.entries(schema).map(([field, type]) => {
-            const child = data[field];
-            if (type === "externalTool" && child === "ExternalTool")
-              return [field, child];
-            if (
-              (type === "handle" || type === "optionalHandle") &&
-              (validHandle(child) ||
-                (type === "optionalHandle" && child === ""))
+          Object.entries(schema)
+            .filter(
+              ([field, type]) =>
+                type !== "optionalUrl" || data[field] !== undefined,
             )
-              return [field, child];
-            if (
-              type === "text" &&
-              typeof child === "string" &&
-              child.length <= 2000
-            )
-              return [field, redactText(child)];
-            if (type === "boolean" && typeof child === "boolean")
-              return [field, child];
-            if (
-              type === "number" &&
-              (child === null ||
-                (typeof child === "number" && Number.isFinite(child)))
-            )
-              return [field, child];
-            if (
-              type === "texts" &&
-              Array.isArray(child) &&
-              child.length <= 50 &&
-              child.every((v) => typeof v === "string" && v.length <= 2000)
-            )
-              return [field, child.map((v) => redactText(v as string))];
-            throw new Error();
-          }),
+            .map(([field, type]) => {
+              const child = data[field];
+              if (
+                type === "optionalUrl" &&
+                typeof child === "string" &&
+                itemUrl(child) === child
+              )
+                return [field, child];
+              if (type === "externalTool" && child === "ExternalTool")
+                return [field, child];
+              if (
+                (type === "handle" || type === "optionalHandle") &&
+                (validHandle(child) ||
+                  (type === "optionalHandle" && child === ""))
+              )
+                return [field, child];
+              if (
+                type === "text" &&
+                typeof child === "string" &&
+                child.length <= 2000
+              )
+                return [field, redactText(child)];
+              if (type === "boolean" && typeof child === "boolean")
+                return [field, child];
+              if (
+                type === "number" &&
+                (child === null ||
+                  (typeof child === "number" && Number.isFinite(child)))
+              )
+                return [field, child];
+              if (
+                type === "texts" &&
+                Array.isArray(child) &&
+                child.length <= 50 &&
+                child.every((v) => typeof v === "string" && v.length <= 2000)
+              )
+                return [field, child.map((v) => redactText(v as string))];
+              throw new Error();
+            }),
         );
       });
       // Every field has been validated against the corresponding closed schema.
