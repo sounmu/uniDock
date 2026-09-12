@@ -1,4 +1,5 @@
 node_modules
+.wxt
 dist
 build
 coverage

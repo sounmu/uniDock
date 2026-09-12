@@ -2,12 +2,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { queryActiveCourses, queryActive } from "../src/transport";
 const url = "https://mylms.korea.ac.kr/";
 function setup(tab = { id: 7, url }) {
-  const sendMessage = vi
-    .fn()
-    .mockResolvedValue({
-      status: "success",
-      courses: [{ name: "샘플 과목", token: "private" }],
-    });
+  const sendMessage = vi.fn().mockResolvedValue({
+    status: "success",
+    courses: [{ name: "샘플 과목", token: "private" }],
+  });
   const get = vi.fn().mockResolvedValue(tab);
   vi.stubGlobal("chrome", {
     tabs: { query: vi.fn().mockResolvedValue([tab]), sendMessage, get },

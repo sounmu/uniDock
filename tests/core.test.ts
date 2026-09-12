@@ -122,13 +122,11 @@ describe("session API and pagination", () => {
     expect(
       await listCourses(
         origin,
-        vi
-          .fn()
-          .mockResolvedValue(
-            new Response("<html>secret</html>", {
-              headers: { "Content-Type": "text/html" },
-            }),
-          ),
+        vi.fn().mockResolvedValue(
+          new Response("<html>secret</html>", {
+            headers: { "Content-Type": "text/html" },
+          }),
+        ),
       ),
     ).toEqual({ status: "error", code: "LOGIN_REQUIRED" }));
   it("detects opaque redirects", async () =>
@@ -146,13 +144,11 @@ describe("session API and pagination", () => {
       ),
     ).toEqual({ status: "error", code: "INVALID_RESPONSE" }));
   it("does not fetch hostile next links", async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValue(
-        json(fixture, {
-          Link: '<https://evil.invalid/api/v1/courses?page=2>; rel="next"',
-        }),
-      );
+    const fetcher = vi.fn().mockResolvedValue(
+      json(fixture, {
+        Link: '<https://evil.invalid/api/v1/courses?page=2>; rel="next"',
+      }),
+    );
     expect(await listCourses(origin, fetcher)).toEqual({
       status: "error",
       code: "POLICY",
@@ -160,13 +156,11 @@ describe("session API and pagination", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("fails closed on loops without returning partial data", async () => {
-    const fetcher = vi
-      .fn()
-      .mockImplementation(async () =>
-        json(fixture, {
-          Link: `<${origin}/api/v1/courses?page=2>; rel="next"`,
-        }),
-      );
+    const fetcher = vi.fn().mockImplementation(async () =>
+      json(fixture, {
+        Link: `<${origin}/api/v1/courses?page=2>; rel="next"`,
+      }),
+    );
     expect(await listCourses(origin, fetcher)).toEqual({
       status: "error",
       code: "LIMIT",
