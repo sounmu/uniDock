@@ -241,9 +241,134 @@ it("rejects wrong response type and invalid public fields", () => {
     }),
   ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
 });
+it("accepts Canvas Todo ignore action URLs without exposing them", async () => {
+  const ignoreUrl = `${origin}/api/v1/users/self/todo/assignment_123/ignore`;
+  const fetcher = vi.fn().mockResolvedValue(
+    json([
+      {
+        type: "submitting",
+        context_name: "국제법",
+        assignment: {
+          name: "퀴즈9차",
+          due_at: "2026-09-20T09:00:00Z",
+        },
+        ignore: ignoreUrl,
+      },
+    ]),
+  );
+
+  const result = await listQuery(
+    origin,
+    { version: 1, type: "TODO_LIST" },
+    fetcher,
+  );
+
+  expect(result).toEqual({
+    status: "success",
+    todo: [
+      {
+        title: "퀴즈9차",
+        due_at: "2026-09-20T09:00:00Z",
+        type: "submitting",
+        course: "국제법",
+        ignore: true,
+      },
+    ],
+  });
+  expect(JSON.stringify(result)).not.toContain(ignoreUrl);
+});
 it("uses UTC for naive datetime and rejects rollover dates", () => {
   expect(isoTime("2026-09-11T00:00:00")).toBe(
     Date.parse("2026-09-11T00:00:00Z"),
   );
   expect(Number.isNaN(isoTime("2099-02-30T00:00:00Z"))).toBe(true);
+});
+
+const invalidBooleanValues = ["true", 1, [], {}] as const;
+const invalidBooleanProjections: readonly {
+  readonly field: string;
+  readonly project: (value: unknown) => void;
+}[] = [
+  {
+    field: "assignment published",
+    project: (value) =>
+      projectAssignments([{ name: "과제", published: value }]),
+  },
+  {
+    field: "assignment locked_for_user",
+    project: (value) =>
+      projectAssignments([{ name: "과제", locked_for_user: value }]),
+  },
+  {
+    field: "assignment submission missing",
+    project: (value) =>
+      projectAssignments([{ name: "과제", submission: { missing: value } }]),
+  },
+  {
+    field: "assignment submission late",
+    project: (value) =>
+      projectAssignments([{ name: "과제", submission: { late: value } }]),
+  },
+  {
+    field: "upcoming submitted",
+    project: (value) =>
+      projectUpcoming([
+        { plannable: { title: "예정" }, submissions: { submitted: value } },
+      ]),
+  },
+  {
+    field: "upcoming new_activity",
+    project: (value) =>
+      projectUpcoming([{ plannable: { title: "예정" }, new_activity: value }]),
+  },
+];
+
+it.each(invalidBooleanProjections)(
+  "rejects malformed $field booleans",
+  ({ project }) => {
+    for (const value of invalidBooleanValues)
+      expect(() => project(value)).toThrow("INVALID_RESPONSE");
+  },
+);
+
+it.each([1, [], {}])("rejects malformed Canvas Todo ignore value %j", (value) =>
+  expect(() =>
+    projectTodo([{ assignment: { name: "할 일" }, ignore: value }]),
+  ).toThrow("INVALID_RESPONSE"),
+);
+
+it("preserves assignment boolean defaults and real values", () => {
+  const [realValues] = projectAssignments([
+    {
+      name: "과제",
+      published: true,
+      locked_for_user: true,
+      submission: { missing: false, late: true },
+    },
+  ]);
+  const [missingPublished] = projectAssignments([{ name: "과제" }]);
+  const [nullPublished] = projectAssignments([
+    { name: "과제", published: null },
+  ]);
+
+  expect(realValues).toMatchObject({
+    published: true,
+    locked_for_user: true,
+    missing: false,
+    late: true,
+  });
+  expect(missingPublished?.published).toBe(true);
+  expect(nullPublished?.published).toBe(false);
+});
+
+it("uses submitted_at when an upcoming item has no submitted boolean", () => {
+  const [upcoming] = projectUpcoming([
+    {
+      plannable: { title: "예정" },
+      submissions: { submitted_at: "2026-09-11T00:00:00Z" },
+      new_activity: false,
+    },
+  ]);
+
+  expect(upcoming).toMatchObject({ submitted: true, new_activity: false });
 });

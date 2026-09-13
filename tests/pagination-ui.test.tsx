@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ResultList } from "../entrypoints/sidepanel/ResultList";
 import type { Result } from "../src/protocol";
@@ -20,6 +21,11 @@ it("bounds rendered rows and preserves all deadline rows and API order across pa
       onCourse={() => {}}
     />,
   );
+  await act(async () => {
+    (
+      document.querySelector('input[type="checkbox"]') as HTMLInputElement
+    ).click();
+  });
   const titles = () =>
     [...document.querySelectorAll("li strong")].map((node) => node.textContent);
   expect(titles()).toEqual(deadlines.slice(0, 100).map((row) => row.title));
@@ -121,6 +127,13 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
             ? { status: "success", upcoming: values }
             : { status: "success", todo: values };
     ui = await mount(<ResultList result={result} onCourse={() => {}} />);
+    if (key === "assignments" || key === "deadlines") {
+      await act(async () => {
+        (
+          document.querySelector('input[type="checkbox"]') as HTMLInputElement
+        ).click();
+      });
+    }
     expect(document.querySelectorAll("li")).toHaveLength(100);
     expect(document.body.textContent).toContain("1–100 / 10000개");
   },

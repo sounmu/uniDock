@@ -271,17 +271,20 @@ function injection(
   };
 }
 function chromeMock(executeScript: ReturnType<typeof vi.fn>) {
+  const query = vi
+    .fn()
+    .mockResolvedValue([
+      { id: 7, url: transcript.sourceUrl, title: transcript.pageTitle },
+    ]);
+  const get = vi.fn().mockResolvedValue({ url: transcript.sourceUrl });
   vi.stubGlobal("chrome", {
     tabs: {
-      query: vi
-        .fn()
-        .mockResolvedValue([
-          { id: 7, url: transcript.sourceUrl, title: transcript.pageTitle },
-        ]),
-      get: vi.fn().mockResolvedValue({ url: transcript.sourceUrl }),
+      query,
+      get,
     },
     scripting: { executeScript },
   });
+  return { get, query };
 }
 it("uses iframe DOM before any player fetch even when a KU player is available", async () => {
   const execute = vi
@@ -329,6 +332,10 @@ it("falls back to the exact KU document only when every frame DOM is empty", asy
     tabId: 7,
     documentIds: ["player"],
   });
+  expect(execute.mock.calls[1]?.[0].args).toEqual([
+    "player",
+    expect.any(Number),
+  ]);
 });
 it("drops results when the iframe navigates", async () => {
   const execute = vi
@@ -354,6 +361,85 @@ it("bounds injection timeout and never downloads during detection", async () => 
   const result = detectCaptions();
   await vi.advanceTimersByTimeAsync(15000);
   expect(await result).toEqual({ status: "error", code: "TIMEOUT" });
+});
+
+it("times out a stalled active-tab query and never injects after it resolves late", async () => {
+  vi.useFakeTimers();
+  const execute = vi.fn().mockResolvedValue([injection(items)]);
+  const { get, query } = chromeMock(execute);
+  let finishQuery: (
+    tabs: { id: number; url: string; title: string }[],
+  ) => void = () => {};
+  query.mockReturnValue(
+    new Promise((resolve) => {
+      finishQuery = resolve;
+    }),
+  );
+  const settled = vi.fn();
+  void detectCaptions().then(settled);
+
+  await vi.advanceTimersByTimeAsync(15000);
+  expect.soft(settled).toHaveBeenCalledWith({
+    status: "error",
+    code: "TIMEOUT",
+  });
+
+  finishQuery([
+    { id: 7, url: transcript.sourceUrl, title: transcript.pageTitle },
+  ]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(execute).not.toHaveBeenCalled();
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("never checks the tab after verification resolves beyond the deadline", async () => {
+  vi.useFakeTimers();
+  let finishVerification: (result: { documentId: string }[]) => void = () => {};
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(items)])
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishVerification = resolve;
+      }),
+    );
+  const { get } = chromeMock(execute);
+  const pending = detectCaptions();
+  await vi.advanceTimersByTimeAsync(0);
+
+  await vi.advanceTimersByTimeAsync(15000);
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+
+  finishVerification([{ documentId: "top" }]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("does not fetch VTT after the caption deadline expires during XML fetch", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-13T00:00:00.000Z"));
+  player();
+  let finishXml: (response: Response) => void = () => {};
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishXml = resolve;
+        }),
+    )
+    .mockResolvedValueOnce(new Response(vtt));
+  vi.stubGlobal("fetch", fetcher);
+  const pending = collectCaptionSources("player", Date.now() + 5000);
+  await vi.advanceTimersByTimeAsync(5000);
+
+  finishXml(
+    new Response(
+      '<captions><caption lang="ko" label="국문" src="ko.vtt"/></captions>',
+    ),
+  );
+  expect(await pending).toMatchObject({ blocked: true, vtt: "" });
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 it("uses KU prototype data and uri elements, skips the intro without changing current story", async () => {

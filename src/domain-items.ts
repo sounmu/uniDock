@@ -46,6 +46,18 @@ function text(value: unknown): string {
     throw new Error("INVALID_RESPONSE");
   return redactText(value);
 }
+function boolean(value: unknown, defaultValue = false): boolean {
+  if (value === undefined) return defaultValue;
+  if (value === null) return false;
+  if (typeof value !== "boolean") throw new Error("INVALID_RESPONSE");
+  return value;
+}
+function todoIgnore(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return false;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return true;
+  throw new Error("INVALID_RESPONSE");
+}
 function privateIds(row: Row): string[] {
   return [row.id, row.course_id, row.user_id]
     .filter((value) => typeof value === "string" || typeof value === "number")
@@ -122,7 +134,11 @@ export function projectAssignments(
     const submission = record(row.submission);
     const due = text(row.due_at),
       submitted = text(submission.submitted_at),
-      workflow = label(submission.workflow_state, row, submission);
+      workflow = label(submission.workflow_state, row, submission),
+      published = boolean(row.published, true),
+      lockedForUser = boolean(row.locked_for_user),
+      missing = boolean(submission.missing),
+      late = boolean(submission.late);
     if (
       row.points_possible != null &&
       (typeof row.points_possible !== "number" ||
@@ -140,18 +156,18 @@ export function projectAssignments(
       unlock_at: text(row.unlock_at),
       lock_at: text(row.lock_at),
       points_possible: (row.points_possible as number | undefined) ?? null,
-      published: row.published === undefined ? true : Boolean(row.published),
-      locked_for_user: Boolean(row.locked_for_user),
+      published,
+      locked_for_user: lockedForUser,
       submission_workflow_state: workflow,
       submitted_at: submitted,
-      missing: Boolean(submission.missing),
-      late: Boolean(submission.late),
+      missing,
+      late,
       submission_types: ((row.submission_types ?? []) as unknown[]).map(
         (value) => label(value, row),
       ),
       remaining_candidate: remainingCandidate(
         due,
-        Boolean(row.locked_for_user),
+        lockedForUser,
         submitted,
         workflow,
         now,
@@ -171,14 +187,17 @@ export function projectUpcoming(raw: unknown, origin?: string): Upcoming[] {
     const item = record(row.plannable),
       submission = record(row.submissions);
     const url = itemUrl(row.html_url, origin) ?? itemUrl(item.html_url, origin);
+    const submitted = boolean(submission.submitted),
+      submittedAt = text(submission.submitted_at),
+      newActivity = boolean(row.new_activity);
     return {
       ...(url ? { html_url: url } : {}),
       title: label(item.title || item.name || row.title, row, item),
       date: text(row.plannable_date || item.due_at),
       type: label(row.plannable_type || item.type, row, item),
       course: label(row.context_name, row, item),
-      submitted: Boolean(submission.submitted || submission.submitted_at),
-      new_activity: Boolean(row.new_activity),
+      submitted: submitted || submittedAt !== "",
+      new_activity: newActivity,
     };
   });
 }
@@ -192,7 +211,7 @@ export function projectTodo(raw: unknown, origin?: string): Todo[] {
       due_at: text(item.due_at),
       type: label(row.type, row, item),
       course: label(row.context_name, row, item),
-      ignore: Boolean(row.ignore),
+      ignore: todoIgnore(row.ignore),
     };
   });
 }

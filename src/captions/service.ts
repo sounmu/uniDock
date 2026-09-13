@@ -27,13 +27,27 @@ export interface CaptionTarget {
 export async function detectCaptions(
   onTarget?: (target: CaptionTarget) => boolean,
 ): Promise<CaptionResult> {
+  const deadline = Date.now() + 15000;
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = () => expired || Date.now() >= deadline;
   try {
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      currentWindow: true,
+    const timeout = new Promise<CaptionResult>((resolve) => {
+      timer = setTimeout(
+        () => {
+          expired = true;
+          resolve({ status: "error", code: "TIMEOUT" });
+        },
+        Math.max(0, deadline - Date.now()),
+      );
     });
+    const tabs = await Promise.race([
+      chrome.tabs.query({ active: true, currentWindow: true }),
+      timeout,
+    ]);
+    if (!Array.isArray(tabs)) return tabs;
+    if (timedOut()) return { status: "error", code: "TIMEOUT" };
+    const [tab] = tabs;
     if (
       tab?.id === undefined ||
       !tab.url ||
@@ -44,13 +58,14 @@ export async function detectCaptions(
     if (onTarget && !onTarget({ tabId: id, windowId: tab.windowId }))
       return { status: "error", code: "RELOAD_TAB" };
     const work = async (): Promise<CaptionResult> => {
+      if (timedOut()) return { status: "error", code: "TIMEOUT" };
       const dom = await chrome.scripting.executeScript({
         target: { tabId: id, allFrames: true },
         world: "ISOLATED",
         func: collectCaptionSources,
         args: ["dom"],
       });
-      if (expired) return { status: "error", code: "TIMEOUT" };
+      if (timedOut()) return { status: "error", code: "TIMEOUT" };
       const top = dom.find((batch) => batch.frameId === 0);
       if (!top?.documentId) return { status: "error", code: "RELOAD_TAB" };
       if (dom.length > 20) return { status: "error", code: "UNSAFE_CAPTION" };
@@ -74,13 +89,14 @@ export async function detectCaptions(
           })
           .map((batch) => batch.documentId!);
         if (playerDocuments.length) {
+          if (timedOut()) return { status: "error", code: "TIMEOUT" };
           const player = await chrome.scripting.executeScript({
             target: { tabId: id, documentIds: playerDocuments },
             world: "MAIN",
             func: collectCaptionSources,
-            args: ["player"],
+            args: ["player", deadline],
           });
-          if (expired) return { status: "error", code: "TIMEOUT" };
+          if (timedOut()) return { status: "error", code: "TIMEOUT" };
           if (
             player.some(
               (batch) =>
@@ -102,13 +118,14 @@ export async function detectCaptions(
             }
           });
           if (!chosen.length) {
+            if (timedOut()) return { status: "error", code: "TIMEOUT" };
             const scripts = await chrome.scripting.executeScript({
               target: { tabId: id, documentIds: playerDocuments },
               world: "MAIN",
               func: collectCaptionSources,
               args: ["script"],
             });
-            if (expired) return { status: "error", code: "TIMEOUT" };
+            if (timedOut()) return { status: "error", code: "TIMEOUT" };
             if (
               scripts.some(
                 (batch) =>
@@ -170,13 +187,15 @@ export async function detectCaptions(
           ...chosen.map((batch) => batch.documentId!),
         ]),
       ];
+      if (timedOut()) return { status: "error", code: "TIMEOUT" };
       const verified = await chrome.scripting.executeScript({
         target: { tabId: id, documentIds },
         world: "ISOLATED",
         func: () => location.href,
       });
+      if (timedOut()) return { status: "error", code: "TIMEOUT" };
       const current = await chrome.tabs.get(id);
-      if (expired) return { status: "error", code: "TIMEOUT" };
+      if (timedOut()) return { status: "error", code: "TIMEOUT" };
       if (
         current.url !== tab.url ||
         documentIds.some(
@@ -191,15 +210,7 @@ export async function detectCaptions(
         };
       return { status: "success", captions, blocked };
     };
-    return await Promise.race([
-      work(),
-      new Promise<CaptionResult>((resolve) => {
-        timer = setTimeout(() => {
-          expired = true;
-          resolve({ status: "error", code: "TIMEOUT" });
-        }, 15000);
-      }),
-    ]);
+    return await Promise.race([work(), timeout]);
   } catch {
     return { status: "error", code: "ACTIVATE_TAB" };
   } finally {

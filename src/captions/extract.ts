@@ -1,7 +1,10 @@
 /** Self-contained: serialized by chrome.scripting into each permitted frame.
  * DOM pass runs everywhere first. Only an empty DOM result permits the KU VTT pass.
  */
-export async function collectCaptionSources(mode: "dom" | "player" | "script") {
+export async function collectCaptionSources(
+  mode: "dom" | "player" | "script",
+  deadline = Date.now() + 10000,
+) {
   const items: { time: string; text: string }[] = [];
   const result = {
     items,
@@ -116,12 +119,17 @@ export async function collectCaptionSources(mode: "dom" | "player" | "script") {
     return result;
   }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(
+    () => controller.abort(),
+    Math.max(0, Math.min(10000, deadline - Date.now())),
+  );
   const read = async (
     value: string,
     base: string,
     extension: "xml" | "vtt",
   ) => {
+    if (controller.signal.aborted || Date.now() >= deadline)
+      throw new Error("TIMEOUT");
     const url = new URL(value, base);
     if (
       url.protocol !== "https:" ||

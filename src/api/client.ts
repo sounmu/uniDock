@@ -1,12 +1,5 @@
 import { readJsonBounded } from "./body";
-import { NavigationCatalog, type RecordingTarget } from "../navigation-catalog";
-import {
-  accessible,
-  availabilitySnapshot,
-  internalId,
-  recordingCandidate,
-  recordingLabel,
-} from "../recordings";
+import { NavigationCatalog } from "../navigation-catalog";
 import { projectCourses } from "../domain";
 import {
   projectAssignments,
@@ -25,6 +18,7 @@ import {
 import { readUrl } from "../security/policy";
 import { redactText } from "../security/redaction";
 import { nextPage } from "./pagination";
+import { collectRecordings } from "./recording-collection";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -163,70 +157,18 @@ export async function listQuery(
             path,
             rows,
           );
-          // Project each module separately so completion order cannot reorder the UI.
-          const targetsByModule: RecordingTarget[][] = Array.from(
-            { length: modules.length },
-            () => [],
-          );
-          let nextModule = 0,
-            totalTargets = 0;
-          let failure: { error: unknown } | undefined;
-          async function worker() {
-            while (nextModule < modules.length && !controller.signal.aborted) {
-              const index = nextModule++;
-              const module = modules[index]!;
-              try {
-                if (!accessible(module, now)) continue;
-                const targets = targetsByModule[index]!;
-                let items = Array.isArray(module.items) ? module.items : [];
-                if (
-                  module.items_count != null &&
-                  (!Number.isSafeInteger(module.items_count) ||
-                    Number(module.items_count) < 0)
-                )
-                  throw new Error("INVALID_RESPONSE");
-                if (
-                  Number(module.items_count) > items.length ||
-                  (module.items == null && module.items_count !== 0)
-                ) {
-                  const moduleId = internalId(module.id);
-                  if (!moduleId) throw new Error("INVALID_RESPONSE");
-                  const itemPath = `${path}/${moduleId}/items`;
-                  items = await collect(
-                    `${itemPath}?per_page=100&include[]=content_details`,
-                    itemPath,
-                    rows,
-                  );
-                }
-                if (items.length > 10000) throw new Error("LIMIT");
-                for (const item of items.flatMap((item) => rows([item]))) {
-                  if (!recordingCandidate(item, now)) continue;
-                  const itemId = internalId(item.id);
-                  targets.push({
-                    module: recordingLabel(module.name),
-                    title: recordingLabel(item.title),
-                    courseId,
-                    itemId,
-                    moduleAccess: availabilitySnapshot(module),
-                    itemAccess: availabilitySnapshot(item),
-                  });
-                  if (++totalTargets > 10000) throw new Error("LIMIT");
-                }
-              } catch (error) {
-                // Preserve the original failure instead of reporting sibling aborts as timeouts.
-                failure ??= { error };
-                controller.abort();
-              }
-            }
-          }
-          await Promise.all(
-            Array.from({ length: Math.min(3, modules.length) }, () => worker()),
-          );
-          if (failure) throw failure.error;
-          if (controller.signal.aborted) throw new Error("TIMEOUT");
           return {
             status: "success",
-            recordings: catalog.replace(origin, targetsByModule.flat()),
+            recordings: await collectRecordings({
+              origin,
+              courseId,
+              path,
+              modules,
+              collect,
+              catalog,
+              now,
+              controller,
+            }),
           };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;

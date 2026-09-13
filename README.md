@@ -27,6 +27,8 @@ npm test
 npm run build      # 실제 세션 검증에는 production 산출물 사용
 ```
 
+브라우저 E2E 테스트는 로컬에서 최초 1회 `npx playwright install chromium`으로 Chromium을 설치한 뒤 `npm run test:e2e`로 실행합니다. 이 명령은 production build를 먼저 수행한 다음 `tests/e2e`의 Playwright 테스트를 실행합니다. CI에서는 `npx playwright install --with-deps chromium`으로 설치합니다.
+
 개발용 HMR은 localhost 연결/개발 권한을 추가할 수 있습니다. 기존 로그인 세션 검증에는 production unpacked 확장을 사용하세요.
 
 ## 조회 기능
@@ -43,7 +45,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
-Python live 구현과 동일하게 API 순서를 보존하며, 마감일 목록을 자동 정렬하거나 미제출 과제만 필터링하지 않습니다. 과목·과제·일정·녹화 목록은 100개씩 표시하며 이전/다음 버튼으로 전체 결과를 확인합니다. 새 조회 결과에서는 첫 페이지로 돌아갑니다. `remaining_candidate`는 다음 조건일 때만 true입니다.
+조회 데이터는 Python live 구현과 동일하게 API 순서와 전체 항목을 보존합니다. 과제·마감일 화면은 기본적으로 ‘남은 과제 후보만’이 체크되며, 체크를 해제하면 전체 항목을 표시합니다. 과제·마감일 화면에서는 사용자가 마감 빠른 순 정렬, 남은 과제 후보만, 이번 주 또는 24시간 이내 필터를 선택할 수 있습니다. 정렬·필터는 전체 조회 결과에 적용한 뒤 페이지를 나누며 원본 응답을 변경하지 않습니다. 이번 주는 한국 시간 월요일 00:00부터 다음 월요일 00:00 직전까지이며, 24시간 이내는 현재 시각 이후부터 24시간 뒤까지입니다. 마감순 정렬에서는 마감이 없거나 해석할 수 없는 항목을 마지막에 표시합니다. 남은 시간과 만료된 후보 표시는 패널에서 갱신하지만 제출·잠금 상태는 새로고침해야 반영됩니다. 과목·과제·일정·녹화 목록은 100개씩 표시하며 이전/다음 버튼으로 전체 결과를 확인합니다. 새 조회 결과에서는 첫 페이지로 돌아갑니다. `remaining_candidate`는 다음 조건일 때만 true입니다.
 
 - 마감 시간이 조회 시작 시각보다 미래
 - `locked_for_user`가 false
@@ -167,7 +169,7 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 
 1. production 빌드를 로드하고 LMS 탭을 새로고침합니다. 로그인 전 조회 시 로그인/권한 안내를 확인합니다.
 2. LMS에서 직접 로그인한 뒤 **내 과목 → 과제 보기**로 실제 과제명·마감·제출 상태를 LMS 화면과 비교합니다.
-3. 같은 과목의 **마감일**에서 과제 순서와 전체 행 수가 과제 목록과 같은지 확인합니다. 제출/마감 완료된 행도 사라지지 않아야 합니다.
+3. 같은 과목의 **마감일**에서 ‘남은 과제 후보만’을 해제한 뒤 과제 순서와 전체 행 수가 전체 과제 목록과 같은지 확인합니다. 제출/마감 완료된 행도 사라지지 않아야 합니다.
 4. **Upcoming**에서 날짜 없이 조회한 뒤 시작일·종료일을 지정해 조회합니다. **Todo**의 할 일 제목·마감을 LMS와 비교합니다. 숨김/완료 버튼은 없어야 합니다.
 5. 과목명 일부와 없는 과목명을 입력해 선택 오류를 확인합니다. 종료일이 시작일보다 빠르면 조회가 비활성화되어야 합니다.
 6. 여러 페이지가 있으면 마지막 항목까지 표시되는지 확인합니다. LMS 로그아웃 후 다시 조회하면 기존 목록 대신 안내가 보여야 합니다. 동일 문서 내 로그아웃은 다음 조회 때 반영될 수 있습니다.
@@ -190,16 +192,16 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 ## 검증 결과
 
-- `npm run check`: lint, typecheck, 단위/계약/정적 UI 렌더링 테스트 **174개(9개 파일)**, production build 통과.
+- `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`과 기존 LMS 두 호스트, Chrome 114 minimum 유지. 쿠키/다운로드/상시 외부 호스트 권한 없음.
+- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `cookies`, `storage`, `tabs`와 기타 상시 외부 호스트 권한은 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 실제 LMS 세션 요청 및 브라우저 UI 육안 검증: 미실시. 위 수동 절차로 확인 필요.
 
 
 ## Chrome Web Store 배포 준비
 
-`npm run release`는 라이선스 고지를 갱신하고 lint·typecheck·174개 테스트·production build·의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.0-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
+`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.0-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
 
 - [보안 검토](docs/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](docs/store/LISTING.md), [출시 체크리스트](docs/store/RELEASE-CHECKLIST.md).
@@ -208,7 +210,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 2026-09-11 배포 후보 검증: 전체 검사 통과, Python 계약 2종 일치, npm audit 알려진 취약점 0개, ZIP 허용 파일 12개 확인. 실제 계정 로그인·Chrome 114 및 최신 Chrome 통합 검증은 미실시입니다. 배포자 이름·지원 연락처·공개 정책 URL과 심사용 접근 방법을 확정한 후 체크리스트를 완료해야 합니다.
 
-## 2026-09-12 UI 및 성능 개선 검증
+## 과거 기록: 2026-09-12 UI 및 성능 개선 검증
 
 - 대상 탭의 문서 변경만 자막을 초기화하고, 무관한 탭 갱신에는 추출 결과를 유지합니다.
 - 조회 중 메뉴 전환은 마지막 선택만 대기시켜 자동 실행합니다. 녹화 열기는 목록·페이지를 유지하고 원래 LMS 탭을 통해 처리합니다.

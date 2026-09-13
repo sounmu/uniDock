@@ -7,3 +7,6 @@ main{min-height:100vh;display:flex;flex-direction:column}header{margin-bottom:26
 .pagination{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0;font-size:12px;color:#71666c}
 
 .item-title-link{color:inherit;text-decoration:underline;text-underline-offset:3px}.item-title-link:hover{color:#872038}
+
+.deadline-controls{border:1px solid #e7e3df;border-radius:12px;padding:14px;background:#fff}.remaining-toggle{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:14px}.remaining-toggle input{accent-color:#872038}.deadline-controls .field{margin-bottom:12px}.field select{font:inherit;width:100%;min-width:0;border:1px solid #d8d0d3;border-radius:8px;padding:10px;background:white;color:#24242b}.field select:focus-visible,.remaining-toggle input:focus-visible{outline:2px solid #bd8290;outline-offset:2px}.deadline-controls .hint{margin:0}.item-body .remaining-time{font-weight:600}.item-body .remaining-time.urgent{color:#872038}
+.nowrap{white-space:nowrap}

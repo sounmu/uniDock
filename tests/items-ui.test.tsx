@@ -1,11 +1,14 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ResultList, dateLabel } from "../entrypoints/sidepanel/ResultList";
 import fixture from "./fixtures/python-contract.json";
 import type { Result } from "../src/protocol";
+afterEach(() => vi.useRealTimers());
 it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
   "renders the %s Python contract without raw identifiers",
   (key) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-11T00:00:00Z"));
     const result = {
       status: "success",
       [key]: fixture.expected[key],
@@ -17,15 +20,15 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
     expect(html).not.toMatch(/11111111|html_url|course_id|online_upload/);
   },
 );
-it("keeps completed/non-candidate deadline rows visible", () => {
+it("hides completed/non-candidate deadline rows by default", () => {
   const html = renderToStaticMarkup(
     <ResultList
       result={{ status: "success", deadlines: fixture.edge.expected.deadlines }}
       onCourse={() => {}}
     />,
   );
-  expect(html).toContain("채점됨");
-  expect(html).toContain("남은 과제 후보 아님");
+  expect(html).not.toContain("채점됨");
+  expect(html).not.toContain("남은 과제 후보 아님");
 });
 it("shows empty result and never renders API markup as HTML", () => {
   expect(

@@ -153,7 +153,11 @@ const resultKey = {
   RECORDINGS_LIST: "recordings",
   RECORDING_OPEN: "opened",
 } as const;
-export function parseResult(value: unknown, expected?: Request): Result {
+export function parseResult(
+  value: unknown,
+  expected?: Request,
+  origin?: string,
+): Result {
   try {
     if (value && typeof value === "object") {
       const row = value as Record<string, unknown>;
@@ -200,7 +204,7 @@ export function parseResult(value: unknown, expected?: Request): Result {
               if (
                 type === "optionalUrl" &&
                 typeof child === "string" &&
-                itemUrl(child) === child
+                itemUrl(child, origin) === child
               )
                 return [field, child];
               if (type === "externalTool" && child === "ExternalTool")

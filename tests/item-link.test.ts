@@ -26,6 +26,22 @@ it("preserves planner and todo post links through response validation", () => {
     expect(parseResult(result)).toEqual(result);
 });
 
+it("omits the other LMS origin when a projection binds its source origin", () => {
+  const path = "/courses/12/assignments/34";
+  const mylms = "https://mylms.korea.ac.kr";
+  const canvas = "https://canvas.korea.ac.kr";
+  const upcoming = projectUpcoming(
+    [{ html_url: `${mylms}${path}`, plannable: { title: "일정" } }],
+    canvas,
+  );
+  const todo = projectTodo(
+    [{ assignment: { name: "할 일", html_url: `${canvas}${path}` } }],
+    mylms,
+  );
+  expect(upcoming[0]).not.toHaveProperty("html_url");
+  expect(todo[0]).not.toHaveProperty("html_url");
+});
+
 it("omits missing or non-LMS post links", () => {
   for (const value of [
     undefined,
