@@ -9,3 +9,4 @@ release/
 .store-build/
 store/assets/*.html
 output/
+.omo/
