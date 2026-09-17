@@ -203,8 +203,8 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 `npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.0-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
 
-- [보안 검토](docs/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
-- [스토어 등록 문안](docs/store/LISTING.md), [출시 체크리스트](docs/store/RELEASE-CHECKLIST.md).
+- [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
+- [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
 - [개인정보처리방침](public/privacy.html): 확장 내에서도 열 수 있으며 출시 전 공개 HTTPS 주소에 게시해야 합니다.
 - `store/assets/`: 공개 fixture 기반 샘플 이미지 2개(1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 재생성하며 로컬 Chrome이 필요합니다.
 
@@ -217,3 +217,22 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - 날짜 포매터를 재사용하고 목록을 100개씩 표시합니다. 모듈 추가 조회는 최대 3개 병렬 처리하며 순서·공유 예산·실패 시 전체 중단을 검증했습니다.
 - `npm run check`: 13개 파일의 231개 테스트, lint, 타입 검사, production build 통과. `npm run contract:check`, `npm run format:check` 통과.
 - UI 상호작용은 Chrome API mock 기반 jsdom 테스트로 검증했습니다. 실제 로그인 세션과 확장 권한을 포함한 Chrome 통합 검증은 별도로 필요합니다.
+
+## 개인정보처리방침 GitHub Pages 배포
+
+`docs/`는 공개 사이트 전용입니다. 개발·보안 검토·스토어 준비 문서는 `documentation/`에 보관합니다. 이 구분은 Pages 배포 범위만 제한하며, 공개 저장소의 문서를 비공개로 만들지는 않습니다.
+
+개인정보처리방침은 `public/privacy.html`을 수정한 뒤 다음 명령으로 배포용 사본을 갱신합니다.
+
+```sh
+npm run pages:sync
+npm run pages:check
+```
+
+`docs/privacy.html`과 `docs/index.html`에 같은 방침을 복사하므로 사이트 첫 화면과 `/privacy.html`에서 모두 읽을 수 있습니다. 생성된 HTML은 직접 수정하지 않습니다. CI와 `npm run check`에서 원본과 두 사본이 일치하는지 검사합니다. `docs/.nojekyll`은 정적 파일을 그대로 게시하도록 유지합니다.
+
+1. 원본과 갱신된 `docs/` 파일을 함께 커밋하고 `main`에 푸시합니다.
+2. GitHub 저장소 **Settings → Pages → Build and deployment**에서 **Deploy from a branch**, **main**, **/docs**를 선택하고 저장합니다.
+3. 배포 완료 후 Pages에 표시된 사이트 주소에 `/privacy.html`을 붙여 비로그인 상태에서 접근을 확인하고, Chrome Web Store 개인정보처리방침 URL로 등록합니다.
+
+설정 방법: [GitHub Pages 배포 소스 공식 문서](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).

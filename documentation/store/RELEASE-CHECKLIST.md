@@ -5,6 +5,7 @@
 - release/uniDock-0.1.0-chrome-mv3.zip: production 전용 배포 후보
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
 - public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본
+- docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신)
 - public/icons, store/assets: 아이콘과 홍보/샘플 화면
 - LISTING.md: 등록 설명, 권한 사유, 데이터 처리 고지 초안
 - ../SECURITY-REVIEW.md: 범위, 수정 사항, 잔여 위험
@@ -24,7 +25,7 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 ## 제출 전 필수 (아직 완료되지 않음)
 
 - [ ] 배포자 표시명, 공개 지원 이메일/지원 URL 결정 및 스토어 계정 연락처 등록
-- [ ] 개인정보 페이지를 공개 HTTPS URL에 게시하고 비로그인 브라우저에서 접근 확인. 공개 페이지에 배포자 연락처를 넣고 bundled 사본도 동일하게 갱신
+- [ ] `public/privacy.html`에 배포자 연락처를 넣고 `npm run pages:sync` 실행. GitHub Pages를 `main`의 `/docs`로 설정하여 공개 HTTPS URL에 게시하고 비로그인 브라우저에서 접근 확인 ([배포 안내](../../README.md#개인정보처리방침-github-pages-배포))
 - [ ] Chrome Web Store 개발자 등록 및 계정 보안/2단계 인증 요구 충족. 비용 지급·계정 설정은 배포자 수행
 - [ ] 실제 LMS의 로그인 전/후, 403·세션 만료, 과제·일정·강의 여러 페이지, 안전한 탭 열기를 확인
 - [ ] 실제 LTI 자막/다운로드·권한 미승인·자막 없음·cross-origin iframe·파일 내용 검증
