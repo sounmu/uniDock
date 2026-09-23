@@ -4,7 +4,7 @@ import { ResultList, dateLabel } from "../entrypoints/sidepanel/ResultList";
 import fixture from "./fixtures/python-contract.json";
 import type { Result } from "../src/protocol";
 afterEach(() => vi.useRealTimers());
-it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
+it.each(["assignments", "deadlines", "upcoming"] as const)(
   "renders the %s Python contract without raw identifiers",
   (key) => {
     vi.useFakeTimers();
@@ -20,6 +20,36 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
     expect(html).not.toMatch(/11111111|html_url|course_id|online_upload/);
   },
 );
+it("renders all-course Todo assignments including completed and undated rows", () => {
+  const html = renderToStaticMarkup(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          {
+            title: "제출 완료 과제",
+            due_at: "2026-09-10T09:00:00Z",
+            course: "운영체제",
+            type: "submitted",
+            ignore: false,
+          },
+          {
+            title: "마감 없는 과제",
+            due_at: "",
+            course: "국제법",
+            type: "unsubmitted",
+            ignore: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  expect(html).toContain("제출 완료 과제");
+  expect(html).toContain("마감 없는 과제");
+  expect(html).toContain("제출 완료");
+  expect(html).toContain("미제출 과제");
+});
 it("hides completed/non-candidate deadline rows by default", () => {
   const html = renderToStaticMarkup(
     <ResultList

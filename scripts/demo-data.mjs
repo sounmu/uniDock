@@ -42,14 +42,6 @@ for (const course of courses) {
   ]);
 }
 demoResponses.set(
-  "/api/v1/users/self/todo",
-  courses.map((course) => ({
-    type: "submitting",
-    context_name: course.name,
-    assignment: { name: "2주차 실습 보고서", due_at: date(2) },
-  })),
-);
-demoResponses.set(
   "/api/v1/planner/items",
   courses.map((course) => ({
     context_name: course.name,

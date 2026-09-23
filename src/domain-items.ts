@@ -52,12 +52,6 @@ function boolean(value: unknown, defaultValue = false): boolean {
   if (typeof value !== "boolean") throw new Error("INVALID_RESPONSE");
   return value;
 }
-function todoIgnore(value: unknown): boolean {
-  if (value === undefined || value === null || value === "") return false;
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") return true;
-  throw new Error("INVALID_RESPONSE");
-}
 function privateIds(row: Row): string[] {
   return [row.id, row.course_id, row.user_id]
     .filter((value) => typeof value === "string" || typeof value === "number")
@@ -201,17 +195,22 @@ export function projectUpcoming(raw: unknown, origin?: string): Upcoming[] {
     };
   });
 }
-export function projectTodo(raw: unknown, origin?: string): Todo[] {
+export function projectCourseTodo(
+  raw: unknown,
+  course: string,
+  origin?: string,
+): Todo[] {
   return rows(raw).map((row) => {
-    const item = record(row.assignment);
-    const url = itemUrl(row.html_url, origin) ?? itemUrl(item.html_url, origin);
+    const submission = record(row.submission);
+    const url = itemUrl(row.html_url, origin);
+    const workflow = label(submission.workflow_state, row, submission);
     return {
       ...(url ? { html_url: url } : {}),
-      title: label(item.name || item.title || row.type, row, item),
-      due_at: text(item.due_at),
-      type: label(row.type, row, item),
-      course: label(row.context_name, row, item),
-      ignore: todoIgnore(row.ignore),
+      title: label(row.name || row.title, row),
+      due_at: text(row.due_at),
+      type: workflow || "unsubmitted",
+      course,
+      ignore: false,
     };
   });
 }

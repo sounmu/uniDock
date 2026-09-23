@@ -5,7 +5,6 @@ import {
   projectAssignments,
   projectDeadlines,
   projectUpcoming,
-  projectTodo,
   remainingCandidate,
 } from "../src/domain-items";
 import { parseResult, type Request } from "../src/protocol";
@@ -32,9 +31,7 @@ for (const [name, data] of [
       expect(projectUpcoming(data.raw.upcoming)).toEqual(
         data.expected.upcoming,
       ));
-    it("matches todo title/due date/ignore without mutations", () =>
-      expect(projectTodo(data.raw.todo)).toEqual(data.expected.todo));
-    it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
+    it.each(["assignments", "deadlines", "upcoming"] as const)(
       "preserves %s contract through message validation",
       (key) => {
         const result = { status: "success", [key]: data.expected[key] };
@@ -61,7 +58,6 @@ const queries: [Request, keyof typeof fixture.expected][] = [
   [{ version: 1, type: "ASSIGNMENTS_LIST", course: "국제법" }, "assignments"],
   [{ version: 1, type: "DEADLINES_LIST", course: "국제법" }, "deadlines"],
   [{ version: 1, type: "UPCOMING_LIST" }, "upcoming"],
-  [{ version: 1, type: "TODO_LIST" }, "todo"],
 ];
 it.each(queries)(
   "matches Python fixture end-to-end: %j",
@@ -72,7 +68,6 @@ it.each(queries)(
       if (path === "/api/v1/courses/101/assignments")
         return json(fixture.raw.assignments);
       if (path === "/api/v1/planner/items") return json(fixture.raw.upcoming);
-      if (path === "/api/v1/users/self/todo") return json(fixture.raw.todo);
       throw new Error("Unexpected fixture endpoint");
     });
     const result = await listQuery(origin, request, fetcher, now);

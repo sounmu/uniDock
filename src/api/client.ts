@@ -3,10 +3,11 @@ import { NavigationCatalog } from "../navigation-catalog";
 import { projectCourses } from "../domain";
 import {
   projectAssignments,
+  projectCourseTodo,
   projectDeadlines,
   projectUpcoming,
-  projectTodo,
   rows,
+  type Todo,
 } from "../domain-items";
 import {
   errors,
@@ -86,15 +87,6 @@ export async function listQuery(
           status: "success",
           courses: await collect(coursesQuery, coursesPath, projectCourses),
         };
-      case "TODO_LIST":
-        return {
-          status: "success",
-          todo: await collect(
-            "/api/v1/users/self/todo?per_page=100",
-            "/api/v1/users/self/todo",
-            (raw) => projectTodo(raw, origin),
-          ),
-        };
       case "UPCOMING_LIST": {
         const params = new URLSearchParams({ per_page: "100" });
         if (query.start_date) params.set("start_date", query.start_date);
@@ -110,6 +102,7 @@ export async function listQuery(
       }
       case "RECORDING_OPEN":
         throw new Error("POLICY");
+      case "TODO_LIST":
       case "RECORDINGS_LIST":
       case "ASSIGNMENTS_LIST":
       case "DEADLINES_LIST": {
@@ -130,6 +123,21 @@ export async function listQuery(
             return [{ id, name: redactText(row.name, [id]).trim() }];
           }),
         );
+        if (query.type === "TODO_LIST") {
+          const todo: Todo[] = [];
+          for (const course of courses) {
+            const path = `/api/v1/courses/${course.id}/assignments`;
+            todo.push(
+              ...(await collect(
+                `${path}?per_page=100&include[]=submission`,
+                path,
+                (raw) => projectCourseTodo(raw, course.name, origin),
+              )),
+            );
+            if (todo.length > 10000) throw new Error("LIMIT");
+          }
+          return { status: "success", todo };
+        }
         const search = query.course.trim().toLowerCase();
         const matches = courses.filter((course) =>
           course.name.toLowerCase().includes(search),

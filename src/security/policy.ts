@@ -34,14 +34,7 @@ export function readUrl(
     );
   const courses = expectedPath === "/api/v1/courses",
     planner = expectedPath === "/api/v1/planner/items";
-  if (!(
-    assignments ||
-    modules ||
-    moduleItems ||
-    courses ||
-    planner ||
-    expectedPath === "/api/v1/users/self/todo"
-  ))
+  if (!(assignments || modules || moduleItems || courses || planner))
     throw new Error("POLICY");
   if (
     !allowedPage(url.href) ||

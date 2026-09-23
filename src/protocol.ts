@@ -27,7 +27,8 @@ export const errors = [
 ] as const;
 export type ErrorCode = (typeof errors)[number];
 export type ListRequest =
-  | { version: 1; type: "COURSES_LIST" | "TODO_LIST" }
+  | { version: 1; type: "COURSES_LIST" }
+  | { version: 1; type: "TODO_LIST" }
   | {
       version: 1;
       type: "ASSIGNMENTS_LIST" | "DEADLINES_LIST" | "RECORDINGS_LIST";

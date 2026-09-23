@@ -128,6 +128,12 @@ export function App() {
         <CaptionsPanel />
       ) : (
         <>
+          {view === "TODO_LIST" && (
+            <p className="hint">
+              현재 수강 중인 모든 과목의 과제를 표시합니다. 제출 완료·마감
+              없음·지난 과제도 포함합니다.
+            </p>
+          )}
           <div className="toolbar">
             <h3>{tabs.find(([type]) => type === view)?.[1]}</h3>
             <button
@@ -173,7 +179,7 @@ export function App() {
                   {view === "COURSES_LIST"
                     ? "LMS 탭을 선택하고 조회를 누르세요. 과목을 선택하면 과제·마감일·녹화 강의를 확인할 수 있습니다."
                     : view === "TODO_LIST"
-                      ? "조회 버튼을 눌러 할 일을 불러오세요."
+                      ? "조회 버튼을 눌러 현재 수강 중인 모든 과목의 과제를 불러오세요."
                       : "조회 버튼을 눌러 선택한 기간의 일정을 불러오세요."}
                 </p>
               </div>

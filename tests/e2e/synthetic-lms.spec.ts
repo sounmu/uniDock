@@ -62,6 +62,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
           contentType: "application/json",
           body: JSON.stringify([
             { id: 101, name: "Synthetic Operating Systems" },
+            { id: 202, name: "Synthetic International Law" },
           ]),
         });
         return;
@@ -87,19 +88,23 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
         });
         return;
       }
-      if (url.pathname === "/api/v1/users/self/todo") {
+      if (url.pathname === "/api/v1/courses/202/assignments") {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify([
             {
-              type: "submitting",
-              context_name: "Synthetic Operating Systems",
-              assignment: {
-                name: "Synthetic Todo With Ignore URL",
-                due_at: "2099-09-20T14:00:00+09:00",
+              name: "Synthetic Submitted Essay",
+              due_at: "2026-09-10T14:00:00+09:00",
+              submission: {
+                workflow_state: "submitted",
+                submitted_at: "2026-09-09T14:00:00+09:00",
               },
-              ignore: `${lmsOrigin}/api/v1/users/self/todo/assignment_123/ignore`,
+            },
+            {
+              name: "Synthetic Undated Reading",
+              due_at: null,
+              submission: { workflow_state: "unsubmitted" },
             },
           ]),
         });
@@ -131,7 +136,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await sidepanelPage.getByRole("button", { name: "조회" }).click();
 
     // Then: the content script fetches the fixture and the panel renders its response.
-    await expect(sidepanelPage.getByText("조회 완료 · 1개 과목")).toBeVisible();
+    await expect(sidepanelPage.getByText("조회 완료 · 2개 과목")).toBeVisible();
     await expect(
       sidepanelPage.getByText("Synthetic Operating Systems"),
     ).toBeVisible();
@@ -147,7 +152,10 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       contentType: "image/png",
     });
 
-    await sidepanelPage.getByRole("button", { name: "과제 보기" }).click();
+    await sidepanelPage
+      .getByRole("button", { name: "과제 보기" })
+      .first()
+      .click();
     await expect(
       sidepanelPage.getByText("Synthetic Final Project"),
     ).toBeVisible();
@@ -175,15 +183,24 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
 
     await sidepanelPage.getByRole("button", { name: "Todo" }).click();
     await expect(
-      sidepanelPage.getByText("Synthetic Todo With Ignore URL"),
+      sidepanelPage.getByText("Synthetic Final Project"),
     ).toBeVisible();
     await expect(
-      sidepanelPage.getByText("조회 완료 · 1개 항목 · 한국 시간"),
+      sidepanelPage.getByText("Synthetic Submitted Essay"),
     ).toBeVisible();
     await expect(
-      sidepanelPage.getByText("숨김 표시됨 · submitting"),
+      sidepanelPage.getByText("Synthetic Undated Reading"),
     ).toBeVisible();
-    await sidepanelPage.screenshot({ path: todoScreenshot, fullPage: true });
+    await expect(
+      sidepanelPage.getByText("조회 완료 · 3개 항목 · 한국 시간"),
+    ).toBeVisible();
+    await expect(
+      sidepanelPage.getByText("제출 완료", { exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      sidepanelPage.getByText("미제출 과제", { exact: true }),
+    ).toHaveCount(2);
+    await sidepanelPage.screenshot({ path: todoScreenshot });
     await testInfo.attach("sidepanel-todo", {
       path: todoScreenshot,
       contentType: "image/png",

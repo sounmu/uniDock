@@ -175,8 +175,11 @@ export function ItemResults({
                 )}
                 {"ignore" in item && (
                   <span className="item-badge">
-                    {item.ignore ? "숨김 표시됨" : "할 일"}
-                    {item.type ? ` · ${item.type}` : ""}
+                    {["submitted", "graded"].includes(item.type)
+                      ? "제출 완료"
+                      : item.type === "unsubmitted"
+                        ? "미제출 과제"
+                        : `과제${item.type ? ` · ${item.type}` : ""}`}
                   </span>
                 )}
               </div>

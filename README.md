@@ -39,7 +39,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 | 과제 | 과목명 | 제목, 마감, 제출 상태, 잠김·누락·지각 여부, 남은 후보 |
 | 마감일 | 과목명 | **모든 과제**의 제목·마감·남은 후보 |
 | Upcoming | 선택적 시작일·종료일 | Planner 일정, 과목, 제출 기록, 새 활동 |
-| Todo | 없음 | 할 일 제목·마감·과목·ignore 상태 |
+| Todo | 없음 | 현재 수강 중인 모든 과목의 전체 과제·마감·과목·제출 상태 |
 | 녹화 강의 | 과목명 | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기 |
 | 자막 추출 | 사용자가 연 강의 탭 | DOM 우선, XML/VTT 대체 조회 및 시간 포함 TXT·JSON 다운로드 |
 
@@ -54,7 +54,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 
 마감 시간이 없거나 해석할 수 없으면 false입니다. 시간대 없는 ISO 날짜는 Python처럼 UTC로 해석하며 UI는 한국 시간으로 표시합니다. 이 값은 **후보 판정**으로, 실제 제출 가능 여부를 보장하지 않습니다. 원본과 동일하게 `published`, `unlock_at`, `lock_at`으로 추가 필터링하지 않습니다.
 
-Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 Canvas의 기본 조회 범위를 사용합니다. 입력 날짜를 로컬 시각으로 변환하지 않고 `YYYY-MM-DD`로 전달합니다. Todo의 `ignore`는 읽어서 표시만 하며 숨김/완료/제출 동작은 없습니다.
+Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 Canvas의 기본 조회 범위를 사용합니다. 입력 날짜를 로컬 시각으로 변환하지 않고 `YYYY-MM-DD`로 전달합니다. Todo는 `enrollment_state=active`인 과목별 전체 과제 목록을 조회하므로 제출 완료·마감 없음·지난 과제도 포함합니다. 숨김/완료/제출 동작은 없습니다.
 
 ## 구조와 안전 경계
 
@@ -75,7 +75,6 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 /api/v1/courses?per_page=100&enrollment_state=active
 /api/v1/courses/{내부에서 확인한 ID}/assignments?per_page=100&include[]=submission
 /api/v1/planner/items?per_page=100[&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD]
-/api/v1/users/self/todo?per_page=100
 /api/v1/courses/{ID}/modules?per_page=100&include[]=items&include[]=content_details
 /api/v1/courses/{ID}/modules/{module ID}/items?per_page=100&include[]=content_details
 ```
@@ -149,7 +148,7 @@ KU 소스 근거: [공개 교육 영상](https://kucom.korea.ac.kr/em/6746b8bd75
 
 Python 녹화 후보 탐색 및 `_public_recording` 결과도 계약에 포함합니다. 확장은 추가로 임시 열기 키를 사용하며 Python의 `playable` 필드를 재생 기능으로 구현하지 않습니다.
 
-Python `_public_assignment`, `_public_planner_item`, `_public_todo_item`, `_remaining_candidate`, `LiveLmsProvider.deadlines`의 결과를 기대값으로 고정합니다. 기준 시각은 `2026-09-11T00:00:00Z`이며 원본 파일 SHA-256도 기록합니다. 원본 fixture 외에도 누락/null 필드, 제출/채점/잠김, 과거/미래/경계 마감, UTC 기본값, 시차, 잘못된 날짜, 제목 fallback을 Python으로 계산한 사례를 포함합니다.
+Python `_public_assignment`, `_public_planner_item`, `_remaining_candidate`, `LiveLmsProvider.deadlines`의 결과를 기대값으로 고정합니다. Todo는 Python의 제한된 Todo feed 대신 활성 과목별 전체 과제를 조회하므로 별도 확장 동작으로 검증합니다. 기준 시각은 `2026-09-11T00:00:00Z`이며 원본 파일 SHA-256도 기록합니다. 원본 fixture 외에도 누락/null 필드, 제출/채점/잠김, 과거/미래/경계 마감, UTC 기본값, 시차, 잘못된 날짜, 제목 fallback을 Python으로 계산한 사례를 포함합니다.
 
 ```sh
 npm test                  # Node만 필요. golden JSON으로 전체 필드와 API 결과 계약 비교
@@ -170,7 +169,7 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 1. production 빌드를 로드하고 LMS 탭을 새로고침합니다. 로그인 전 조회 시 로그인/권한 안내를 확인합니다.
 2. LMS에서 직접 로그인한 뒤 **내 과목 → 과제 보기**로 실제 과제명·마감·제출 상태를 LMS 화면과 비교합니다.
 3. 같은 과목의 **마감일**에서 ‘남은 과제 후보만’을 해제한 뒤 과제 순서와 전체 행 수가 전체 과제 목록과 같은지 확인합니다. 제출/마감 완료된 행도 사라지지 않아야 합니다.
-4. **Upcoming**에서 날짜 없이 조회한 뒤 시작일·종료일을 지정해 조회합니다. **Todo**의 할 일 제목·마감을 LMS와 비교합니다. 숨김/완료 버튼은 없어야 합니다.
+4. **Upcoming**에서 날짜 없이 조회한 뒤 시작일·종료일을 지정해 조회합니다. **Todo**에서 현재 수강 중인 모든 과목의 제출 완료·마감 없음·지난 과제까지 표시되는지 LMS와 비교합니다. 숨김/완료 버튼은 없어야 합니다.
 5. 과목명 일부와 없는 과목명을 입력해 선택 오류를 확인합니다. 종료일이 시작일보다 빠르면 조회가 비활성화되어야 합니다.
 6. 여러 페이지가 있으면 마지막 항목까지 표시되는지 확인합니다. LMS 로그아웃 후 다시 조회하면 기존 목록 대신 안내가 보여야 합니다. 동일 문서 내 로그아웃은 다음 조회 때 반영될 수 있습니다.
 7. 일반 사이트 탭에서는 LMS 탭 안내, 네트워크 끊김에는 오류/시간 초과, 미갱신 탭에는 새로고침 안내를 확인합니다.

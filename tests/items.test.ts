@@ -4,8 +4,8 @@ import { readUrl } from "../src/security/policy";
 import { isRequest, parseResult, type Request } from "../src/protocol";
 import {
   projectAssignments,
+  projectCourseTodo,
   projectUpcoming,
-  projectTodo,
   isoTime,
 } from "../src/domain-items";
 const origin = "https://mylms.korea.ac.kr";
@@ -16,43 +16,125 @@ const json = (body: unknown, link?: string) =>
       ...(link ? { Link: link } : {}),
     },
   });
-it.each([
-  "ASSIGNMENTS_LIST",
-  "DEADLINES_LIST",
-  "UPCOMING_LIST",
-  "TODO_LIST",
-] as const)("paginates %s", async (type) => {
-  const assignment = type === "ASSIGNMENTS_LIST" || type === "DEADLINES_LIST";
-  const path = assignment
-    ? "/api/v1/courses/101/assignments"
-    : type === "UPCOMING_LIST"
-      ? "/api/v1/planner/items"
-      : "/api/v1/users/self/todo";
+it.each(["ASSIGNMENTS_LIST", "DEADLINES_LIST", "UPCOMING_LIST"] as const)(
+  "paginates %s",
+  async (type) => {
+    const assignment = type === "ASSIGNMENTS_LIST" || type === "DEADLINES_LIST";
+    const path = assignment
+      ? "/api/v1/courses/101/assignments"
+      : "/api/v1/planner/items";
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses")
+        return json([{ id: 101, name: "과목" }]);
+      expect(url.pathname).toBe(path);
+      const body = assignment
+        ? { name: "과제" }
+        : { plannable: { title: "예정" } };
+      return json(
+        [body],
+        url.searchParams.has("page")
+          ? undefined
+          : `<${origin}${path}?page=2>; rel="next"`,
+      );
+    });
+    const request: Request = assignment
+      ? { version: 1, type, course: "과목" }
+      : { version: 1, type };
+    const result = await listQuery(origin, request, fetcher);
+    expect(result.status).toBe("success");
+    const arrays = Object.values(result).filter(Array.isArray);
+    expect(arrays[0]).toHaveLength(2);
+    expect(fetcher).toHaveBeenCalledTimes(assignment ? 3 : 2);
+  },
+);
+it("paginates active courses and each Todo assignment list", async () => {
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/courses")
-      return json([{ id: 101, name: "과목" }]);
-    expect(url.pathname).toBe(path);
-    const body = assignment
-      ? { name: "과제" }
-      : type === "UPCOMING_LIST"
-        ? { plannable: { title: "예정" } }
-        : { assignment: { name: "할 일" } };
+      return json(
+        url.searchParams.has("page")
+          ? [{ id: 202, name: "국제법" }]
+          : [{ id: 101, name: "운영체제" }],
+        url.searchParams.has("page")
+          ? undefined
+          : `<${origin}/api/v1/courses?page=2>; rel="next"`,
+      );
     return json(
-      [body],
-      url.searchParams.has("page")
-        ? undefined
-        : `<${origin}${path}?page=2>; rel="next"`,
+      [{ name: `${url.pathname} 과제` }],
+      url.pathname.includes("/101/") && !url.searchParams.has("page")
+        ? `<${origin}${url.pathname}?page=2>; rel="next"`
+        : undefined,
     );
   });
-  const request: Request = assignment
-    ? { version: 1, type, course: "과목" }
-    : { version: 1, type };
-  const result = await listQuery(origin, request, fetcher);
+
+  const fetched = await listQuery(
+    origin,
+    { version: 1, type: "TODO_LIST" },
+    fetcher,
+  );
+  expect(fetched.status).toBe("success");
+  if (fetched.status !== "success" || !("todo" in fetched))
+    throw new Error("Expected Todo result");
+  expect(fetched.todo.map((item) => item.course)).toEqual([
+    "운영체제",
+    "운영체제",
+    "국제법",
+  ]);
+  expect(fetcher).toHaveBeenCalledTimes(5);
+});
+it("lists every assignment from every active course in Todo", async () => {
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/v1/courses")
+      return json([
+        { id: 101, name: "운영체제" },
+        { id: 202, name: "국제법" },
+      ]);
+    if (path === "/api/v1/courses/101/assignments")
+      return json([
+        {
+          name: "제출 완료 과제",
+          due_at: "2026-09-10T09:00:00Z",
+          submission: {
+            workflow_state: "submitted",
+            submitted_at: "2026-09-09T09:00:00Z",
+          },
+        },
+        { name: "마감 없는 과제", due_at: null },
+      ]);
+    if (path === "/api/v1/courses/202/assignments")
+      return json([
+        {
+          name: "다가오는 과제",
+          due_at: "2099-09-20T09:00:00Z",
+          submission: { workflow_state: "unsubmitted" },
+        },
+      ]);
+    throw new Error(`Unexpected path: ${path}`);
+  });
+
+  const result = await listQuery(
+    origin,
+    { version: 1, type: "TODO_LIST" },
+    fetcher,
+  );
+
   expect(result.status).toBe("success");
-  const arrays = Object.values(result).filter(Array.isArray);
-  expect(arrays[0]).toHaveLength(2);
-  expect(fetcher).toHaveBeenCalledTimes(assignment ? 3 : 2);
+  if (result.status !== "success" || !("todo" in result))
+    throw new Error("Expected Todo result");
+  expect(result.todo.map(({ title, course }) => [title, course])).toEqual([
+    ["제출 완료 과제", "운영체제"],
+    ["마감 없는 과제", "운영체제"],
+    ["다가오는 과제", "국제법"],
+  ]);
+  expect(
+    fetcher.mock.calls.map(([input]) => new URL(String(input)).pathname),
+  ).toEqual([
+    "/api/v1/courses",
+    "/api/v1/courses/101/assignments",
+    "/api/v1/courses/202/assignments",
+  ]);
 });
 it.each([
   [{ version: 1, type: "ASSIGNMENTS_LIST", course: "" }],
@@ -221,7 +303,7 @@ it("removes raw metadata and redacts text in all projections", () => {
   for (const result of [
     projectAssignments([raw]),
     projectUpcoming([raw]),
-    projectTodo([raw]),
+    projectCourseTodo([raw], "과목", origin),
   ])
     expect(JSON.stringify(result)).not.toMatch(
       /777|888|private|html_url|token|description/,
@@ -241,41 +323,31 @@ it("rejects wrong response type and invalid public fields", () => {
     }),
   ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
 });
-it("accepts Canvas Todo ignore action URLs without exposing them", async () => {
-  const ignoreUrl = `${origin}/api/v1/users/self/todo/assignment_123/ignore`;
-  const fetcher = vi.fn().mockResolvedValue(
-    json([
-      {
-        type: "submitting",
-        context_name: "국제법",
-        assignment: {
-          name: "퀴즈9차",
+it("projects assignment links without exposing internal identifiers", () => {
+  expect(
+    projectCourseTodo(
+      [
+        {
+          id: 123,
+          course_id: 101,
+          name: "퀴즈",
           due_at: "2026-09-20T09:00:00Z",
+          html_url: `${origin}/courses/101/assignments/123`,
         },
-        ignore: ignoreUrl,
-      },
-    ]),
-  );
-
-  const result = await listQuery(
-    origin,
-    { version: 1, type: "TODO_LIST" },
-    fetcher,
-  );
-
-  expect(result).toEqual({
-    status: "success",
-    todo: [
-      {
-        title: "퀴즈9차",
-        due_at: "2026-09-20T09:00:00Z",
-        type: "submitting",
-        course: "국제법",
-        ignore: true,
-      },
-    ],
-  });
-  expect(JSON.stringify(result)).not.toContain(ignoreUrl);
+      ],
+      "국제법",
+      origin,
+    ),
+  ).toEqual([
+    {
+      title: "퀴즈",
+      due_at: "2026-09-20T09:00:00Z",
+      type: "unsubmitted",
+      course: "국제법",
+      ignore: false,
+      html_url: `${origin}/courses/101/assignments/123`,
+    },
+  ]);
 });
 it("uses UTC for naive datetime and rejects rollover dates", () => {
   expect(isoTime("2026-09-11T00:00:00")).toBe(
@@ -329,12 +401,6 @@ it.each(invalidBooleanProjections)(
     for (const value of invalidBooleanValues)
       expect(() => project(value)).toThrow("INVALID_RESPONSE");
   },
-);
-
-it.each([1, [], {}])("rejects malformed Canvas Todo ignore value %j", (value) =>
-  expect(() =>
-    projectTodo([{ assignment: { name: "할 일" }, ignore: value }]),
-  ).toThrow("INVALID_RESPONSE"),
 );
 
 it("preserves assignment boolean defaults and real values", () => {
