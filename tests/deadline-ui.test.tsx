@@ -81,3 +81,51 @@ it("sorts the whole response before pagination and returns to LMS order", async 
   });
   expect(document.querySelector("li strong")?.textContent).toBe("과제 0");
 });
+it("sorts Todo by due date on demand and restores LMS order", async () => {
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          {
+            title: "마감 없음",
+            due_at: "",
+            type: "unsubmitted",
+            course: "A",
+            ignore: false,
+          },
+          {
+            title: "늦은 마감",
+            due_at: "2027-02-01T00:00:00Z",
+            type: "unsubmitted",
+            course: "B",
+            ignore: false,
+          },
+          {
+            title: "빠른 마감",
+            due_at: "2027-01-01T00:00:00Z",
+            type: "unsubmitted",
+            course: "A",
+            ignore: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
+  await click("마감 빠른 순");
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
+  expect(
+    document.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+      ?.textContent,
+  ).toBe("LMS 순서로 보기");
+  await click("LMS 순서로 보기");
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
+});

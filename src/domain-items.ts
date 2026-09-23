@@ -200,17 +200,24 @@ export function projectCourseTodo(
   course: string,
   origin?: string,
 ): Todo[] {
-  return rows(raw).map((row) => {
+  return rows(raw).flatMap((row) => {
     const submission = record(row.submission);
     const url = itemUrl(row.html_url, origin);
     const workflow = label(submission.workflow_state, row, submission);
-    return {
-      ...(url ? { html_url: url } : {}),
-      title: label(row.name || row.title, row),
-      due_at: text(row.due_at),
-      type: workflow || "unsubmitted",
-      course,
-      ignore: false,
-    };
+    if (
+      ["submitted", "graded"].includes(workflow) ||
+      text(submission.submitted_at)
+    )
+      return [];
+    return [
+      {
+        ...(url ? { html_url: url } : {}),
+        title: label(row.name || row.title, row),
+        due_at: text(row.due_at),
+        type: workflow || "unsubmitted",
+        course,
+        ignore: false,
+      },
+    ];
   });
 }

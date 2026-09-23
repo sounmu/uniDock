@@ -106,6 +106,11 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
               due_at: null,
               submission: { workflow_state: "unsubmitted" },
             },
+            {
+              name: "Synthetic Early Deadline",
+              due_at: "2099-08-20T14:00:00+09:00",
+              submission: { workflow_state: "unsubmitted" },
+            },
           ]),
         });
         return;
@@ -187,19 +192,38 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toBeVisible();
     await expect(
       sidepanelPage.getByText("Synthetic Submitted Essay"),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       sidepanelPage.getByText("Synthetic Undated Reading"),
+    ).toBeVisible();
+    await expect(
+      sidepanelPage.getByText("Synthetic Early Deadline"),
     ).toBeVisible();
     await expect(
       sidepanelPage.getByText("조회 완료 · 3개 항목 · 한국 시간"),
     ).toBeVisible();
     await expect(
-      sidepanelPage.getByText("제출 완료", { exact: true }),
-    ).toHaveCount(1);
-    await expect(
       sidepanelPage.getByText("미제출 과제", { exact: true }),
-    ).toHaveCount(2);
+    ).toHaveCount(3);
+    await sidepanelPage.getByRole("button", { name: "마감 빠른 순" }).click();
+    await expect(sidepanelPage.locator("li strong").first()).toHaveText(
+      "Synthetic Early Deadline",
+    );
+    await expect(
+      sidepanelPage.getByRole("button", { name: "LMS 순서로 보기" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await sidepanelPage
+      .getByRole("button", { name: "LMS 순서로 보기" })
+      .click();
+    await expect(sidepanelPage.locator("li strong").first()).toHaveText(
+      "Synthetic Final Project",
+    );
+    await sidepanelPage.setViewportSize({ width: 320, height: 800 });
+    expect(
+      await sidepanelPage.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
     await sidepanelPage.screenshot({ path: todoScreenshot });
     await testInfo.attach("sidepanel-todo", {
       path: todoScreenshot,

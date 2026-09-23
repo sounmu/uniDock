@@ -83,7 +83,7 @@ it("paginates active courses and each Todo assignment list", async () => {
   ]);
   expect(fetcher).toHaveBeenCalledTimes(5);
 });
-it("lists every assignment from every active course in Todo", async () => {
+it("lists unfinished assignments from every active course in Todo", async () => {
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const path = new URL(String(input)).pathname;
     if (path === "/api/v1/courses")
@@ -100,6 +100,14 @@ it("lists every assignment from every active course in Todo", async () => {
             workflow_state: "submitted",
             submitted_at: "2026-09-09T09:00:00Z",
           },
+        },
+        {
+          name: "채점 완료 과제",
+          submission: { workflow_state: "graded" },
+        },
+        {
+          name: "제출 일시만 있는 과제",
+          submission: { submitted_at: "2026-09-09T09:00:00Z" },
         },
         { name: "마감 없는 과제", due_at: null },
       ]);
@@ -124,7 +132,6 @@ it("lists every assignment from every active course in Todo", async () => {
   if (result.status !== "success" || !("todo" in result))
     throw new Error("Expected Todo result");
   expect(result.todo.map(({ title, course }) => [title, course])).toEqual([
-    ["제출 완료 과제", "운영체제"],
     ["마감 없는 과제", "운영체제"],
     ["다가오는 과제", "국제법"],
   ]);

@@ -118,6 +118,7 @@ export function ResultList({
     <ItemResults
       items={items}
       deadlines={"assignments" in result || "deadlines" in result}
+      todo={"todo" in result}
     />
   );
 }

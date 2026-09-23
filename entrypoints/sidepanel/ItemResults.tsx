@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   filterDeadlines,
   remainingLabel,
+  sortByDue,
   type DeadlinePeriod,
 } from "../../src/deadline-view";
 import { PagedList } from "./PagedList";
@@ -33,9 +34,11 @@ export function dateLabel(value: string): string {
 export function ItemResults({
   items,
   deadlines,
+  todo = false,
 }: {
   items: (Deadline | Upcoming | Todo)[];
   deadlines: boolean;
+  todo?: boolean;
 }) {
   const [remainingOnly, setRemainingOnly] = useState(true);
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
@@ -59,8 +62,10 @@ export function ItemResults({
             { remainingOnly, period, sort },
             now,
           )
-        : items,
-    [items, deadlines, remainingOnly, period, sort, now],
+        : todo && sort
+          ? sortByDue(items as Todo[])
+          : items,
+    [items, deadlines, todo, remainingOnly, period, sort, now],
   );
   const resetKey = useMemo(() => ({}), [items, remainingOnly, period, sort]);
   return (
@@ -106,6 +111,15 @@ export function ItemResults({
             <span className="nowrap">새로고침이 필요합니다.</span>
           </p>
         </div>
+      )}
+      {todo && (
+        <button
+          className="secondary"
+          aria-pressed={sort}
+          onClick={() => setSort((current) => !current)}
+        >
+          {sort ? "LMS 순서로 보기" : "마감 빠른 순"}
+        </button>
       )}
       <p className="count">
         조회 완료 · {items.length}개 항목

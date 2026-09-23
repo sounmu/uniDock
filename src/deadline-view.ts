@@ -4,6 +4,16 @@ export type DeadlinePeriod = "all" | "week" | "day";
 const day = 86400000;
 const koreaOffset = 9 * 3600000;
 
+export function sortByDue<T extends Pick<Deadline, "due_at">>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const first = isoTime(a.due_at),
+      second = isoTime(b.due_at);
+    if (!Number.isFinite(first)) return Number.isFinite(second) ? 1 : 0;
+    if (!Number.isFinite(second)) return -1;
+    return first - second;
+  });
+}
+
 export function filterDeadlines<T extends Deadline>(
   items: T[],
   options: { remainingOnly: boolean; period: DeadlinePeriod; sort: boolean },
@@ -23,15 +33,7 @@ export function filterDeadlines<T extends Deadline>(
       return due >= monday && due < monday + 7 * day;
     return true;
   });
-  if (options.sort)
-    filtered.sort((a, b) => {
-      const first = isoTime(a.due_at),
-        second = isoTime(b.due_at);
-      if (!Number.isFinite(first)) return Number.isFinite(second) ? 1 : 0;
-      if (!Number.isFinite(second)) return -1;
-      return first - second;
-    });
-  return filtered;
+  return options.sort ? sortByDue(filtered) : filtered;
 }
 
 export function remainingLabel(due: string, now: number): string {
