@@ -1,4 +1,5 @@
 import { itemUrl } from "./security/item-link";
+import { validateCalendarEvents, type CalendarEvent } from "./calendar/events";
 import { type Recording } from "./recordings";
 import { type Course, projectCourses } from "./domain";
 import {
@@ -36,6 +37,13 @@ export type ListRequest =
     }
   | {
       version: 1;
+      type: "CALENDAR_LIST";
+      start_date: string;
+      end_date: string;
+      month: string;
+    }
+  | {
+      version: 1;
       type: "UPCOMING_LIST";
       start_date?: string;
       end_date?: string;
@@ -57,6 +65,7 @@ export type Result =
   | { status: "success"; assignments: Assignment[] }
   | { status: "success"; deadlines: Deadline[] }
   | { status: "success"; upcoming: Upcoming[] }
+  | { status: "success"; calendar: CalendarEvent[] }
   | { status: "success"; todo: Todo[] }
   | { status: "error"; code: ErrorCode };
 export const request = { version: 1, type: "COURSES_LIST" } as const;
@@ -87,6 +96,19 @@ export function isRequest(value: unknown): value is Request {
       row.course.trim().length > 0 &&
       row.course.length <= 2000 &&
       redactText(row.course) === row.course
+    );
+  if (row.type === "CALENDAR_LIST")
+    return (
+      keys.length === 5 &&
+      keys.every((key) =>
+        ["version", "type", "start_date", "end_date", "month"].includes(key),
+      ) &&
+      validDate(row.start_date) &&
+      validDate(row.end_date) &&
+      row.start_date <= row.end_date &&
+      typeof row.month === "string" &&
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(row.month) &&
+      Number(row.month.slice(0, 4)) > 0
     );
   if (row.type === "UPCOMING_LIST")
     return (
@@ -150,6 +172,7 @@ const resultKey = {
   ASSIGNMENTS_LIST: "assignments",
   DEADLINES_LIST: "deadlines",
   UPCOMING_LIST: "upcoming",
+  CALENDAR_LIST: "calendar",
   TODO_LIST: "todo",
   RECORDINGS_LIST: "recordings",
   RECORDING_OPEN: "opened",
@@ -171,7 +194,7 @@ export function parseResult(
         (!expected || expected.type === "RECORDING_OPEN")
       )
         return { status: "success", opened: true };
-      const keys = ["courses", ...Object.keys(fields)].filter(
+      const keys = ["courses", "calendar", ...Object.keys(fields)].filter(
         (key) => key in row,
       );
       const key = keys[0];
@@ -184,6 +207,10 @@ export function parseResult(
         throw new Error();
       const raw = row[key];
       if (!Array.isArray(raw) || raw.length > 10000) throw new Error();
+      if (key === "calendar") {
+        const calendar = validateCalendarEvents(raw, origin);
+        return { status: "success", calendar };
+      }
       if (key === "courses") {
         const courses: Course[] = [];
         for (let i = 0; i < raw.length; i += 1000)

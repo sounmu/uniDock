@@ -106,6 +106,8 @@ export function ResultList({
         )}
       </>
     );
+  if ("calendar" in result)
+    return <div className="notice">캘린더에서 일정을 확인하세요.</div>;
   const items =
     "assignments" in result
       ? result.assignments

@@ -6,6 +6,7 @@ import {
   type Result,
 } from "../../src/protocol";
 import { queryActive, type QueryTarget } from "../../src/transport";
+import { currentMonthKorea, monthRange } from "./CalendarPanel";
 
 export type SidepanelView =
   | "COURSES_LIST"
@@ -14,7 +15,9 @@ export type SidepanelView =
   | "UPCOMING_LIST"
   | "TODO_LIST"
   | "RECORDINGS_LIST"
-  | "CAPTIONS";
+  | "CAPTIONS"
+  | "CALENDAR_LIST"
+  | "PLAYBACK";
 
 export const tabs = [
   ["COURSES_LIST", "내 과목"],
@@ -24,6 +27,8 @@ export const tabs = [
   ["TODO_LIST", "Todo"],
   ["RECORDINGS_LIST", "녹화 강의"],
   ["CAPTIONS", "자막 추출"],
+  ["CALENDAR_LIST", "캘린더"],
+  ["PLAYBACK", "자동 재생"],
 ] as const satisfies readonly (readonly [SidepanelView, string])[];
 
 export const messages: Record<ErrorCode, string> = {
@@ -54,6 +59,13 @@ export function useSidepanelQuery() {
   const [course, setCourse] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(currentMonthKorea);
+  const [postingStart, setPostingStart] = useState(
+    () => monthRange(currentMonthKorea()).start,
+  );
+  const [postingEnd, setPostingEnd] = useState(
+    () => monthRange(currentMonthKorea()).end,
+  );
   const [state, setState] = useState<Result | { status: "idle" | "loading" }>({
     status: "idle",
   });
@@ -174,16 +186,31 @@ export function useSidepanelQuery() {
     view === "ASSIGNMENTS_LIST" ||
     view === "DEADLINES_LIST" ||
     view === "RECORDINGS_LIST";
-  const query: Request = needsCourse
-    ? { version: 1, type: view, course }
-    : view === "UPCOMING_LIST"
+  const query: Request =
+    view === "CALENDAR_LIST"
       ? {
           version: 1,
-          type: view,
-          ...(start ? { start_date: start } : {}),
-          ...(end ? { end_date: end } : {}),
+          type: "CALENDAR_LIST",
+          month: calendarMonth,
+          start_date: postingStart,
+          end_date: postingEnd,
         }
-      : { version: 1, type: view === "CAPTIONS" ? "COURSES_LIST" : view };
+      : needsCourse
+        ? { version: 1, type: view, course }
+        : view === "UPCOMING_LIST"
+          ? {
+              version: 1,
+              type: view,
+              ...(start ? { start_date: start } : {}),
+              ...(end ? { end_date: end } : {}),
+            }
+          : {
+              version: 1,
+              type:
+                view === "CAPTIONS" || view === "PLAYBACK"
+                  ? "COURSES_LIST"
+                  : view,
+            };
   return {
     view,
     setView,
@@ -193,6 +220,12 @@ export function useSidepanelQuery() {
     setStart,
     end,
     setEnd,
+    calendarMonth,
+    setCalendarMonth,
+    postingStart,
+    setPostingStart,
+    postingEnd,
+    setPostingEnd,
     state,
     recordingAction,
     clear,

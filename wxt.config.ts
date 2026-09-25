@@ -4,9 +4,16 @@ export default defineConfig({
   manifest: {
     name: "uniDock",
     description:
-      "CANVAS LearningX LMS 과제·일정·녹화 강의를 조회하고 강의 자막을 TXT·JSON으로 저장하는 비공식 학습 도우미.",
+      "고려대 LMS 과제·공지 일정과 녹화 강의를 확인하고 선택한 과목의 강의를 예약 재생하는 비공식 학습 도우미.",
     minimum_chrome_version: "114",
-    permissions: ["sidePanel", "activeTab", "scripting", "downloads"],
+    permissions: [
+      "sidePanel",
+      "activeTab",
+      "scripting",
+      "downloads",
+      "storage",
+      "alarms",
+    ],
     host_permissions: [
       "https://mylms.korea.ac.kr/*",
       "https://canvas.korea.ac.kr/*",

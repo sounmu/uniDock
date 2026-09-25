@@ -180,7 +180,7 @@ it("links schedule and Todo titles to their LMS posts", async () => {
   });
   ui = await mount(<App />);
   for (const [menu, title] of [
-    ["전체 일정", "일정 게시글"],
+    ["예정 일정", "일정 게시글"],
     ["Todo", "할 일 게시글"],
   ]) {
     await click(menu!);

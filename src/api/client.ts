@@ -6,6 +6,7 @@ import {
   projectCourseTodo,
   projectDeadlines,
   projectUpcoming,
+  isoTime,
   rows,
   type Todo,
 } from "../domain-items";
@@ -20,6 +21,13 @@ import { readUrl } from "../security/policy";
 import { redactText } from "../security/redaction";
 import { nextPage } from "./pagination";
 import { collectRecordings } from "./recording-collection";
+import {
+  announcementEvents,
+  assignmentEvents,
+  flagRelated,
+  plannerEvents,
+  validateCalendarEvents,
+} from "../calendar/events";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -97,6 +105,103 @@ export async function listQuery(
             `/api/v1/planner/items?${params}`,
             "/api/v1/planner/items",
             (raw) => projectUpcoming(raw, origin),
+          ),
+        };
+      }
+      case "CALENDAR_LIST": {
+        const courses = await collect(coursesQuery, coursesPath, (raw) =>
+          rows(raw).flatMap((row) => {
+            if (
+              !(
+                typeof row.id === "string" ||
+                (typeof row.id === "number" && Number.isSafeInteger(row.id))
+              ) ||
+              !/^[1-9]\d{0,19}$/.test(String(row.id)) ||
+              typeof row.name !== "string" ||
+              row.name.length > 2000
+            )
+              return [];
+            return [
+              {
+                id: String(row.id),
+                name: redactText(row.name, [String(row.id)]).trim(),
+              },
+            ];
+          }),
+        );
+        const names = new Map(courses.map(({ id, name }) => [id, name]));
+        const monthStart = `${query.month}-01`;
+        const lastDay = new Date(0);
+        lastDay.setUTCFullYear(
+          Number(query.month.slice(0, 4)),
+          Number(query.month.slice(5)),
+          0,
+        );
+        const monthEnd = lastDay.toISOString().slice(0, 10);
+        const planner = await collect(
+          `/api/v1/planner/items?${new URLSearchParams({ per_page: "100", start_date: monthStart, end_date: monthEnd })}`,
+          "/api/v1/planner/items",
+          (raw) => plannerEvents(raw, origin),
+        );
+        const announcements = [];
+        const assignments = [];
+        for (const course of courses) {
+          const assignmentPath = `/api/v1/courses/${course.id}/assignments`;
+          assignments.push(
+            ...(await collect(
+              `${assignmentPath}?per_page=100&include[]=submission`,
+              assignmentPath,
+              (raw) => assignmentEvents(raw, course.name, course.id, origin),
+            )),
+          );
+          const params = new URLSearchParams({
+            per_page: "100",
+            "context_codes[]": `course_${course.id}`,
+            start_date: query.start_date,
+            end_date: query.end_date,
+          });
+          announcements.push(
+            ...(await collect(
+              `/api/v1/announcements?${params}`,
+              "/api/v1/announcements",
+              (raw) => {
+                if (!Array.isArray(raw)) throw new Error("INVALID_RESPONSE");
+                return announcementEvents(
+                  raw.filter((value) => {
+                    if (
+                      !value ||
+                      typeof value !== "object" ||
+                      Array.isArray(value)
+                    )
+                      return true;
+                    const posted = (value as Record<string, unknown>).posted_at;
+                    if (
+                      typeof posted !== "string" ||
+                      !Number.isFinite(isoTime(posted))
+                    )
+                      return true;
+                    const day = new Date(isoTime(posted))
+                      .toISOString()
+                      .slice(0, 10);
+                    return day >= query.start_date && day <= query.end_date;
+                  }),
+                  names,
+                  origin,
+                );
+              },
+            )),
+          );
+          if (
+            announcements.length + assignments.length + planner.length >
+            10000
+          )
+            throw new Error("LIMIT");
+        }
+        return {
+          status: "success",
+          calendar: validateCalendarEvents(
+            flagRelated([...planner, ...assignments, ...announcements]),
+            origin,
           ),
         };
       }

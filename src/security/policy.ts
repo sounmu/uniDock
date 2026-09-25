@@ -33,8 +33,18 @@ export function readUrl(
       expectedPath,
     );
   const courses = expectedPath === "/api/v1/courses",
-    planner = expectedPath === "/api/v1/planner/items";
-  if (!(assignments || modules || moduleItems || courses || planner))
+    planner = expectedPath === "/api/v1/planner/items",
+    announcements = expectedPath === "/api/v1/announcements",
+    currentUser = expectedPath === "/api/v1/users/self";
+  if (!(
+    assignments ||
+    modules ||
+    moduleItems ||
+    courses ||
+    planner ||
+    announcements ||
+    currentUser
+  ))
     throw new Error("POLICY");
   if (
     !allowedPage(url.href) ||
@@ -44,11 +54,11 @@ export function readUrl(
   )
     throw new Error("POLICY");
   const permitted = [
-    "per_page",
-    "page",
+    ...(!currentUser ? ["per_page", "page"] : []),
     ...(courses ? ["enrollment_state"] : []),
     ...(assignments || modules || moduleItems ? ["include[]"] : []),
-    ...(planner ? ["start_date", "end_date"] : []),
+    ...(planner || announcements ? ["start_date", "end_date"] : []),
+    ...(announcements ? ["context_codes[]"] : []),
   ];
   for (const [key, val] of url.searchParams) {
     if (
@@ -75,12 +85,19 @@ export function readUrl(
       if (!includes.includes(val) || new Set(values).size !== values.length)
         throw new Error("POLICY");
     }
+    if (key === "context_codes[]" && !/^course_[1-9]\d{0,19}$/.test(val))
+      throw new Error("POLICY");
     if ((key === "start_date" || key === "end_date") && !validDate(val))
       throw new Error("POLICY");
   }
   const start = url.searchParams.get("start_date"),
     end = url.searchParams.get("end_date");
   if (start && end && start > end) throw new Error("POLICY");
+  if (
+    announcements &&
+    (!start || !end || url.searchParams.getAll("context_codes[]").length !== 1)
+  )
+    throw new Error("POLICY");
   return url;
 }
 export function courseUrl(value: string, origin: string): URL {

@@ -1,3 +1,5 @@
+import { CalendarPanel } from "./CalendarPanel";
+import { PlaybackPanel } from "./PlaybackPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
 import { ResultList } from "./ResultList";
 import { messages, tabs, useSidepanelQuery } from "./useSidepanelQuery";
@@ -12,6 +14,11 @@ export function App() {
     setStart,
     end,
     setEnd,
+    postingStart,
+    setPostingStart,
+    setCalendarMonth,
+    postingEnd,
+    setPostingEnd,
     state,
     recordingAction,
     clear,
@@ -32,16 +39,11 @@ export function App() {
           내 과목
         </button>
         <button
-          aria-pressed={view === "UPCOMING_LIST"}
+          aria-pressed={view === "CALENDAR_LIST"}
           onClick={() => {
             setCourse("");
-            setView("UPCOMING_LIST");
-            void load({
-              version: 1,
-              type: "UPCOMING_LIST",
-              ...(start ? { start_date: start } : {}),
-              ...(end ? { end_date: end } : {}),
-            });
+            clear();
+            setView("CALENDAR_LIST");
           }}
         >
           전체 일정
@@ -55,6 +57,30 @@ export function App() {
           }}
         >
           Todo
+        </button>
+        <button
+          aria-pressed={view === "UPCOMING_LIST"}
+          onClick={() => {
+            setCourse("");
+            setView("UPCOMING_LIST");
+            void load({
+              version: 1,
+              type: "UPCOMING_LIST",
+              ...(start ? { start_date: start } : {}),
+              ...(end ? { end_date: end } : {}),
+            });
+          }}
+        >
+          예정 일정
+        </button>
+        <button
+          aria-pressed={view === "PLAYBACK"}
+          onClick={() => {
+            clear();
+            setView("PLAYBACK");
+          }}
+        >
+          자동 재생
         </button>
         <button
           aria-pressed={view === "CAPTIONS"}
@@ -126,6 +152,34 @@ export function App() {
       )}
       {view === "CAPTIONS" ? (
         <CaptionsPanel />
+      ) : view === "PLAYBACK" ? (
+        <PlaybackPanel />
+      ) : view === "CALENDAR_LIST" ? (
+        <CalendarPanel
+          events={
+            state.status === "success" && "calendar" in state
+              ? state.calendar
+              : []
+          }
+          loading={state.status === "loading"}
+          errorCode={state.status === "error" ? state.code : undefined}
+          postingStart={postingStart}
+          postingEnd={postingEnd}
+          onPostingChange={(field, value) => {
+            if (field === "start") setPostingStart(value);
+            else setPostingEnd(value);
+          }}
+          onLoadMonth={(month) => {
+            setCalendarMonth(month);
+            void load({
+              version: 1,
+              type: "CALENDAR_LIST",
+              month,
+              start_date: postingStart,
+              end_date: postingEnd,
+            });
+          }}
+        />
       ) : (
         <>
           {view === "TODO_LIST" && (
@@ -237,8 +291,8 @@ export function App() {
       <footer>
         조회 시 현재 LMS 세션의 정보를 이 기기에 표시합니다.
         <br />
-        개발자 서버로 전송하지 않으며, 직접 다운로드한 자막 추출 외에는 저장하지
-        않습니다.{" "}
+        개발자 서버로 전송하지 않으며, 자막 다운로드 외에는 일정 수정·제외 및
+        재생 설정만 이 기기에 저장합니다.{" "}
         <a href="privacy.html" target="_blank" rel="noreferrer">
           개인정보 처리방침
         </a>

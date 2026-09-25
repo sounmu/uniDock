@@ -16,7 +16,14 @@ const lmsHosts = [
 ];
 assert.deepEqual(
   [...manifest.permissions].sort(),
-  ["activeTab", "downloads", "scripting", "sidePanel"].sort(),
+  [
+    "activeTab",
+    "alarms",
+    "downloads",
+    "scripting",
+    "sidePanel",
+    "storage",
+  ].sort(),
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
@@ -33,10 +40,22 @@ for (const key of [
   assert.equal(manifest[key], undefined);
 assert.equal(manifest.side_panel.default_path, "sidepanel.html");
 assert.equal(manifest.background.service_worker, "background.js");
-assert.equal(manifest.content_scripts.length, 1);
-assert.equal(manifest.content_scripts[0].all_frames, false);
-// KU player access is for on-demand caption extraction, not the LMS content script.
-assert.deepEqual([...manifest.content_scripts[0].matches].sort(), lmsHosts);
+assert.equal(manifest.content_scripts.length, 2);
+const lmsContent = manifest.content_scripts.find((script) =>
+  script.js.includes("content-scripts/lms.js"),
+);
+const playerContent = manifest.content_scripts.find((script) =>
+  script.js.includes("content-scripts/player.js"),
+);
+assert(lmsContent);
+assert(playerContent);
+assert.equal(lmsContent.all_frames, false);
+assert.deepEqual([...lmsContent.matches].sort(), lmsHosts);
+assert.equal(playerContent.all_frames, true);
+assert.deepEqual(
+  [...playerContent.matches].sort(),
+  [...lmsHosts, "https://kucom.korea.ac.kr/em/*"].sort(),
+);
 assert.equal(
   manifest.content_security_policy.extension_pages,
   "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'",
@@ -54,7 +73,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|player)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,

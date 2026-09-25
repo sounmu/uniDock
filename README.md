@@ -42,6 +42,8 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 | Todo | 없음 | 현재 수강 중인 모든 과목의 미제출 과제·마감·과목, 마감일 정렬 |
 | 녹화 강의 | 과목명 | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기 |
 | 자막 추출 | 사용자가 연 강의 탭 | DOM 우선, XML/VTT 대체 조회 및 시간 포함 TXT·JSON 다운로드 |
+| 공지 캘린더 | 공지 게시일 범위·표시 월·과목 | 공지 본문의 날짜·근거와 과제·공식 일정, 수정·제외·충돌 표시 |
+| 예약 재생 (opt-in) | 선택적 과목·설정 | 마감 전 1x 속도 예약 재생, 시간대 설정, ended/LMS credit 분리 추적 |
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
@@ -77,17 +79,19 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 /api/v1/planner/items?per_page=100[&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD]
 /api/v1/courses/{ID}/modules?per_page=100&include[]=items&include[]=content_details
 /api/v1/courses/{ID}/modules/{module ID}/items?per_page=100&include[]=content_details
+/api/v1/announcements?context_codes[]=course_{내부에서 확인한 ID}&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+/api/v1/users/self
 ```
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지를 위해 사용자가 강의 탭에서 도구 모음 아이콘을 눌렀을 때 `activeTab`으로 임시 접근하고 `scripting`으로 제한된 읽기 함수를 실행합니다. `cookies`, `storage`, `tabs`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `storage`는 계정 구분, 사용자가 수정·제외한 일정과 opt-in 예약 재생의 최소 메타데이터에 사용합니다. `alarms`는 opt-in 예약 재생의 실행 시각에만 사용하며 캘린더 알림은 제공하지 않습니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON을 제외하고 파일에 LMS 데이터를 저장하지 않습니다. Chrome storage, local/session storage, IndexedDB, telemetry도 사용하지 않습니다. Fetch는 `cache: no-store`입니다. 목록과 선택한 과목은 패널 메모리에 남아 탭 전환·페이지 탐색·새로고침에도 유지됩니다. 내 과목 목록은 메뉴로 돌아올 때 재사용하고 새로고침 버튼으로 갱신합니다. 다른 결과는 다음 조회·기능/필터 변경 때 교체하며, 로그인/권한 오류가 확인되면 보관한 과목 목록도 지웁니다. 패널 종료 시 메모리의 목록은 사라집니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON을 제외하고 파일에 LMS 데이터를 저장하지 않습니다. 공지 조회 결과는 메모리에 두고 사용자가 수정·제외한 일정의 식별자·원문 개정 시각·수정값과 opt-in 예약 설정·최소 과목/영상 식별자·상태를 `chrome.storage.local`에 계정별로 저장합니다. 전용 탭 소유권은 `chrome.storage.session`에서 확인합니다. 쿠키, 토큰, 원본 API 응답 전체, 서명된 LTI URL은 저장하지 않습니다. 사용자가 설정에서 데이터를 즉시 삭제할 수 있습니다. IndexedDB와 telemetry는 사용하지 않습니다. Fetch는 `cache: no-store`입니다. 일반 목록은 패널 메모리에 남아 재조회·화면 변경·패널 종료 시 교체하거나 사라집니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
 
-과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, 영상 자동재생/keepalive/출석 자동화는 구현하지 않습니다. CLI의 자료 다운로드·일반 캘린더 이벤트·feed는 현재 범위 밖입니다.
+과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. opt-in 예약 재생은 사용자가 명시적으로 활성화한 과목에서만 정상(1x) 속도로 동작하며, 동의 없는 자동재생이나 배속 재생은 하지 않습니다. CLI의 자료 다운로드·feed는 현재 범위 밖입니다.
 
 ## 녹화 강의 탐색과 탭 열기
 
@@ -106,7 +110,7 @@ Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`입니
 
 백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules` 또는 `/courses/{ID}/modules/items/{ID}` 주소만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않으므로 manifest 권한은 그대로입니다.
 
-자동재생, 연속 재생, 숨겨진 탭, 영상 제어, 완료/출석 API, keepalive는 없습니다. 열린 LMS/LTI 자체가 영상을 재생하거나 시청·진도·출석을 기록할 수 있으며 재생은 사용자가 해당 화면에서 제어합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
+동의 없는 자동재생, 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조는 없습니다. opt-in 예약 재생은 사용자가 활성화한 과목의 강의만 정상(1x) 속도로 한 편씩 시작하며, PC가 꺼져 있거나 브라우저가 닫혀 있으면 실행되지 않습니다. 플레이어는 영상의 네이티브 종료(ended)만 감지하며, LMS 출석/시청 완료 인정과는 별개입니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
 
 ## 화면 자막 / 플레이어 VTT → TXT·JSON
 
@@ -141,6 +145,30 @@ KU iframe 접근을 위해 KU 호스트 권한, 다운로드 하위 폴더 지�
 KU 소스 근거: [공개 교육 영상](https://kucom.korea.ac.kr/em/6746b8bd7574a), [플레이어 JavaScript](https://kucom.korea.ac.kr/viewer/uniplayer/uni-player.min.js?version=1.2.0.63)의 `getFirstStoryIdx`, `parseClosedCaption`, `ClosedCaptionParser`.
 
 `npm run test:captions:live`는 공개 교육 영상의 XML/VTT에 실제 HTTP 요청을 보내 새 추출·변환·내보내기 함수를 검증하고 `output/ku-public-caption-test.txt`와 `.json`을 생성합니다. 공개 콘텐츠 XML로 단일 본편 설정을 구성하므로 로그인 세션, 실제 브라우저의 uniPlayerConfig, iframe 권한·CORS·다운로드 UI를 검증하는 테스트는 아닙니다.
+
+## 공지 캘린더
+
+‘전체 일정’을 조회하면 동작합니다. 공지 게시일 수집 범위와 화면 표시 월은 별도 입력이며, 공지 게시일을 행사일로 사용하지 않습니다.
+
+공지사항 API 응답(`/api/v1/announcements`)에서 날짜·시각 패턴을 추출하여 과목별 캘린더 이벤트를 생성합니다(`src/calendar/events.ts`). 이벤트에는 과목명, 일정 제목, 날짜/시각, 상태 플래그(confirmed, ambiguous, changed, cancelled, duplicate, conflict, date-only), 증거 텍스트(redaction 적용 후 500자 이내)를 포함합니다. 원본 공지 HTML 전체나 내부 ID는 포함하지 않습니다. 연도 없는 날짜는 연도를 추정하지 않고 unresolved 증거로 보존합니다. 동일 과목·제목의 중복/충돌 이벤트를 자동 표시합니다. 프로토콜의 `CALENDAR_LIST` 요청으로 패널에 전달합니다.
+
+조회한 이벤트는 기본적으로 메모리에만 둡니다. 사용자가 수정·제외한 이벤트의 식별자·원문 개정 시각·수정값만 계정별로 보관하며 원문이 바뀌면 재확인을 요청합니다. 캘린더 알림은 제공하지 않습니다. 추출한 데이터를 개발자 서버, 외부 AI, 분석 서비스로 전송하지 않습니다.
+
+## 예약 재생 (opt-in)
+
+기본 비활성이며 사용자가 설정에서 과목 단위로 명시적으로 켜야 동작합니다.
+
+과목별로 opt-in한 녹화 강의를 마감 전 지정 시간대(기본 09:00~22:00 한국 시간)에 정상(1x) 속도로 자동 시작합니다. 스케줄러(`src/playback/scheduler.ts`)는 마감이 있는 미완료 강의를 마감 빠른 순으로 정렬하고, 마감 leadHours 시간 전까지 시간대 안에서 연속 배치합니다. 여유 시간이 부족하면 margin을 줄이고, 그래도 마감 전에 끝낼 수 없으면 infeasible로 분류합니다. 플레이어(`src/playback/player.ts`)는 제공된 네이티브 video 요소를 `playbackRate = 1`로 재생합니다.
+
+**제한 사항과 경계:**
+
+- 1x 고정. 배속 재생이나 속도 조작은 하지 않습니다.
+- 브라우저가 실행 중이고 강의 탭이 활성 상태여야 합니다. PC가 꺼져 있거나 브라우저가 닫혀 있으면 예약 재생이 실행되지 않습니다. 숨겨진 탭이나 백그라운드에서의 재생은 하지 않습니다.
+- "ended"와 "LMS 출석"의 구분. 플레이어는 브라우저의 네이티브 `ended` 이벤트로 영상 종료를 감지합니다. 이는 LMS의 시청 완료/출석 인정과 별개입니다. 출처를 검증하지 못한 LMS credit은 `unknown`으로 남기며 출석을 위조하거나 LMS 완료/출석 API를 호출하지 않습니다.
+- 재생 시작 전 현재 계정과 강의 접근 권한을 다시 확인합니다. 로그인 페이지가 감지되면 `blocked-login` 상태로 중단합니다.
+- `chrome.storage.local`에 계정별 재생 설정과 최소 예약/종료/제외 ID, 전용 탭 복구 포인터를 보관하고 `chrome.storage.session`으로 탭 소유권을 확인합니다. 강의 URL, LTI launch URL, 서명된 LTI 파라미터, 쿠키, 토큰은 저장하지 않습니다.
+- 종료된 재생 기록은 30일 뒤 정리하고, 활성 과목 설정과 사용자의 일정 수정은 사용자가 삭제할 때까지 보관합니다. 사용자는 설정에서 즉시 모두 삭제할 수 있습니다.
+- 영상별 인정 기한·길이·완료 상태의 실제 KU 출처는 미검증입니다. 확인되지 않은 강의는 사용자가 기한·길이·미완료를 확인하지 않으면 예약하지 않습니다. 합성 검증으로 실제 LMS·SSO/LTI·Chrome 114·출석 인정을 주장하지 않습니다.
 
 ## Python 계약 테스트
 
@@ -193,9 +221,9 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `cookies`, `storage`, `tabs`와 기타 상시 외부 호스트 권한은 없음.
+- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `storage`는 사용자의 일정 수정·제외와 예약 설정에, `alarms`는 opt-in 예약 재생에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`와 기타 상시 외부 호스트 권한은 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
-- 실제 LMS 세션 요청 및 브라우저 UI 육안 검증: 미실시. 위 수동 절차로 확인 필요.
+- 합성 LMS를 사용한 production 확장 브라우저 UI 검증은 통과했습니다. 실제 LMS 세션에서의 UI와 플레이어 검증은 미실시이며 위 수동 절차로 확인이 필요합니다.
 
 
 ## Chrome Web Store 배포 준비
