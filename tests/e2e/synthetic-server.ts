@@ -1,0 +1,172 @@
+import { createServer } from "node:https";
+import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import path from "node:path";
+
+export function textPdf(text: string): Buffer {
+  const stream = `BT /F1 12 Tf 72 720 Td (${text.replaceAll(/[()\\]/g, "\\$&")}) Tj ET`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let index = 0; index < objects.length; index++) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`)
+    .join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
+
+export async function syntheticServer(directory: string) {
+  const keyPath = path.join(directory, "key.pem"),
+    certPath = path.join(directory, "cert.pem");
+  await promisify(execFile)("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    keyPath,
+    "-out",
+    certPath,
+    "-days",
+    "1",
+    "-subj",
+    "/CN=mylms.korea.ac.kr",
+  ]);
+  let coursesRequestSeen = false;
+  const downloads: string[] = [];
+  const pdf = textPdf("Operating systems schedule runnable processes.");
+  const server = createServer(
+    { key: await readFile(keyPath), cert: await readFile(certPath) },
+    (request, response) => {
+      const url = new URL(request.url ?? "/", "https://mylms.korea.ac.kr");
+      const routes: Record<string, unknown> = {
+        "/api/v1/courses": [
+          { id: 101, name: "Synthetic Operating Systems" },
+          { id: 202, name: "Synthetic International Law" },
+        ],
+        "/api/v1/courses/101/assignments": [
+          {
+            name: "Synthetic Final Project",
+            due_at: "2099-09-20T14:00:00+09:00",
+            published: true,
+            locked_for_user: false,
+            submission: {
+              workflow_state: "unsubmitted",
+              submitted_at: null,
+              missing: false,
+              late: false,
+            },
+          },
+        ],
+        "/api/v1/courses/202/assignments": [
+          {
+            name: "Synthetic Submitted Essay",
+            due_at: "2026-09-10T14:00:00+09:00",
+            submission: {
+              workflow_state: "submitted",
+              submitted_at: "2026-09-09T14:00:00+09:00",
+            },
+          },
+          {
+            name: "Synthetic Undated Reading",
+            due_at: null,
+            submission: { workflow_state: "unsubmitted" },
+          },
+          {
+            name: "Synthetic Early Deadline",
+            due_at: "2099-08-20T14:00:00+09:00",
+            submission: { workflow_state: "unsubmitted" },
+          },
+        ],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 10,
+            name: "Week 1",
+            published: true,
+            items_count: 2,
+            items: [
+              {
+                id: 900,
+                content_id: 501,
+                type: "File",
+                title: "lecture.pdf",
+                content_details: { display_name: "lecture.pdf" },
+              },
+              { id: 901, content_id: 502, type: "File", title: "reading.pdf" },
+            ],
+          },
+        ],
+      };
+      if (url.pathname === "/api/v1/courses") coursesRequestSeen = true;
+      if (request.method !== "GET") {
+        response.writeHead(405);
+        response.end();
+        return;
+      }
+      if (
+        /^\/courses\/101\/files\/(501|502)\/download$/.test(url.pathname) &&
+        url.search === "?download_frd=1"
+      ) {
+        downloads.push(url.pathname);
+        response.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "attachment",
+          "Content-Length": pdf.length,
+        });
+        response.end(pdf);
+        return;
+      }
+      if (
+        url.pathname === "/" ||
+        url.pathname === "/courses/101/modules/items/900"
+      ) {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(
+          '<!doctype html><html lang="en"><title>Synthetic LMS</title><body><main><h1>Synthetic LMS</h1><p>Browser fixture for uniDock.</p></main></body></html>',
+        );
+        return;
+      }
+      if (url.pathname in routes) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify(routes[url.pathname]));
+        return;
+      }
+      response.writeHead(404);
+      response.end("not found");
+    },
+  );
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string")
+    throw new Error("Missing fixture server address");
+  return {
+    port: address.port,
+    pdf,
+    downloads,
+    coursesSeen: () => coursesRequestSeen,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      }),
+  };
+}

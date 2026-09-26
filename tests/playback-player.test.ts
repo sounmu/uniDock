@@ -48,6 +48,18 @@ function nativeSignal(video: HTMLVideoElement, name: string) {
   return () => notify(name);
 }
 
+function advanceMedia(video: HTMLVideoElement, notify: (name: string) => void) {
+  const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+  Object.defineProperty(video, "paused", { configurable: true, value: false });
+  Object.defineProperty(video, "duration", { configurable: true, value: 2 });
+  notify("playing");
+  for (let time = 0.25; time <= 2; time += 0.25) {
+    clock.mockReturnValue(time * 1000);
+    video.currentTime = time;
+    notify("timeupdate");
+  }
+}
+
 it("starts at normal native speed, pauses, resumes and stops without seeking", async () => {
   const { video, play, pause, player } = fixture();
   video.playbackRate = 2;
@@ -64,41 +76,17 @@ it("starts at normal native speed, pauses, resumes and stops without seeking", a
   expect(seek).not.toHaveBeenCalled();
 });
 
-it("reads metadata without playing or loading, rejecting nonfinite durations and forged events", async () => {
-  vi.useFakeTimers();
-  const { video, play, player } = fixture({ timeoutMs: 100 });
-  const load = vi.spyOn(video, "load");
-  Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
-  Object.defineProperty(video, "duration", { configurable: true, value: 42 });
-  expect(await player.readDuration()).toBe(42);
-  expect(play).not.toHaveBeenCalled();
-  expect(load).not.toHaveBeenCalled();
-  Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
-  const notify = nativeSignal(video, "loadedmetadata");
-  const pending = player.readDuration();
-  video.dispatchEvent(new Event("loadedmetadata"));
-  Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
-  notify();
-  expect(await pending).toBe(42);
-  Object.defineProperty(video, "duration", {
-    configurable: true,
-    value: Infinity,
-  });
-  const unknown = player.readDuration();
-  await vi.advanceTimersByTimeAsync(100);
-  expect(await unknown).toBeNull();
-});
-
 it("only a trusted native ended event with ended=true completes playback, never credit", async () => {
   const { video, player } = fixture();
-  const notify = nativeSignal(video, "ended");
+  const notify = nativeSignals(video, ["ended", "playing", "timeupdate"]);
   await player.start();
   video.dispatchEvent(new Event("ended"));
   expect(player.status.state).toBe("playing");
-  notify();
+  notify("ended");
   expect(player.status.state).toBe("playing");
+  advanceMedia(video, notify);
   Object.defineProperty(video, "ended", { configurable: true, value: true });
-  notify();
+  notify("ended");
   expect(player.status).toEqual({ state: "ended" });
   expect(await player.resume()).toEqual({ state: "ended" });
 });
@@ -118,8 +106,14 @@ it("does not misclassify the native pause that precedes ended as a user pause", 
   const { video, player } = fixture({
     onStateChange: ({ state }) => states.push(state),
   });
-  const notify = nativeSignals(video, ["pause", "ended"]);
+  const notify = nativeSignals(video, [
+    "pause",
+    "ended",
+    "playing",
+    "timeupdate",
+  ]);
   await player.start();
+  advanceMedia(video, notify);
   Object.defineProperty(video, "paused", { configurable: true, value: true });
   Object.defineProperty(video, "ended", { configurable: true, value: true });
   notify("pause");
@@ -129,11 +123,36 @@ it("does not misclassify the native pause that precedes ended as a user pause", 
   expect(states).toEqual(["starting", "playing", "ended"]);
 });
 
+it.each(["no-progress", "seek", "source-change"])(
+  "pauses rather than completes on an unverified end: %s",
+  async (scenario) => {
+    const onDiagnostic = vi.fn();
+    const { video, player } = fixture({ onDiagnostic });
+    const notify = nativeSignals(video, [
+      "ended",
+      "playing",
+      "timeupdate",
+      "seeking",
+      "loadstart",
+    ]);
+    await player.start();
+    if (scenario !== "no-progress") advanceMedia(video, notify);
+    if (scenario === "seek") notify("seeking");
+    if (scenario === "source-change") notify("loadstart");
+    Object.defineProperty(video, "ended", { configurable: true, value: true });
+    notify("ended");
+    expect(player.status).toEqual({
+      state: "paused",
+      reason: "unverified-end",
+    });
+    expect(onDiagnostic).toHaveBeenCalledWith("END_UNVERIFIED");
+  },
+);
+
 it("reports login, autoplay denial, play rejection and native media errors", async () => {
   const login = fixture({ isLoginPage: () => true });
   expect(await login.player.start()).toEqual({ state: "blocked-login" });
   expect(login.play).not.toHaveBeenCalled();
-  expect(await login.player.readDuration()).toBeNull();
 
   const autoplay = fixture();
   autoplay.play.mockRejectedValue(
@@ -161,7 +180,30 @@ it("reports login, autoplay denial, play rejection and native media errors", asy
   expect(media.player.status).toEqual({ state: "failed", reason: "media" });
 });
 
-it("bounds hung play and metadata; ignores late completion and cancellation", async () => {
+it("retries autoplay denial once muted and reports fixed diagnostic codes", async () => {
+  const onDiagnostic = vi.fn();
+  const { video, play, player } = fixture({ onDiagnostic });
+  play.mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+  expect(await player.start()).toEqual({ state: "playing" });
+  expect(video.muted).toBe(true);
+  expect(play).toHaveBeenCalledTimes(2);
+  expect(onDiagnostic.mock.calls.flat()).toEqual([
+    "PLAY_REQUEST",
+    "AUTOPLAY_DENIED",
+    "MUTED_RETRY",
+    "PLAY_ACCEPTED",
+  ]);
+});
+
+it("does not retry decoder failures or already muted autoplay denial", async () => {
+  const f = fixture();
+  f.video.muted = true;
+  f.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+  expect(await f.player.start()).toEqual({ state: "blocked-autoplay" });
+  expect(f.play).toHaveBeenCalledOnce();
+});
+
+it("bounds hung play and ignores late completion and cancellation", async () => {
   vi.useFakeTimers();
   const { video, player, play, pause } = fixture({ timeoutMs: 50 });
   let resolvePlay!: () => void;
@@ -193,8 +235,6 @@ it("bounds hung play and metadata; ignores late completion and cancellation", as
   release();
   await Promise.resolve();
   expect(second.player.status.state).toBe("stopped");
-  const metadata = second.player.readDuration();
-  expect(await metadata).toBeNull();
   video.dispatchEvent(new Event("ended"));
 
   const detached = fixture({ timeoutMs: 50 });

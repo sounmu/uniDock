@@ -72,6 +72,10 @@ function setup(
   const event = (state: string) =>
     new Promise<Wire>((resolve) => subscriptions.set(state, resolve));
   const video = document.createElement("video");
+  document.body.className = "vc-vplay-container";
+  video.className = "vc-vplay-video1";
+  video.src = "https://kucom.korea.ac.kr/fixture.webm";
+  Object.defineProperty(video, "readyState", { configurable: true, value: 4 });
   const play = vi.spyOn(video, "play").mockResolvedValue(undefined);
   const pause = vi.spyOn(video, "pause").mockImplementation(() => {});
   const control = (
@@ -113,6 +117,7 @@ function setup(
 afterEach(() => {
   window.dispatchEvent(new Event("pagehide"));
   document.body.replaceChildren();
+  document.body.className = "";
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -130,6 +135,9 @@ it("does not handshake on non-player pages or until exactly one native video exi
 
   const fixture = setup();
   const second = document.createElement("video");
+  second.className = "vc-vplay-video1";
+  second.src = "https://kucom.korea.ac.kr/fixture.webm";
+  Object.defineProperty(second, "readyState", { value: 4 });
   document.body.append(fixture.video, second);
   const playing = fixture.event("playing");
   page.main();
@@ -141,6 +149,84 @@ it("does not handshake on non-player pages or until exactly one native video exi
     version: 1,
     type: "PLAYBACK_PLAYER_HELLO",
   });
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("selects the sole loaded video among ten placeholders even with zero layout size", async () => {
+  const fixture = setup();
+  fixture.video.src = "https://kucom.korea.ac.kr/fixture.webm";
+  Object.defineProperty(fixture.video, "readyState", { value: 4 });
+  fixture.video.style.display = "none";
+  expect(fixture.video.getBoundingClientRect().width).toBe(0);
+  document.body.append(
+    ...Array.from({ length: 10 }, () => document.createElement("video")),
+    fixture.video,
+  );
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("ignores a loaded auxiliary video until the KU primary lecture is ready", async () => {
+  const fixture = setup();
+  const helper = document.createElement("video");
+  helper.className = "vc-sdvideo-video";
+  helper.src = "https://kucom.korea.ac.kr/helper.webm";
+  Object.defineProperty(helper, "readyState", { value: 4 });
+  const helperPlay = vi.spyOn(helper, "play");
+  document.body.append(helper);
+  page.main();
+  await Promise.resolve();
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  Object.defineProperty(fixture.video, "readyState", {
+    configurable: true,
+    value: 0,
+  });
+  document.body.append(fixture.video);
+  await Promise.resolve();
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  const playing = fixture.event("playing");
+  Object.defineProperty(fixture.video, "readyState", { value: 4 });
+  fixture.video.dispatchEvent(new Event("loadedmetadata"));
+  await playing;
+  expect(fixture.play).toHaveBeenCalledOnce();
+  expect(helperPlay).not.toHaveBeenCalled();
+});
+
+it("does not guess between two loaded videos even if one is CSS hidden", async () => {
+  const fixture = setup();
+  const second = document.createElement("video");
+  for (const video of [fixture.video, second]) {
+    video.className = "vc-vplay-video1";
+    video.src = "https://kucom.korea.ac.kr/fixture.webm";
+    Object.defineProperty(video, "readyState", { value: 4 });
+  }
+  document.body.append(fixture.video, second);
+  page.main();
+  await Promise.resolve();
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  second.style.display = "none";
+  await Promise.resolve();
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  const playing = fixture.event("playing");
+  second.remove();
+  await playing;
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("discovers media readiness without a DOM mutation", async () => {
+  vi.useFakeTimers();
+  const fixture = setup();
+  let readyState = 0;
+  fixture.video.src = "https://kucom.korea.ac.kr/fixture.webm";
+  Object.defineProperty(fixture.video, "readyState", { get: () => readyState });
+  document.body.append(fixture.video, document.createElement("video"));
+  page.main();
+  await Promise.resolve();
+  expect(fixture.play).not.toHaveBeenCalled();
+  readyState = 4;
+  await vi.advanceTimersByTimeAsync(500);
   expect(fixture.play).toHaveBeenCalledOnce();
 });
 
@@ -228,6 +314,21 @@ it("reports only trusted native ended, not forged ended or native pause before e
   expect(
     fixture.sendMessage.mock.calls.some(([m]) => m.state === "ended"),
   ).toBe(false);
+  const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+  Object.defineProperty(fixture.video, "paused", {
+    configurable: true,
+    value: false,
+  });
+  Object.defineProperty(fixture.video, "duration", {
+    configurable: true,
+    value: 2,
+  });
+  native("playing");
+  for (let time = 0.25; time <= 2; time += 0.25) {
+    clock.mockReturnValue(time * 1000);
+    fixture.video.currentTime = time;
+    native("timeupdate");
+  }
   Object.defineProperty(fixture.video, "paused", {
     configurable: true,
     value: true,
@@ -276,18 +377,19 @@ it("blocks hidden autoplay and hidden resume without invoking native play", asyn
   expect(fixture.play).toHaveBeenCalledOnce();
 });
 
-it("reports native autoplay denial without trying to restart", async () => {
+it("reports native autoplay denial after one muted retry without restarting", async () => {
   const fixture = setup();
   fixture.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
   document.body.append(fixture.video);
   const blocked = fixture.event("blocked-autoplay");
   page.main();
   await blocked;
-  expect(fixture.play).toHaveBeenCalledOnce();
+  expect(fixture.play).toHaveBeenCalledTimes(2);
+  expect(fixture.video.muted).toBe(true);
   const resume = fixture.control("resume");
   expect(resume.accepted).toBe(true);
   expect(await resume.done).toEqual({ ok: false });
-  expect(fixture.play).toHaveBeenCalledOnce();
+  expect(fixture.play).toHaveBeenCalledTimes(2);
 });
 
 it("rejects controls after navigation or video removal and invalidates playback", async () => {

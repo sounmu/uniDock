@@ -1,243 +1,336 @@
-import { expect, test } from "@playwright/test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { BrowserContext } from "@playwright/test";
-
+import { syntheticServer } from "./synthetic-server";
+declare global {
+  interface Window {
+    downloadEvidence?: Promise<chrome.downloads.DownloadItem[]>;
+  }
+}
 const extensionPath = path.resolve(".output/chrome-mv3");
-const lmsOrigin = "https://mylms.korea.ac.kr";
+const origin = "https://mylms.korea.ac.kr";
 
 test("loads the production MV3 and queries a synthetic LMS through real runtime messaging", async ({
   playwright,
 }, testInfo) => {
-  // Given: a production extension build and an isolated Chromium profile.
+  // Given: isolated profile and real HTTPS bytes for the Chrome download manager.
   await stat(path.join(extensionPath, "manifest.json"));
-  const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "unidock-playwright-"),
-  );
-  const sidepanelScreenshot = testInfo.outputPath("sidepanel-courses.png");
-  const deadlineScreenshot = testInfo.outputPath("sidepanel-deadlines.png");
-  const todoScreenshot = testInfo.outputPath("sidepanel-todo.png");
-  const lmsScreenshot = testInfo.outputPath("synthetic-lms.png");
-  const tracePath = testInfo.outputPath("runtime-messaging-trace.zip");
-  let context: BrowserContext | undefined;
-  let tracingStarted = false;
-  let coursesRequestSeen = false;
-
-  try {
-    context = await playwright.chromium.launchPersistentContext(
-      profileDirectory,
-      {
-        channel: "chromium",
-        headless: true,
-        viewport: { width: 1280, height: 800 },
-        args: [
-          `--disable-extensions-except=${extensionPath}`,
-          `--load-extension=${extensionPath}`,
-        ],
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-playwright-"));
+  const downloadDirectory = path.join(profile, "downloads");
+  await mkdir(path.join(profile, "Default"));
+  await writeFile(
+    path.join(profile, "Default", "Preferences"),
+    JSON.stringify({
+      download: {
+        default_directory: downloadDirectory,
+        prompt_for_download: false,
       },
-    );
-    await context.tracing.start({ screenshots: true, snapshots: true });
-    tracingStarted = true;
-
-    const lmsPage = await context.newPage();
-    await lmsPage.route(`${lmsOrigin}/**`, async (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname === "/") {
-        await route.fulfill({
-          status: 200,
-          contentType: "text/html; charset=utf-8",
-          body: '<!doctype html><html lang="en"><title>Synthetic LMS</title><body><main><h1>Synthetic LMS</h1><p>Browser fixture for uniDock.</p></main></body></html>',
-        });
-        return;
+    }),
+  );
+  const server = await syntheticServer(profile);
+  let context: BrowserContext | undefined;
+  const errors: string[] = [];
+  const capture = async (page: Page, name: string) => {
+    for (const width of [320, 420]) {
+      await page.setViewportSize({ width, height: 800 });
+      expect(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      const main = await page.getByRole("main").boundingBox();
+      const navigation = page.getByRole("navigation", { name: "주 메뉴" });
+      const menu = await navigation.boundingBox();
+      expect(main).not.toBeNull();
+      expect(menu).not.toBeNull();
+      expect(main!.x).toBe(0);
+      expect(main!.width).toBe(width);
+      expect(menu!.y + menu!.height).toBeLessThanOrEqual(main!.y);
+      const buttons = await navigation.getByRole("button").all();
+      const boxes = await Promise.all(
+        buttons.map((button) => button.boundingBox()),
+      );
+      expect(boxes).toHaveLength(4);
+      for (const box of boxes) {
+        expect(box).not.toBeNull();
+        expect(box!.y).toBe(boxes[0]!.y);
+        expect(box!.width).toBeGreaterThanOrEqual(44);
+        expect(box!.height).toBeGreaterThanOrEqual(44);
       }
-      if (
-        url.pathname === "/api/v1/courses" &&
-        url.searchParams.get("per_page") === "100" &&
-        url.searchParams.get("enrollment_state") === "active"
-      ) {
-        coursesRequestSeen = true;
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify([
-            { id: 101, name: "Synthetic Operating Systems" },
-            { id: 202, name: "Synthetic International Law" },
-          ]),
-        });
-        return;
-      }
-      if (url.pathname === "/api/v1/courses/101/assignments") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify([
-            {
-              name: "Synthetic Final Project",
-              due_at: "2099-09-20T14:00:00+09:00",
-              published: true,
-              locked_for_user: false,
-              submission: {
-                workflow_state: "unsubmitted",
-                submitted_at: null,
-                missing: false,
-                late: false,
-              },
-            },
-          ]),
-        });
-        return;
-      }
-      if (url.pathname === "/api/v1/courses/202/assignments") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify([
-            {
-              name: "Synthetic Submitted Essay",
-              due_at: "2026-09-10T14:00:00+09:00",
-              submission: {
-                workflow_state: "submitted",
-                submitted_at: "2026-09-09T14:00:00+09:00",
-              },
-            },
-            {
-              name: "Synthetic Undated Reading",
-              due_at: null,
-              submission: { workflow_state: "unsubmitted" },
-            },
-            {
-              name: "Synthetic Early Deadline",
-              due_at: "2099-08-20T14:00:00+09:00",
-              submission: { workflow_state: "unsubmitted" },
-            },
-          ]),
-        });
-        return;
-      }
-      await route.fulfill({ status: 404, body: "not found" });
+      const screenshot = testInfo.outputPath(`${name}-${width}.png`);
+      await page.screenshot({ path: screenshot, fullPage: true });
+      await testInfo.attach(`${name}-${width}`, {
+        path: screenshot,
+        contentType: "image/png",
+      });
+    }
+  };
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      acceptDownloads: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 420, height: 800 },
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+        `--host-resolver-rules=MAP mylms.korea.ac.kr 127.0.0.1:${server.port}, MAP chatgpt.com 127.0.0.1:${server.port}, MAP * ~NOTFOUND`,
+        "--no-proxy-server",
+        "--ignore-certificate-errors",
+      ],
     });
-    await lmsPage.goto(`${lmsOrigin}/`);
+    const browser = context.browser();
+    if (!browser) throw new Error("Missing synthetic browser");
+    const cdp = await browser.newBrowserCDPSession();
+    await cdp.send("Browser.setDownloadBehavior", { behavior: "default" });
+    await cdp.detach();
+    await context.tracing.start({ screenshots: true, snapshots: true });
+    context.on("page", (page) =>
+      page.on("pageerror", (error) => errors.push(error.message)),
+    );
+    const lms = await context.newPage();
+    await lms.goto(origin);
     await expect(
-      lmsPage.getByRole("heading", { name: "Synthetic LMS" }),
+      lms.getByRole("heading", { name: "Synthetic LMS" }),
     ).toBeVisible();
-
-    const serviceWorker =
+    const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
-    const extensionId = new URL(serviceWorker.url()).host;
-    expect(extensionId).not.toBe("");
-
-    const sidepanelPage = await context.newPage();
-    await sidepanelPage.goto(
-      `chrome-extension://${extensionId}/sidepanel.html`,
-    );
-    await expect(
-      sidepanelPage.getByRole("heading", { name: "내 과목", exact: true }),
-    ).toBeVisible();
-
-    // When: the real side-panel UI sends through chrome.tabs to the real content script.
-    await lmsPage.bringToFront();
-    await sidepanelPage.getByRole("button", { name: "조회" }).click();
-
-    // Then: the content script fetches the fixture and the panel renders its response.
-    await expect(sidepanelPage.getByText("조회 완료 · 2개 과목")).toBeVisible();
-    await expect(
-      sidepanelPage.getByText("Synthetic Operating Systems"),
-    ).toBeVisible();
-    expect(coursesRequestSeen).toBe(true);
-
-    await sidepanelPage.screenshot({
-      path: sidepanelScreenshot,
-      fullPage: true,
+    worker.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
     });
-    await lmsPage.screenshot({ path: lmsScreenshot, fullPage: true });
-    await testInfo.attach("sidepanel-courses", {
-      path: sidepanelScreenshot,
-      contentType: "image/png",
-    });
-
-    await sidepanelPage
-      .getByRole("button", { name: "과제 보기" })
-      .first()
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    await lms.bringToFront();
+    // When: the production panel sends through tabs -> content -> API/background.
+    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
+    expect(server.coursesSeen()).toBe(true);
+    await expect(
+      panel
+        .getByRole("navigation", { name: "주 메뉴", exact: true })
+        .getByRole("button"),
+    ).toHaveCount(4);
+    await capture(panel, "courses");
+    await panel
+      .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();
     await expect(
-      sidepanelPage.getByText("Synthetic Final Project"),
+      panel.getByText("Synthetic Final Project", { exact: true }),
     ).toBeVisible();
-    await sidepanelPage.getByRole("button", { name: "마감일" }).click();
+    await panel.getByText("보기 설정", { exact: true }).click();
     await expect(
-      sidepanelPage.getByRole("checkbox", { name: "남은 과제 후보만" }),
+      panel.getByRole("checkbox", { name: "남은 과제만" }),
     ).toBeChecked();
     await expect(
-      sidepanelPage.getByRole("combobox", { name: "마감 기간" }),
+      panel.getByRole("combobox", { name: "마감 기간" }),
     ).toHaveValue("all");
     await expect(
-      sidepanelPage.getByRole("combobox", { name: "정렬" }),
+      panel.getByRole("combobox", { name: "정렬", exact: true }),
     ).toHaveValue("original");
+    await capture(panel, "assignments-settings");
+    await panel
+      .getByRole("button", { name: /Synthetic Final Project/ })
+      .click();
+    await expect(panel.locator(".detail-view dl")).toBeVisible();
+    await capture(panel, "assignment-detail");
+    await panel.getByRole("button", { name: "← 목록" }).click();
+    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
     await expect(
-      sidepanelPage.getByText("조회 완료 · 1개 항목 중 1개 표시"),
+      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
     ).toBeVisible();
-    await sidepanelPage.screenshot({
-      path: deadlineScreenshot,
-      fullPage: true,
+    await capture(panel, "materials-ready");
+    await panel
+      .getByRole("checkbox", { name: "전체 선택", exact: true })
+      .check();
+    await panel.getByRole("button", { name: /lecture.pdf/ }).click();
+    const opened = context.waitForEvent("page");
+    await panel.getByRole("button", { name: "LMS에서 열기" }).click();
+    const documentPage = await opened;
+    await documentPage.waitForLoadState("domcontentloaded");
+    expect(documentPage.url()).toBe(`${origin}/courses/101/modules/items/900`);
+    await documentPage.close();
+    await panel.getByRole("button", { name: "← 목록" }).click();
+    await expect(
+      panel.getByRole("checkbox", { name: "전체 선택", exact: true }),
+    ).toBeChecked();
+    // Subscribe before triggering; no sleeps or download-history polling.
+    await panel.evaluate(() => {
+      window.downloadEvidence = new Promise((resolve, reject) => {
+        const items = new Map<number, chrome.downloads.DownloadItem>();
+        const finish = () => {
+          clearTimeout(timeout);
+          chrome.downloads.onCreated.removeListener(created);
+          chrome.downloads.onChanged.removeListener(changed);
+        };
+        const accept = (item: chrome.downloads.DownloadItem) => {
+          items.set(item.id, item);
+          if (item.state === "interrupted") {
+            finish();
+            reject(new Error(`Download interrupted: ${item.error}`));
+          }
+          if (
+            items.size === 2 &&
+            [...items.values()].every((value) => value.state === "complete")
+          ) {
+            finish();
+            resolve([...items.values()]);
+          }
+        };
+        const created = (item: chrome.downloads.DownloadItem) => accept(item);
+        const changed = (delta: chrome.downloads.DownloadDelta) => {
+          if (items.has(delta.id))
+            void chrome.downloads.search({ id: delta.id }).then(
+              (values) => {
+                values.forEach(accept);
+              },
+              (error: unknown) => {
+                finish();
+                reject(error);
+              },
+            );
+        };
+        const timeout = setTimeout(() => {
+          finish();
+          reject(
+            new Error(
+              `Missing download completion event: ${JSON.stringify([...items.values()].map(({ id, byExtensionId, state, filename, mime }) => ({ id, byExtensionId, state, filename, mime })))}`,
+            ),
+          );
+        }, 15000);
+        chrome.downloads.onCreated.addListener(created);
+        chrome.downloads.onChanged.addListener(changed);
+      });
     });
-    await testInfo.attach("sidepanel-deadlines", {
-      path: deadlineScreenshot,
-      contentType: "image/png",
-    });
-
-    await sidepanelPage.getByRole("button", { name: "Todo" }).click();
+    await panel.getByRole("button", { name: "선택 다운로드 (2)" }).click();
+    const downloads = await panel.evaluate(() => window.downloadEvidence);
+    // Then: actual completed files, bytes, paths, MIME and UI status agree.
+    expect(downloads).toHaveLength(2);
+    for (const item of downloads ?? []) {
+      expect(item.byExtensionId).toBe(extensionId);
+      expect(item.state).toBe("complete");
+      expect(item.mime).toBe("application/pdf");
+      expect(item.filename).toContain(
+        "/uniDock/Synthetic Operating Systems/Week 1/",
+      );
+      expect(item.filename.startsWith(downloadDirectory)).toBe(true);
+      expect(await readFile(item.filename)).toEqual(server.pdf);
+    }
+    expect(server.downloads).toEqual([
+      "/courses/101/files/501/download",
+      "/courses/101/files/502/download",
+    ]);
     await expect(
-      sidepanelPage.getByText("Synthetic Final Project"),
+      panel.locator(".status-chip").filter({ hasText: /^완료$/ }),
+    ).toHaveCount(2);
+    await capture(panel, "materials-complete");
+    await expect(
+      panel.getByRole("button", { name: "다운로드 폴더 열기" }),
     ).toBeVisible();
+    const handoff = context.waitForEvent("page");
+    await panel.getByRole("button", { name: "ChatGPT에서 질문하기" }).click();
+    const chat = await handoff;
+    await chat.waitForLoadState("domcontentloaded");
+    expect(chat.url()).toBe("https://chatgpt.com/");
+    await chat.close();
+    await lms.bringToFront();
+    await panel
+      .getByRole("button", { name: "할 일·일정", exact: true })
+      .click();
     await expect(
-      sidepanelPage.getByText("Synthetic Submitted Essay"),
-    ).toHaveCount(0);
-    await expect(
-      sidepanelPage.getByText("Synthetic Undated Reading"),
+      panel.getByText("조회 완료 · 3개 항목 · 한국 시간"),
     ).toBeVisible();
+    await expect(panel.getByText("Synthetic Submitted Essay")).toHaveCount(0);
+    await expect(panel.getByText("Synthetic Undated Reading")).toBeVisible();
+    await expect(panel.getByText("Synthetic Early Deadline")).toBeVisible();
     await expect(
-      sidepanelPage.getByText("Synthetic Early Deadline"),
-    ).toBeVisible();
-    await expect(
-      sidepanelPage.getByText("조회 완료 · 3개 항목 · 한국 시간"),
-    ).toBeVisible();
-    await expect(
-      sidepanelPage.getByText("미제출 과제", { exact: true }),
+      panel.locator(".status-chip").filter({ hasText: /^미제출$/ }),
     ).toHaveCount(3);
-    await sidepanelPage.getByRole("button", { name: "마감 빠른 순" }).click();
-    await expect(sidepanelPage.locator("li strong").first()).toHaveText(
+    await panel.getByText("보기 설정", { exact: true }).click();
+    const sort = panel.getByRole("combobox", { name: "정렬", exact: true });
+    await sort.selectOption("due");
+    await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Early Deadline",
     );
-    await expect(
-      sidepanelPage.getByRole("button", { name: "LMS 순서로 보기" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await sidepanelPage
-      .getByRole("button", { name: "LMS 순서로 보기" })
-      .click();
-    await expect(sidepanelPage.locator("li strong").first()).toHaveText(
+    await capture(panel, "tasks-settings");
+    await sort.selectOption("original");
+    await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Final Project",
     );
-    await sidepanelPage.setViewportSize({ width: 320, height: 800 });
-    expect(
-      await sidepanelPage.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBe(true);
-    await sidepanelPage.screenshot({ path: todoScreenshot });
-    await testInfo.attach("sidepanel-todo", {
-      path: todoScreenshot,
-      contentType: "image/png",
+    await capture(panel, "tasks");
+    await panel.getByRole("button", { name: "일정", exact: true }).click();
+    await expect(panel.getByText("조회된 항목이 없습니다.")).toBeVisible();
+    await capture(panel, "schedule-empty");
+    await panel.getByText("보기 설정", { exact: true }).click();
+    await expect(panel.getByLabel("시작일 (선택)")).toBeVisible();
+    await capture(panel, "schedule-settings");
+    await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
+    await capture(panel, "captions");
+    await panel.getByRole("button", { name: "자막 감지" }).click();
+    await expect(panel.getByRole("alert")).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "TXT·JSON 다운로드" }),
+    ).toHaveCount(0);
+    await capture(panel, "captions-error");
+    await lms.evaluate(() => {
+      const list = document.createElement("ul");
+      list.id = "cs-script-list";
+      const row = document.createElement("li");
+      row.className = "cs-script-item";
+      const time = document.createElement("span");
+      time.className = "cs-script-item-time";
+      time.textContent = "00:01";
+      const text = document.createElement("span");
+      text.className = "cs-script-item-text";
+      text.textContent = "Synthetic caption";
+      row.append(time, text);
+      list.append(row);
+      document.body.append(list);
     });
-    await testInfo.attach("synthetic-lms", {
-      path: lmsScreenshot,
-      contentType: "image/png",
-    });
+    await panel.getByRole("button", { name: "자막 감지" }).click();
+    await expect(panel.locator(".list-row")).toHaveCount(1);
+    await capture(panel, "captions-result");
+    await panel.locator(".list-row").click();
+    await expect(
+      panel.getByRole("button", { name: "TXT·JSON 다운로드" }),
+    ).toBeVisible();
+    await capture(panel, "caption-detail");
+    await panel.getByRole("button", { name: "← 목록" }).click();
+    await expect(panel.locator(".list-row")).toBeFocused();
+    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
+    await expect(
+      panel.getByRole("button", { name: "자동 재생", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await capture(panel, "playback");
+    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await expect(panel.getByRole("heading", { name: "정보" })).toBeVisible();
+    await capture(panel, "info");
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+    await expect(
+      panel.getByRole("button", { name: "내 과목", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await expect(panel.getByRole("heading", { name: "내 과목" })).toBeVisible();
+    expect(errors).toEqual([]);
   } finally {
-    if (context && tracingStarted) {
-      await context.tracing.stop({ path: tracePath });
+    if (context) {
+      await context.tracing.stop({
+        path: testInfo.outputPath("runtime-messaging-trace.zip"),
+      });
+      await context.close();
     }
-    if (context) await context.close();
-    await rm(profileDirectory, { recursive: true, force: true });
+    await server.close();
+    await rm(profile, { recursive: true, force: true });
   }
 });

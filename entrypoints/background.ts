@@ -1,4 +1,5 @@
 import { openLmsTab } from "../src/open-tab";
+import { downloadLmsFile } from "../src/download-tab";
 import { defineBackground } from "wxt/utils/define-background";
 import { safeLog } from "../src/security/logger";
 import { ChromePlaybackStore } from "../src/playback/storage";
@@ -49,17 +50,37 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
   async function query(
     handle?: string,
   ): Promise<{ result: Record<string, unknown>; origin: string }> {
-    const tabs = (await chrome.tabs.query({ url: LMS_MATCHES })).filter(
-      (tab) =>
-        tab.id !== runtime.dedicatedTabId &&
-        tab.id !== undefined &&
-        tab.url &&
-        allowedPage(tab.url),
-    );
-    const tab =
-      tabs.find((tab) => tab.id === sourceTabId) ??
-      tabs.find((tab) => tab.active) ??
-      tabs[0];
+    let pinned: chrome.tabs.Tab | undefined;
+    if (sourceTabId !== undefined && sourceTabId !== runtime.dedicatedTabId) {
+      try {
+        const known = await chrome.tabs.get(sourceTabId);
+        if (
+          known.url &&
+          LMS_MATCHES.some((match) =>
+            known.url?.startsWith(match.slice(0, -1)),
+          ) &&
+          allowedPage(known.url)
+        )
+          pinned = known;
+      } catch {
+        sourceTabId = undefined;
+      }
+    }
+    const tabs = pinned
+      ? []
+      : (
+          await chrome.tabs.query({
+            url: LMS_MATCHES,
+            ...(handle ? { active: true, lastFocusedWindow: true } : {}),
+          })
+        ).filter(
+          (tab) =>
+            tab.id !== runtime.dedicatedTabId &&
+            tab.id !== undefined &&
+            tab.url &&
+            allowedPage(tab.url),
+        );
+    const tab = pinned ?? tabs.find((candidate) => candidate.active) ?? tabs[0];
     if (tab?.id === undefined || !tab.url)
       throw new PlaybackRuntimeError("OPEN_LMS");
     sourceTabId = tab.id;
@@ -198,16 +219,22 @@ async function playerAddress(
   )
     return null;
   const tab = await chrome.tabs.get(sender.tab.id);
-  if (!tab.url || !playerPage(tab.url)) return null;
+  const topUrl = [
+    tab.url,
+    tab.pendingUrl,
+    sender.tab.url,
+    sender.tab.pendingUrl,
+  ].find((url): url is string => typeof url === "string" && playerPage(url));
+  if (!topUrl || !tab.active) return null;
   const item = runtime.dedicatedItem;
   if (!item) return null;
   if (
-    allowedPage(tab.url) &&
-    new URL(tab.url).pathname !==
+    allowedPage(topUrl) &&
+    new URL(topUrl).pathname !==
       `/courses/${item.courseId}/modules/items/${item.id.split(":")[1]}`
   )
     return null;
-  if (sender.frameId === 0 && tab.url !== sender.url) return null;
+  if (sender.frameId === 0 && topUrl !== sender.url) return null;
   return {
     tabId: sender.tab.id,
     frameId: sender.frameId,
@@ -317,6 +344,10 @@ export default defineBackground(() => {
         }
         return { ok: false };
       })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (object(message) && message.type === "DOWNLOAD_LMS_FILE") {
+      void downloadLmsFile(message, sender).then(respond);
       return true;
     }
     if (

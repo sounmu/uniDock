@@ -1,5 +1,7 @@
 import { accessible, type Metadata, type Recording } from "./recordings";
 import { navigationUrl } from "./security/navigation";
+import type { Document } from "./documents";
+import { lmsFileDownloadUrl } from "./security/download";
 export interface RecordingTarget {
   module: string;
   title: string;
@@ -8,8 +10,15 @@ export interface RecordingTarget {
   moduleAccess: Metadata;
   itemAccess: Metadata;
 }
+export interface DocumentTarget extends Omit<RecordingTarget, "itemId"> {
+  itemId: string;
+  fileId?: string;
+}
 interface Entry {
   url: string;
+  kind: "recording" | "document" | "download";
+  module?: string;
+  title?: string;
   expires: number;
   moduleAccess: Metadata;
   itemAccess: Metadata;
@@ -35,6 +44,7 @@ export class NavigationCatalog {
       const handle = crypto.randomUUID();
       this.entries.set(handle, {
         url: safe,
+        kind: "recording",
         expires: now + 300000,
         moduleAccess: target.moduleAccess,
         itemAccess: target.itemAccess,
@@ -61,16 +71,98 @@ export class NavigationCatalog {
       throw error;
     }
   }
-  take(handle: string, origin: string, now = Date.now()): string | null {
+  replaceDocuments(
+    origin: string,
+    targets: DocumentTarget[],
+    now = Date.now(),
+  ): Document[] {
+    this.clear();
+    if (targets.length > 10000) throw new Error("LIMIT");
+    try {
+      const result = targets.map((target) => {
+        const url = navigationUrl(
+          `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
+          origin,
+        );
+        if (!url) throw new Error("POLICY");
+        const lmsHandle = crypto.randomUUID();
+        this.entries.set(lmsHandle, {
+          url,
+          kind: "document",
+          expires: now + 300000,
+          moduleAccess: target.moduleAccess,
+          itemAccess: target.itemAccess,
+        });
+        let downloadHandle = "";
+        if (target.fileId) {
+          const downloadUrl = lmsFileDownloadUrl(
+            `${origin}/courses/${target.courseId}/files/${target.fileId}/download?download_frd=1`,
+            origin,
+          );
+          if (!downloadUrl) throw new Error("POLICY");
+          downloadHandle = crypto.randomUUID();
+          this.entries.set(downloadHandle, {
+            url: downloadUrl,
+            kind: "download",
+            module: target.module,
+            title: target.title,
+            expires: now + 300000,
+            moduleAccess: target.moduleAccess,
+            itemAccess: target.itemAccess,
+          });
+        }
+        return {
+          module: target.module,
+          title: target.title,
+          type: "File" as const,
+          lmsHandle,
+          downloadHandle,
+        };
+      });
+      this.timer = setTimeout(() => this.clear(), 300000);
+      return result;
+    } catch (error) {
+      this.clear();
+      throw error;
+    }
+  }
+  take(
+    handle: string,
+    origin: string,
+    now = Date.now(),
+    kind?: "recording" | "document",
+  ): string | null {
     const entry = this.entries.get(handle);
     this.entries.delete(handle);
     if (
       !entry ||
+      entry.kind === "download" ||
+      (kind !== undefined && entry.kind !== kind) ||
       entry.expires <= now ||
       !accessible(entry.moduleAccess, now) ||
       !accessible(entry.itemAccess, now)
     )
       return null;
     return navigationUrl(entry.url, origin);
+  }
+  takeDownload(
+    handle: string,
+    origin: string,
+    now = Date.now(),
+  ): { url: string; module: string; title: string } | null {
+    const entry = this.entries.get(handle);
+    this.entries.delete(handle);
+    if (
+      !entry ||
+      entry.kind !== "download" ||
+      entry.expires <= now ||
+      !accessible(entry.moduleAccess, now) ||
+      !accessible(entry.itemAccess, now) ||
+      entry.module === undefined ||
+      entry.title === undefined
+    )
+      return null;
+    const url = lmsFileDownloadUrl(entry.url, origin);
+    return url ? { url, module: entry.module, title: entry.title } : null;
   }
 }

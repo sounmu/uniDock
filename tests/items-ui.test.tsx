@@ -39,7 +39,7 @@ it("renders unfinished all-course Todo assignments including undated rows", () =
     />,
   );
   expect(html).toContain("마감 없는 과제");
-  expect(html).toContain("미제출 과제");
+  expect(html).toContain("미제출");
 });
 it("hides completed/non-candidate deadline rows by default", () => {
   const html = renderToStaticMarkup(
@@ -105,7 +105,7 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
       onRecording={() => {}}
     />,
   );
-  expect(html).toContain("LMS에서 보기");
-  expect(html).toContain("LTI 탭 열기");
+  expect(html).toContain("1차시");
+  expect(html).toContain("LTI 열기 가능");
   expect(html).not.toMatch(/href=|https:|\/courses\//);
 });

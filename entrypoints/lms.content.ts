@@ -1,4 +1,5 @@
 import { NavigationCatalog } from "../src/navigation-catalog";
+import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { listCourses, listQuery } from "../src/api/client";
 import {
@@ -6,6 +7,7 @@ import {
   parseResult,
   validHandle,
   type Result,
+  type Request,
 } from "../src/protocol";
 import { allowedPage, LMS_MATCHES, readUrl } from "../src/security/policy";
 import {
@@ -23,7 +25,7 @@ import {
   recordingCandidate,
   recordingLabel,
 } from "../src/recordings";
-import type { PlaybackCandidate } from "../src/playback/scheduler";
+import type { PlaybackCandidate } from "../src/playback/playlist";
 
 /** Closed, GET-only discovery. No caller-supplied endpoint or navigation target. */
 export async function discoverPlayback(
@@ -150,12 +152,8 @@ export async function discoverPlayback(
             id: `${courseId}:${itemId}`,
             courseId,
             title: recordingLabel(item.title),
-            deadline: null,
-            durationMinutes: null,
-            completion: "unknown",
           });
-          // LearningX/KUCOM duration and attendance fields have no live-session proof.
-          // Never infer a duration, deadline or LMS credit from labels or arbitrary fields.
+          // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
           if (candidates.length > 10000) throw new Error("LIMIT");
         }
       }
@@ -195,8 +193,16 @@ export default defineContentScript({
   allFrames: false,
   main() {
     const catalog = new NavigationCatalog();
-    async function open(handle: string): Promise<Result> {
-      const url = catalog.take(handle, location.origin);
+    async function open(
+      handle: string,
+      type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
+    ): Promise<Result> {
+      const url = catalog.take(
+        handle,
+        location.origin,
+        Date.now(),
+        type === "DOCUMENT_OPEN" ? "document" : "recording",
+      );
       if (!url) return { status: "error", code: "STALE_SELECTION" };
       try {
         const result: unknown = await chrome.runtime.sendMessage({
@@ -206,11 +212,34 @@ export default defineContentScript({
         });
         return parseResult(result, {
           version: 1,
-          type: "RECORDING_OPEN",
+          type,
           handle,
         });
       } catch {
         return { status: "error", code: "TAB_OPEN_FAILED" };
+      }
+    }
+    async function download(
+      message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
+    ): Promise<Result> {
+      const entry = catalog.takeDownload(message.handle, location.origin);
+      if (!entry) return { status: "error", code: "STALE_SELECTION" };
+      const filename = safeDownloadPath(
+        message.course,
+        entry.module,
+        entry.title,
+      );
+      if (!filename) return { status: "error", code: "POLICY" };
+      try {
+        const result: unknown = await chrome.runtime.sendMessage({
+          version: 1,
+          type: "DOWNLOAD_LMS_FILE",
+          url: entry.url,
+          filename,
+        });
+        return parseResult(result, message);
+      } catch {
+        return { status: "error", code: "DOWNLOAD_FAILED" };
       }
     }
     let playbackPending: Promise<DiscoveryResult> | undefined;
@@ -306,21 +335,30 @@ export default defineContentScript({
           return false;
         }
         if (!pending) {
-          if (message.type !== "RECORDING_OPEN") catalog.clear();
+          if (
+            message.type !== "RECORDING_OPEN" &&
+            message.type !== "DOCUMENT_OPEN" &&
+            message.type !== "DOCUMENT_DOWNLOAD"
+          )
+            catalog.clear();
           const result =
-            message.type === "RECORDING_OPEN"
-              ? open(message.handle)
-              : message.type === "COURSES_LIST"
-                ? listCourses(location.origin)
-                : message.type === "RECORDINGS_LIST"
-                  ? listQuery(
-                      location.origin,
-                      message,
-                      fetch,
-                      Date.now(),
-                      catalog,
-                    )
-                  : listQuery(location.origin, message);
+            message.type === "DOCUMENT_DOWNLOAD"
+              ? download(message)
+              : message.type === "RECORDING_OPEN" ||
+                  message.type === "DOCUMENT_OPEN"
+                ? open(message.handle, message.type)
+                : message.type === "COURSES_LIST"
+                  ? listCourses(location.origin)
+                  : message.type === "RECORDINGS_LIST" ||
+                      message.type === "DOCUMENTS_LIST"
+                    ? listQuery(
+                        location.origin,
+                        message,
+                        fetch,
+                        Date.now(),
+                        catalog,
+                      )
+                    : listQuery(location.origin, message);
           pending = {
             key,
             result: result.finally(() => {

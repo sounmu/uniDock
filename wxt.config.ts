@@ -4,7 +4,7 @@ export default defineConfig({
   manifest: {
     name: "uniDock",
     description:
-      "고려대 LMS 과제·공지 일정과 녹화 강의를 확인하고 선택한 과목의 강의를 예약 재생하는 비공식 학습 도우미.",
+      "고려대 LMS 과제·일정·녹화 강의를 확인하고 수업 자료 PDF 일괄 다운로드, 자막 추출, 선택 영상 순차 자동 재생을 지원하는 비공식 학습 도우미.",
     minimum_chrome_version: "114",
     permissions: [
       "sidePanel",

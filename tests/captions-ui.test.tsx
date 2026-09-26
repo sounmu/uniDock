@@ -87,6 +87,21 @@ it("discards a late detection after its target reloads", async () => {
   });
   expect(document.querySelectorAll("li")).toHaveLength(0);
 });
+it("moves caption tools into a detail view while preserving the list", async () => {
+  // Given
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  // When
+  await click("강의 자막");
+  // Then
+  expect(ui.host.querySelector(".detail-view dl")).not.toBeNull();
+  expect(ui.host.querySelector(".detail-view .btn-primary")?.textContent).toBe(
+    "TXT·JSON 다운로드",
+  );
+  expect(ui.host.querySelector("li")?.closest("[hidden]")).not.toBeNull();
+  await click("← 목록");
+  expect(ui.host.querySelector("li")?.closest("[hidden]")).toBeNull();
+});
 it("expires captions after five minutes and removes listeners on unmount", async () => {
   vi.useFakeTimers();
   ui = await mount(<CaptionsPanel />);

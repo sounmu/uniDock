@@ -184,7 +184,100 @@ it("opens only a known catalog handle and never accepts a raw URL from the panel
   store?.clear();
 });
 
-it("never treats Canvas assignment deadlines or module completion as video attendance metadata", async () => {
+it("routes document handles through the background LMS boundary and consumes them once", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValue({ status: "success", opened: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      documents: catalog.replaceDocuments(origin, [
+        {
+          module: "Week",
+          title: "file.pdf",
+          courseId: "101",
+          itemId: "501",
+          fileId: "777",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  const listed = response();
+  listener(
+    { version: 1, type: "DOCUMENTS_LIST", course: "Course" },
+    sender,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("documents" in result))
+    throw new Error("missing documents");
+  const message = {
+    version: 1,
+    type: "DOCUMENT_OPEN",
+    handle: result.documents[0]!.lmsHandle,
+  };
+  const opened = response();
+  listener(message, sender, opened.respond);
+  expect(await opened.done).toEqual({ status: "success", opened: true });
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith({
+    version: 1,
+    type: "OPEN_LMS_TARGET",
+    url: origin + "/courses/101/modules/items/501",
+  });
+  const replay = response();
+  listener(message, sender, replay.respond);
+  expect(await replay.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  // Given: opening did not invalidate the separate download capability.
+  sendMessage.mockResolvedValue({ status: "success", downloaded: true });
+  const download = {
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD",
+    handle: result.documents[0]!.downloadHandle,
+    course: "Course",
+  };
+  // When
+  const started = response();
+  listener(download, sender, started.respond);
+  // Then
+  expect(await started.done).toEqual({ status: "success", downloaded: true });
+  expect(sendMessage).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "DOWNLOAD_LMS_FILE",
+    url: `${origin}/courses/101/files/777/download?download_frd=1`,
+    filename: "uniDock/Course/Week/file.pdf",
+  });
+  const second = response();
+  listener(download, sender, second.respond);
+  expect(await second.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it("omits Canvas duration, due dates and module completion from playback discovery", async () => {
   const calls: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = String(input);
@@ -235,9 +328,6 @@ it("never treats Canvas assignment deadlines or module completion as video atten
       id: "101:501",
       courseId: "101",
       title: "Lecture",
-      deadline: null,
-      durationMinutes: null,
-      completion: "unknown",
     },
   ]);
   expect(result.discovery.accountKey).toMatch(/^[a-f0-9]{64}$/);
@@ -425,9 +515,6 @@ it("hydrates incomplete accessible modules, excluding locked modules and items",
       id: "101:501",
       courseId: "101",
       title: "Playable",
-      deadline: null,
-      durationMinutes: null,
-      completion: "unknown",
     },
   ]);
   expect(calls).toEqual([

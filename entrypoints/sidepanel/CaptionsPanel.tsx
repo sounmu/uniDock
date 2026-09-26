@@ -5,6 +5,11 @@ import {
   type CaptionResult,
 } from "../../src/captions/service";
 import { downloadCaption } from "../../src/captions/download";
+import { ScreenHeader } from "./ui/ScreenHeader";
+import { ListRow } from "./ui/ListRow";
+import { StatusChip } from "./ui/StatusChip";
+import { DetailView, useDetail } from "./ui/DetailView";
+import { Notice } from "./ui/Notice";
 const messages = {
   ACTIVATE_TAB:
     "강의 플레이어 탭을 선택하고 도구 모음의 uniDock 아이콘을 누른 뒤 다시 감지하세요.",
@@ -22,6 +27,11 @@ export function CaptionsPanel() {
     status: "idle",
   });
   const [notice, setNotice] = useState("");
+  const { detail, open, back } = useDetail<number>();
+  const selected =
+    state.status === "success" && detail !== null
+      ? state.captions[detail]
+      : undefined;
   const generation = useRef(0);
   const target = useRef<CaptionTarget | null>(null);
   useEffect(() => {
@@ -71,6 +81,7 @@ export function CaptionsPanel() {
     return () => clearTimeout(timer);
   }, [state]);
   async function detect() {
+    back();
     const current = ++generation.current;
     setState({ status: "loading" });
     setNotice("");
@@ -83,72 +94,108 @@ export function CaptionsPanel() {
   }
   return (
     <section>
-      <p className="hint">
-        강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를 누르면
-        화면의 자막 목록을 먼저 읽고, 없으면 KU 플레이어의 XML·VTT 자막 파일을
-        조회하고, 별도 TXT 스크립트도 확인합니다. 다운로드를 누르면 시간과
-        문장을 다운로드 폴더의 output/ 아래 TXT·JSON 두 파일로 저장합니다.
-        JSON에는 강의 URL과 제목도 포함됩니다. 개발자 서버로 전송하지 않습니다.
-        영상 재생은 직접 조작하세요.
-      </p>
-      <button
-        disabled={state.status === "loading"}
-        onClick={() => void detect()}
-      >
-        {state.status === "loading" ? "감지 중…" : "자막 감지"}
-      </button>
-      <div aria-live="polite" aria-busy={state.status === "loading"}>
-        {state.status === "error" && (
-          <p className="notice">{messages[state.code]}</p>
-        )}
-        {state.status === "success" && (
-          <>
-            <p className="count">
-              자막 {state.captions.length}개 · 5분 동안 메모리에 보관
-            </p>
-            {state.blocked && (
-              <p className="hint">
-                일부 자막 또는 프레임은 접근·검증 제한으로 제외되었습니다.
+      <div hidden={selected !== undefined}>
+        <ScreenHeader
+          title="자막 추출"
+          action={
+            <button
+              className="btn-primary"
+              disabled={state.status === "loading"}
+              onClick={() => void detect()}
+            >
+              {state.status === "loading" ? "감지 중…" : "자막 감지"}
+            </button>
+          }
+        />
+        <details className="guidance">
+          <summary>안내</summary>
+          <p className="hint">
+            강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를
+            누르면 화면의 자막 목록을 먼저 읽고, 없으면 KU 플레이어의 XML·VTT
+            자막 파일을 조회하고, 별도 TXT 스크립트도 확인합니다. 다운로드를
+            누르면 시간과 문장을 다운로드 폴더의 output/ 아래 TXT·JSON 두 파일로
+            저장합니다. JSON에는 강의 URL과 제목도 포함됩니다. 개발자 서버로
+            전송하지 않습니다. 영상 재생은 직접 조작하세요.
+          </p>
+        </details>
+        <div aria-live="polite" aria-busy={state.status === "loading"}>
+          {state.status === "error" && (
+            <Notice error>{messages[state.code]}</Notice>
+          )}
+          {state.status === "success" && (
+            <>
+              <p className="count">
+                자막 {state.captions.length}개 · 5분 동안 메모리에 보관
               </p>
-            )}
-            <ul>
-              {state.captions.map((caption, index) => (
-                <li key={index}>
-                  <div className="item-body">
-                    <strong>{caption.label}</strong>
-                    <p>
-                      {caption.itemCount.toLocaleString()}개 문장 ·{" "}
-                      {caption.source === "caption_script_dom"
-                        ? "현재 로드된 스크립트 (전체 여부 확인 필요)"
-                        : caption.source === "player_media_script"
-                          ? "원본 스크립트 · 표기 시각은 영상 재생 위치와 다를 수 있음"
-                          : "공식 자막 트랙"}
-                    </p>
-                    <button
-                      onClick={() => {
-                        void downloadCaption(caption)
-                          .then(() =>
-                            setNotice(
-                              "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
-                            ),
-                          )
-                          .catch(() =>
-                            setNotice(
-                              "다운로드 요청에 실패했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
-                            ),
-                          );
-                      }}
-                    >
-                      TXT·JSON 다운로드
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {notice && <p className="hint">{notice}</p>}
+              {state.blocked && (
+                <p className="hint">
+                  일부 자막 또는 프레임은 접근·검증 제한으로 제외되었습니다.
+                </p>
+              )}
+              <ul>
+                {state.captions.map((caption, index) => (
+                  <li key={index}>
+                    <ListRow
+                      title={caption.label}
+                      course={caption.pageTitle}
+                      chip={
+                        <StatusChip>
+                          {caption.source === "caption_script_dom"
+                            ? "확인 필요"
+                            : caption.source === "player_media_script"
+                              ? "스크립트"
+                              : "공식 자막"}
+                        </StatusChip>
+                      }
+                      onClick={() => open(index)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       </div>
+      {selected && (
+        <DetailView
+          title={selected.label}
+          onBack={back}
+          meta={[
+            ["문장 수", `${selected.itemCount.toLocaleString()}개 문장`],
+            [
+              "출처 설명",
+              selected.source === "caption_script_dom"
+                ? "현재 로드된 스크립트 (전체 여부 확인 필요)"
+                : selected.source === "player_media_script"
+                  ? "원본 스크립트 · 표기 시각은 영상 재생 위치와 다를 수 있음"
+                  : "공식 자막 트랙",
+            ],
+          ]}
+        >
+          <button
+            className="btn-primary"
+            onClick={() => {
+              void downloadCaption(selected).then(
+                () =>
+                  setNotice(
+                    "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
+                  ),
+                () =>
+                  setNotice(
+                    "다운로드 요청에 실패했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
+                  ),
+              );
+            }}
+          >
+            TXT·JSON 다운로드
+          </button>
+        </DetailView>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
     </section>
   );
 }

@@ -111,7 +111,7 @@ it.each([
     const accountKey = "a".repeat(64),
       origin = "https://mylms.korea.ac.kr";
     const saved = emptyPlayback(accountKey, origin);
-    saved.settings = { ...saved.settings, enabled: true, courseIds: ["101"] };
+    saved.playlist = [{ id: "101:501", courseId: "101" }];
     saved.player = { tabId: 9, courseId: "101", id: "101:501" };
     const remove = vi.fn().mockResolvedValue(undefined);
     const local: Record<string, unknown> = { [PLAYBACK_STORAGE_KEY]: saved };
@@ -354,7 +354,7 @@ it("projects only a bounded top-frame discovery without persisting data while OF
   expect(result.status).toBe("success");
   if (result.status !== "success") throw new Error(result.code);
   expect(result.snapshot.courses).toEqual(validDiscovery.courses);
-  expect(result.snapshot.settings.enabled).toBe(false);
+  expect(result.snapshot.current).toBeNull();
   expect(f.sendMessage).toHaveBeenCalledOnce();
   const [tabId, message, options] = f.sendMessage.mock.calls[0]!;
   expect(tabId).toBe(7);
@@ -365,6 +365,36 @@ it("projects only a bounded top-frame discovery without persisting data while OF
   });
   expect(options).toEqual({ frameId: 0 });
   expect(f.values).not.toHaveProperty(PLAYBACK_STORAGE_KEY);
+});
+
+it("revalidates through the pinned LMS source after the dedicated player becomes active", async () => {
+  const f = playbackAdapterFixture({
+    response: { status: "success", discovery: validDiscovery },
+  });
+  expect(
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+  ).toMatchObject({ status: "success" });
+  expect(
+    await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
+  ).toMatchObject({ status: "success" });
+  expect(chrome.tabs.query).toHaveBeenCalledOnce();
+  expect(f.sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it("rediscovers an inactive LMS tab when the in-memory source pointer is absent", async () => {
+  const f = playbackAdapterFixture({
+    response: { status: "success", discovery: validDiscovery },
+  });
+  chrome.tabs.query = vi.fn(async () => [
+    { id: 7, url: "https://mylms.korea.ac.kr/", active: false },
+  ]) as unknown as typeof chrome.tabs.query;
+  expect(
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+  ).toMatchObject({ status: "success" });
+  expect(chrome.tabs.query).toHaveBeenCalledWith({
+    url: ["https://mylms.korea.ac.kr/*", "https://canvas.korea.ac.kr/*"],
+  });
+  expect(f.sendMessage).toHaveBeenCalledOnce();
 });
 
 it.each([

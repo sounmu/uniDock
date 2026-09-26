@@ -24,6 +24,7 @@ it("resets pagination on filter changes, preserves it on ticks, and expires cand
       onCourse={() => {}}
     />,
   );
+  await click("보기 설정");
   expect(
     (document.querySelector('input[type="checkbox"]') as HTMLInputElement)
       .checked,
@@ -63,6 +64,7 @@ it("sorts the whole response before pagination and returns to LMS order", async 
     />,
   );
   expect(document.querySelectorAll("li")).toHaveLength(0);
+  await click("보기 설정");
   await act(async () => {
     (
       document.querySelector('input[type="checkbox"]') as HTMLInputElement
@@ -116,15 +118,19 @@ it("sorts Todo by due date on demand and restores LMS order", async () => {
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
   ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
-  await click("마감 빠른 순");
+  await click("보기 설정");
+  const select = document.querySelector("select")!;
+  await act(async () => {
+    select.value = "due";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
   ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
-  expect(
-    document.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
-      ?.textContent,
-  ).toBe("LMS 순서로 보기");
-  await click("LMS 순서로 보기");
+  await act(async () => {
+    select.value = "original";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
   ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);

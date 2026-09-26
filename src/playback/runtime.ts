@@ -1,10 +1,5 @@
-import {
-  planPlayback,
-  type PlaybackCandidate,
-  type PlaybackPlan,
-  type ScheduledPlayback,
-} from "./scheduler";
 import { emptyPlayback, type PlaybackStore } from "./storage";
+import type { PlaylistItem } from "./playlist";
 import {
   type PlaybackCommand,
   type PlaybackDiscovery,
@@ -13,14 +8,15 @@ import {
   type PlaybackSnapshot,
   type PlayerBinding,
   type PlayerSignal,
-  type RuntimeStatus,
   type ResolvedRecording,
+  type RuntimeStatus,
 } from "./bridge";
 
+// Legacy alarms are only exported so old registrations can be cleared safely.
 export const PLAYBACK_ALARM = "unidock.playback.wake";
+export const PLAYBACK_PREFLIGHT = "unidock.playback.preflight";
 export const PLAYBACK_WATCHDOG = "unidock.playback.watchdog";
-export const PLAYBACK_RETENTION = "unidock.playback.retention";
-const TERMINAL_RETENTION = 30 * 24 * 3600000;
+
 export interface PlayerAddress {
   readonly tabId: number;
   readonly frameId: number;
@@ -48,30 +44,27 @@ export class PlaybackRuntimeError extends Error {
   }
 }
 interface ActiveRun {
-  item: ScheduledPlayback;
+  item: PlaylistItem;
   runId: string;
+  token: string;
   tabId: number | null;
   address: PlayerAddress | null;
-  token: string;
-  stopAt: number;
 }
 export interface PlayerAuthorization {
   readonly binding: PlayerBinding;
   readonly leaseUntil: number;
 }
 
-/** One serialized owner of durable state; urgent commands invalidate in-flight work synchronously. */
+/** Serialized owner of the ordered playlist and the sole player authorization issuer. */
 export class PlaybackRuntime {
   private saved = emptyPlayback();
   private discovery: PlaybackDiscovery | null = null;
-  private plan: PlaybackPlan = { queue: [], blocked: [] };
   private status: RuntimeStatus = "idle";
   private run: ActiveRun | null = null;
-  private epoch = 0;
   private lane: Promise<unknown> = Promise.resolve();
   private initialized = false;
   private consented = false;
-  private calendarSources = new Map<string, string>();
+  private epoch = 0;
   constructor(private readonly ports: RuntimePorts) {}
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -80,74 +73,37 @@ export class PlaybackRuntime {
     return next;
   }
   private snapshot(): PlaybackSnapshot {
+    const current = this.run?.item ?? this.saved.playlist[0] ?? null;
     return {
-      settings: this.saved.settings,
       courses: this.discovery?.courses ?? [],
       labels: Object.fromEntries(
-        (this.discovery?.candidates ?? []).map((candidate) => [
-          candidate.id,
-          candidate.title || "영상 제목 확인 필요",
+        (this.discovery?.candidates ?? []).map((item) => [
+          item.id,
+          item.title || "영상 제목 확인 필요",
         ]),
       ),
-      queue: this.plan.queue.filter((item) => item.id !== this.run?.item.id),
-      blocked: this.plan.blocked,
+      current,
+      queue: current
+        ? this.saved.playlist.filter((item) => item.id !== current.id)
+        : [...this.saved.playlist],
       status: this.status,
-      active: this.run ? { ...this.run.item, credit: "unknown" } : null,
-      finishedIds: [...this.saved.finishedIds],
-      confirmationRequired: this.plan.blocked.some((item) =>
-        [
-          "unknown_duration",
-          "unknown_completion",
-          "unknown_deadline",
-          "date_only_deadline",
-          "invalid_deadline",
-        ].includes(item.reason),
-      ),
-      calendarOverrides: this.saved.calendarOverrides.map((override) => ({
-        ...override,
-        confirmationRequired:
-          this.calendarSources.get(override.id) !== override.sourceRevision,
-      })),
     };
   }
-  private prune(): void {
-    const expired = new Set(
-      Object.entries(this.saved.terminalAt)
-        .filter(([, at]) => at + TERMINAL_RETENTION <= this.ports.now())
-        .map(([id]) => id),
-    );
-    this.saved.finishedIds = this.saved.finishedIds.filter(
-      (id) => !expired.has(id),
-    );
-    this.saved.excludedIds = this.saved.excludedIds.filter(
-      (id) => !expired.has(id),
-    );
-    this.saved.confirmations = this.saved.confirmations.filter(
-      (item) => !expired.has(item.id),
-    );
-    this.saved.terminalAt = Object.fromEntries(
-      Object.entries(this.saved.terminalAt).filter(([id]) => !expired.has(id)),
-    );
-  }
   private async persist(): Promise<void> {
-    if (!this.saved.accountKey || !this.consented) return;
-    this.prune();
+    if (!this.consented || !this.saved.accountKey) return;
     try {
       await this.ports.store.save(this.saved);
     } catch {
       throw new PlaybackRuntimeError("STORAGE");
     }
-    const times = Object.values(this.saved.terminalAt);
-    await this.ports.alarm(
-      PLAYBACK_RETENTION,
-      times.length ? Math.min(...times) + TERMINAL_RETENTION : null,
-    );
   }
   private async disarm(): Promise<void> {
     await Promise.all([
       this.ports.alarm(PLAYBACK_ALARM, null),
+      this.ports.alarm(PLAYBACK_PREFLIGHT, null),
       this.ports.alarm(PLAYBACK_WATCHDOG, null),
-      this.ports.alarm(PLAYBACK_RETENTION, null),
+      // Remove a possible alarm left by the non-migrated v1 scheduler.
+      this.ports.alarm("unidock.playback.retention", null),
     ]);
   }
   private async release(): Promise<void> {
@@ -155,100 +111,8 @@ export class PlaybackRuntime {
     this.run = null;
     const tabId = run?.tabId ?? this.saved.player?.tabId;
     this.saved.player = null;
-    if (tabId !== undefined && tabId !== null) await this.ports.close(tabId);
     await this.ports.alarm(PLAYBACK_WATCHDOG, null);
-  }
-  private async fault(error: unknown): Promise<PlaybackResult> {
-    this.epoch++;
-    this.status =
-      error instanceof PlaybackRuntimeError && error.code === "LOGIN_REQUIRED"
-        ? "blocked-login"
-        : "failed";
-    this.saved.stopped = true;
-    this.plan = { queue: [], blocked: [] };
-    try {
-      await this.release();
-      await this.disarm();
-      await this.persist();
-    } catch {
-      return { status: "error", code: "STORAGE" };
-    }
-    return {
-      status: "error",
-      code: error instanceof PlaybackRuntimeError ? error.code : "NETWORK",
-    };
-  }
-  private candidates(): PlaybackCandidate[] {
-    return (this.discovery?.candidates ?? []).map((item) => {
-      const confirmation = this.saved.confirmations.find(
-        (known) =>
-          known.id === item.id &&
-          known.courseId === item.courseId &&
-          known.sourceDeadline === item.deadline,
-      );
-      return confirmation && item.completion !== "complete"
-        ? {
-            id: item.id,
-            courseId: item.courseId,
-            deadline: confirmation.deadline,
-            durationMinutes: confirmation.durationMinutes,
-            completion: confirmation.completion,
-          }
-        : item;
-    });
-  }
-  private async refresh(
-    epoch: number,
-    known?: PlaybackDiscovery,
-  ): Promise<boolean> {
-    const discovery = known ?? (await this.ports.discover());
-    if (epoch !== this.epoch) return false;
-    if (
-      this.saved.accountKey &&
-      this.saved.accountKey !== discovery.accountKey
-    ) {
-      await this.release();
-      await this.disarm();
-      await this.ports.store.clear();
-      this.consented = false;
-      this.saved = emptyPlayback(discovery.accountKey, discovery.origin);
-      this.discovery = discovery;
-      this.calendarSources.clear();
-      this.plan = { queue: [], blocked: [] };
-      this.status = "idle";
-      await this.persist();
-      throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
-    }
-    if (!this.saved.accountKey)
-      this.saved = emptyPlayback(discovery.accountKey, discovery.origin);
-    if (this.saved.origin !== discovery.origin)
-      throw new PlaybackRuntimeError("POLICY");
-    this.discovery = discovery;
-    this.prune();
-    const candidates = this.candidates().filter(
-      (item) =>
-        !this.saved.finishedIds.includes(item.id) &&
-        !this.saved.excludedIds.includes(item.id),
-    );
-    this.plan = planPlayback(candidates, this.saved.settings, this.ports.now());
-    await this.persist();
-    return epoch === this.epoch;
-  }
-  private async schedule(): Promise<void> {
-    if (this.run || this.saved.stopped || !this.saved.settings.enabled) {
-      await this.ports.alarm(PLAYBACK_ALARM, null);
-      return;
-    }
-    const next = this.plan.queue[0];
-    this.status = next
-      ? "scheduled"
-      : this.snapshot().confirmationRequired
-        ? "confirmation-required"
-        : "idle";
-    await this.ports.alarm(
-      PLAYBACK_ALARM,
-      next ? Math.max(this.ports.now() + 1000, next.startAt) : null,
-    );
+    if (tabId !== undefined && tabId !== null) await this.ports.close(tabId);
   }
   private async init(): Promise<void> {
     if (this.initialized) return;
@@ -256,356 +120,298 @@ export class PlaybackRuntime {
     const loaded = await this.ports.store.load();
     this.consented = loaded !== null;
     this.saved = loaded ?? emptyPlayback();
-    this.prune();
-    // Never replay an item whose worker lost its live document authorization.
-    if (this.saved.player) {
+    await this.disarm();
+    if (this.saved.player) await this.release();
+    // A worker/browser restart never starts or advances retained media.
+    if (this.saved.playlist.length) {
       this.saved.stopped = true;
       this.status = "paused";
-      await this.release();
       await this.persist();
     }
-    await this.disarm();
   }
-  startup(): Promise<PlaybackResult> {
-    return this.serial(async () => {
-      try {
-        await this.init();
-        if (this.consented && (await this.refresh(this.epoch)))
-          await this.schedule();
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.fault(error);
-      }
-    });
-  }
-  command(command: PlaybackCommand): Promise<PlaybackResult> {
-    const urgent =
-      command.type === "PLAYBACK_STOP_ALL" ||
-      command.type === "LOCAL_DATA_DELETE_ALL" ||
-      (command.type === "PLAYBACK_CANCEL" &&
-        command.id === this.run?.item.id) ||
-      command.type === "PLAYBACK_PAUSE" ||
-      command.type === "PLAYBACK_CONFIGURE";
-    const wasStopped = this.saved.stopped;
-    if (urgent) {
-      this.epoch++;
-      this.saved.stopped = true;
+  private async refresh(epoch: number): Promise<boolean> {
+    const discovery = await this.ports.discover();
+    if (epoch !== this.epoch) return false;
+    if (
+      this.saved.accountKey &&
+      this.saved.accountKey !== discovery.accountKey
+    ) {
+      await this.release();
+      await this.ports.store.clear();
+      this.saved = emptyPlayback();
+      this.discovery = discovery;
+      this.consented = false;
+      this.status = "idle";
+      throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
     }
-    const epoch = this.epoch;
-    // Revoke advancement immediately, even while a fresh read is in flight.
-    const current = this.run;
-    const terminal = urgent && command.type !== "PLAYBACK_PAUSE";
-    const action =
-      terminal && current?.tabId !== null && current?.tabId !== undefined
-        ? this.ports.close(current.tabId).then(() => {
-            if (this.run === current) {
-              current.tabId = null;
-              this.saved.player = null;
-            }
-          })
-        : urgent && current?.address
-          ? this.ports.control(current.address, this.binding(current), "pause")
-          : Promise.resolve();
-    const immediate = action.then(
-      () => ({ ok: true }) as const,
-      (error: unknown) => ({ ok: false, error }) as const,
-    );
-    return this.serial(async () => {
-      try {
-        const outcome = await immediate;
-        if (!outcome.ok) throw outcome.error;
-        await this.init();
-        switch (command.type) {
-          case "PLAYBACK_STATUS":
-            if ((await this.refresh(epoch)) && !this.run) await this.schedule();
-            return { status: "success", snapshot: this.snapshot() };
-          case "LOCAL_DATA_DELETE_ALL":
-            await this.release();
-            await this.disarm();
-            await this.ports.store.erase();
-            this.consented = false;
-            this.saved = emptyPlayback();
-            this.discovery = null;
-            this.calendarSources.clear();
-            this.plan = { queue: [], blocked: [] };
-            this.status = "idle";
-            return { status: "success", snapshot: this.snapshot() };
-          case "CALENDAR_OVERRIDES_GET":
-            if (!(await this.refresh(epoch))) break;
-            this.calendarSources = new Map(
-              command.sources.map((source) => [
-                source.id,
-                source.sourceRevision,
-              ]),
-            );
-            break;
-          case "CALENDAR_OVERRIDE_SET":
-            if (!(await this.refresh(epoch))) break;
-            this.consented = true;
-            this.saved.calendarOverrides = [
-              ...this.saved.calendarOverrides.filter(
-                (override) => override.id !== command.override.id,
-              ),
-              { ...command.override },
-            ];
-            this.calendarSources.set(
-              command.override.id,
-              command.override.sourceRevision,
-            );
-            break;
-          case "CALENDAR_OVERRIDE_REMOVE":
-            if (!(await this.refresh(epoch))) break;
-            this.saved.calendarOverrides = this.saved.calendarOverrides.filter(
-              (override) => override.id !== command.id,
-            );
-            break;
-          case "PLAYBACK_CONFIRM": {
-            if (!this.saved.settings.enabled)
-              throw new PlaybackRuntimeError("POLICY");
-            const resolved = await this.ports.resolve(command.handle);
-            if (!(await this.refresh(epoch, resolved.discovery))) break;
-            const candidate = resolved.discovery.candidates.find(
-              (item) =>
-                item.id === resolved.id && item.courseId === resolved.courseId,
-            );
-            if (
-              !candidate ||
-              candidate.completion === "complete" ||
-              Date.parse(command.deadline) <= this.ports.now()
-            )
-              throw new PlaybackRuntimeError("STALE_SELECTION");
-            this.saved.confirmations = [
-              ...this.saved.confirmations.filter(
-                (item) => item.id !== resolved.id,
-              ),
-              {
-                id: resolved.id,
-                courseId: resolved.courseId,
-                deadline: command.deadline,
-                durationMinutes: command.durationMinutes,
-                completion: "incomplete",
-                sourceDeadline: candidate.deadline,
-              },
-            ];
-            this.saved.excludedIds = this.saved.excludedIds.filter(
-              (id) => id !== resolved.id,
-            );
-            delete this.saved.terminalAt[resolved.id];
-            if (await this.refresh(epoch)) await this.schedule();
-            break;
-          }
-          case "PLAYBACK_STOP_ALL":
-            for (const id of new Set([
-              ...this.plan.queue.map((item) => item.id),
-              ...this.saved.confirmations.map((item) => item.id),
-              ...(this.run ? [this.run.item.id] : []),
-            ])) {
-              if (this.saved.finishedIds.includes(id)) continue;
-              if (!this.saved.excludedIds.includes(id))
-                this.saved.excludedIds.push(id);
-              this.saved.terminalAt[id] = this.ports.now();
-            }
-            this.saved.stopped = true;
-            this.saved.settings = { ...this.saved.settings, enabled: false };
-            this.status = "stopped";
-            this.plan = { queue: [], blocked: [] };
-            await this.release();
-            await this.disarm();
-            break;
-          case "PLAYBACK_PAUSE":
-            this.saved.stopped = true;
-            this.status = "paused";
-            await this.ports.alarm(PLAYBACK_ALARM, null);
-            break;
-          case "PLAYBACK_CANCEL":
-            this.saved.stopped = wasStopped;
-            if (!this.saved.excludedIds.includes(command.id))
-              this.saved.excludedIds.push(command.id);
-            this.saved.terminalAt[command.id] = this.ports.now();
-            if (this.run?.item.id === command.id) await this.release();
-            if (await this.refresh(epoch)) await this.schedule();
-            break;
-          case "PLAYBACK_CONFIGURE": {
-            await this.release();
-            if (!(await this.refresh(epoch))) break;
-            if (
-              !command.settings.courseIds.every((id) =>
-                this.discovery?.courses.some((course) => course.id === id),
-              )
-            )
-              throw new PlaybackRuntimeError("POLICY");
-            this.consented ||= command.settings.enabled;
-            this.saved.settings = {
-              ...command.settings,
-              courseIds: [...command.settings.courseIds],
-            };
-            this.saved.stopped = !command.settings.enabled;
-            if (await this.refresh(epoch)) await this.schedule();
-            break;
-          }
-          case "PLAYBACK_REFRESH":
-            if (await this.refresh(epoch)) {
-              if (this.run) await this.validateRun(epoch);
-              else await this.schedule();
-            }
-            break;
-          case "PLAYBACK_RESUME":
-            if (!(await this.refresh(epoch))) break;
-            this.saved.stopped = false;
-            if (this.run) {
-              await this.validateRun(epoch);
-              const run = this.run;
-              if (run?.address && epoch === this.epoch) {
-                await this.ports.control(
-                  run.address,
-                  this.binding(run),
-                  "resume",
-                );
-                this.status = "playing";
-              }
-            } else await this.schedule();
-            break;
-        }
-        await this.persist();
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.fault(error);
-      }
-    });
+    if (!this.saved.accountKey)
+      this.saved = emptyPlayback(discovery.accountKey, discovery.origin);
+    if (this.saved.origin !== discovery.origin)
+      throw new PlaybackRuntimeError("POLICY");
+    this.discovery = discovery;
+    return true;
   }
-  alarm(name: string): Promise<PlaybackResult> {
-    return this.serial(async () => {
-      const epoch = this.epoch;
-      try {
-        await this.init();
-        if (name === PLAYBACK_RETENTION) {
-          await this.persist();
-          return { status: "success", snapshot: this.snapshot() };
-        }
-        if (name !== PLAYBACK_ALARM && name !== PLAYBACK_WATCHDOG)
-          return { status: "success", snapshot: this.snapshot() };
-        if (this.saved.stopped && !this.run)
-          return { status: "success", snapshot: this.snapshot() };
-        if (!(await this.refresh(epoch)))
-          return { status: "success", snapshot: this.snapshot() };
-        if (this.run) {
-          if (name === PLAYBACK_WATCHDOG)
-            throw new PlaybackRuntimeError("PLAYER_LOST");
-          await this.validateRun(epoch);
-        } else {
-          const item = this.plan.queue[0];
-          if (
-            item &&
-            item.startAt <= this.ports.now() &&
-            this.saved.settings.enabled &&
-            !this.saved.stopped
-          )
-            await this.start(item, epoch);
-          else await this.schedule();
-        }
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.fault(error);
-      }
-    });
+  private candidate(item: PlaylistItem): boolean {
+    return !!this.discovery?.candidates.some(
+      (known) => known.id === item.id && known.courseId === item.courseId,
+    );
   }
   private binding(run: ActiveRun): PlayerBinding {
+    // `deadline` is a short-lived authorization bound, not an LMS or playlist deadline.
     return {
       runId: run.runId,
       token: run.token,
-      deadline: Math.min(run.item.deadline, run.stopAt),
+      deadline: this.ports.now() + 70000,
     };
   }
-  private async start(item: ScheduledPlayback, epoch: number): Promise<void> {
+  private async startCurrent(epoch: number): Promise<void> {
+    if (this.saved.stopped || this.run) return;
+    const item = this.saved.playlist[0];
+    if (!item) {
+      this.status = "idle";
+      return;
+    }
+    if (!(await this.refresh(epoch))) return;
+    if (!this.candidate(item))
+      throw new PlaybackRuntimeError("STALE_SELECTION");
     const run: ActiveRun = {
       item,
       runId: this.ports.uuid(),
       token: this.ports.uuid(),
       tabId: null,
       address: null,
-      stopAt:
-        Math.floor((this.ports.now() + 9 * 3600000) / 86400000) * 86400000 -
-        9 * 3600000 +
-        this.saved.settings.windowEndHour * 3600000,
     };
     this.run = run;
     this.status = "starting";
-    await this.ports.alarm(PLAYBACK_ALARM, null);
-    if (epoch !== this.epoch) {
-      this.run = null;
-      return;
-    }
     const itemId = item.id.split(":")[1];
     const url = `${this.saved.origin}/courses/${item.courseId}/modules/items/${itemId}`;
     const tabId = await this.ports.open(url);
     run.tabId = tabId;
-    if (epoch !== this.epoch) {
+    if (epoch !== this.epoch || this.run !== run) {
       await this.release();
       return;
     }
     this.saved.player = { tabId, id: item.id, courseId: item.courseId };
-    // Authorization is not issued until recovery information has reached durable storage.
     await this.persist();
-    if (epoch !== this.epoch) {
+    if (epoch !== this.epoch || this.run !== run) {
       await this.release();
       return;
     }
-    // Navigate only after the tab/run recovery record exists; fast documents cannot race authorization.
     await this.ports.navigate(tabId, url);
-    await this.ports.alarm(
-      PLAYBACK_WATCHDOG,
-      Math.min(item.deadline, run.stopAt, this.ports.now() + 60000),
-    );
+    await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
   }
-  private async validateRun(epoch: number): Promise<void> {
-    const run = this.run;
-    if (!run || epoch !== this.epoch) return;
-    const candidate = this.candidates().find((item) => item.id === run.item.id);
-    if (
-      !candidate ||
-      candidate.completion !== "incomplete" ||
-      !candidate.deadline ||
-      !Number.isFinite(Date.parse(candidate.deadline)) ||
-      candidate.durationMinutes === null ||
-      Date.parse(candidate.deadline) <= this.ports.now() ||
-      run.stopAt <= this.ports.now() ||
-      !this.saved.settings.courseIds.includes(candidate.courseId)
-    )
-      throw new PlaybackRuntimeError("STALE_SELECTION");
-    run.item = {
-      ...run.item,
-      deadline: Math.min(run.item.deadline, Date.parse(candidate.deadline)),
-    };
-    if (run.item.deadline <= this.ports.now())
-      throw new PlaybackRuntimeError("STALE_SELECTION");
+  private async blocked(error: unknown): Promise<PlaybackResult> {
+    const code = error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
+    this.epoch++;
+    this.saved.stopped = true;
+    this.status = code === "LOGIN_REQUIRED" ? "blocked-login" : "failed";
+    try {
+      await this.release();
+      await this.disarm();
+      await this.persist();
+    } catch {
+      return { status: "error", code: "STORAGE" };
+    }
+    return { status: "error", code };
+  }
+
+  startup(): Promise<PlaybackResult> {
+    return this.serial(async () => {
+      try {
+        await this.init();
+        return { status: "success", snapshot: this.snapshot() };
+      } catch (error) {
+        return this.blocked(error);
+      }
+    });
+  }
+  command(command: PlaybackCommand): Promise<PlaybackResult> {
+    const urgent = [
+      "PLAYBACK_PAUSE",
+      "PLAYBACK_STOP_ALL",
+      "LOCAL_DATA_DELETE_ALL",
+    ].includes(command.type);
+    if (urgent) {
+      this.epoch++;
+      this.saved.stopped = true;
+    }
+    const epoch = this.epoch;
+    return this.serial(async () => {
+      try {
+        await this.init();
+        switch (command.type) {
+          case "PLAYBACK_STATUS":
+          case "PLAYBACK_REFRESH":
+            try {
+              await this.refresh(epoch);
+            } catch (error) {
+              if (
+                error instanceof PlaybackRuntimeError &&
+                error.code === "LOGIN_REQUIRED" &&
+                this.saved.playlist.length
+              ) {
+                this.epoch++;
+                this.saved.stopped = true;
+                this.status = "blocked-login";
+                await this.release();
+                await this.disarm();
+                await this.persist();
+                break;
+              }
+              throw error;
+            }
+            break;
+          case "PLAYBACK_START": {
+            const resolved: ResolvedRecording[] = [];
+            for (const handle of command.handles) {
+              const value = await this.ports.resolve(handle);
+              if (epoch !== this.epoch) break;
+              resolved.push(value);
+            }
+            if (epoch !== this.epoch) break;
+            const latest = resolved.at(-1)!.discovery;
+            const items = resolved.map(({ discovery, id, courseId }) => {
+              if (
+                discovery.accountKey !== latest.accountKey ||
+                discovery.origin !== latest.origin ||
+                !latest.candidates.some(
+                  (candidate) =>
+                    candidate.id === id && candidate.courseId === courseId,
+                )
+              )
+                throw new PlaybackRuntimeError("STALE_SELECTION");
+              return { id, courseId };
+            });
+            if (new Set(items.map((item) => item.id)).size !== items.length)
+              throw new PlaybackRuntimeError("STALE_SELECTION");
+            if (
+              this.saved.accountKey &&
+              this.saved.accountKey !== latest.accountKey
+            ) {
+              await this.release();
+              await this.ports.store.clear();
+              this.saved = emptyPlayback();
+              this.discovery = latest;
+              this.consented = false;
+              this.status = "idle";
+              throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
+            }
+            await this.release();
+            this.discovery = latest;
+            this.saved = {
+              ...emptyPlayback(latest.accountKey, latest.origin),
+              playlist: items,
+              stopped: false,
+            };
+            this.consented = true;
+            await this.persist();
+            await this.startCurrent(epoch);
+            break;
+          }
+          case "PLAYBACK_PAUSE":
+            if (this.run?.address)
+              await this.ports.control(
+                this.run.address,
+                this.binding(this.run),
+                "pause",
+              );
+            this.saved.stopped = true;
+            this.status = "paused";
+            await this.ports.alarm(PLAYBACK_WATCHDOG, null);
+            break;
+          case "PLAYBACK_RESUME":
+            this.saved.stopped = false;
+            if (this.run?.address) {
+              if (
+                !(await this.refresh(epoch)) ||
+                !this.candidate(this.run.item)
+              )
+                throw new PlaybackRuntimeError("STALE_SELECTION");
+              await this.ports.control(
+                this.run.address,
+                this.binding(this.run),
+                "resume",
+              );
+              this.status = "playing";
+              await this.ports.alarm(
+                PLAYBACK_WATCHDOG,
+                this.ports.now() + 60000,
+              );
+            } else await this.startCurrent(epoch);
+            break;
+          case "PLAYBACK_CANCEL": {
+            const active = this.saved.playlist[0]?.id === command.id;
+            this.saved.playlist = this.saved.playlist.filter(
+              (item) => item.id !== command.id,
+            );
+            if (active) {
+              await this.release();
+              if (!this.saved.stopped) await this.startCurrent(epoch);
+            }
+            if (!this.saved.playlist.length) this.status = "idle";
+            break;
+          }
+          case "PLAYBACK_STOP_ALL":
+            await this.release();
+            this.saved.playlist = [];
+            this.saved.stopped = true;
+            this.status = "stopped";
+            await this.disarm();
+            break;
+          case "LOCAL_DATA_DELETE_ALL":
+            await this.release();
+            await this.disarm();
+            await this.ports.store.erase();
+            this.saved = emptyPlayback();
+            this.discovery = null;
+            this.consented = false;
+            this.status = "idle";
+            return { status: "success", snapshot: this.snapshot() };
+        }
+        await this.persist();
+        return { status: "success", snapshot: this.snapshot() };
+      } catch (error) {
+        return this.blocked(error);
+      }
+    });
+  }
+  alarm(name: string): Promise<PlaybackResult> {
+    return this.serial(async () => {
+      try {
+        await this.init();
+        if (name === PLAYBACK_WATCHDOG && this.run && !this.saved.stopped)
+          throw new PlaybackRuntimeError("PLAYER_LOST");
+        else if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
+          await this.ports.alarm(name, null);
+        return { status: "success", snapshot: this.snapshot() };
+      } catch (error) {
+        return this.blocked(error);
+      }
+    });
   }
   authorize(address: PlayerAddress): Promise<PlayerAuthorization | null> {
     return this.serial(async () => {
-      const epoch = this.epoch;
+      const run = this.run;
+      if (
+        !run ||
+        run.tabId !== address.tabId ||
+        run.address ||
+        this.saved.stopped ||
+        this.status !== "starting"
+      )
+        return null;
       try {
-        const run = this.run;
-        if (
-          !run ||
-          run.tabId !== address.tabId ||
-          run.address ||
-          this.saved.stopped ||
-          this.status !== "starting"
-        )
+        const epoch = this.epoch;
+        if (!(await this.refresh(epoch)) || !this.candidate(run.item))
           return null;
-        if (!(await this.refresh(epoch))) return null;
-        await this.validateRun(epoch);
-        if (epoch !== this.epoch || this.run !== run) return null;
+        if (this.run !== run || epoch !== this.epoch) return null;
         run.address = address;
         return {
           binding: this.binding(run),
-          leaseUntil: Math.min(
-            run.item.deadline,
-            run.stopAt,
-            this.ports.now() + 70000,
-          ),
+          leaseUntil: this.ports.now() + 60000,
         };
       } catch (error) {
-        await this.fault(error);
+        await this.blocked(error);
         return null;
       }
     });
@@ -626,38 +432,32 @@ export class PlaybackRuntime {
     binding: PlayerBinding,
     state: PlayerSignal,
   ): Promise<boolean> {
-    const epoch = this.epoch;
     return this.serial(async () => {
-      if (epoch !== this.epoch || !this.matches(address, binding)) return false;
+      if (!this.matches(address, binding)) return false;
       try {
         if (state === "ended") {
           if (this.status !== "playing" || this.saved.stopped) return false;
-          const id = this.run?.item.id;
-          if (id && !this.saved.finishedIds.includes(id)) {
-            this.saved.finishedIds.push(id);
-            this.saved.terminalAt[id] = this.ports.now();
-          }
+          this.saved.playlist.shift();
           await this.release();
           await this.persist();
-          if (await this.refresh(this.epoch)) await this.schedule();
+          // Native end is the only automatic advancement trigger.
+          await this.startCurrent(this.epoch);
         } else if (
-          state === "failed" ||
-          state === "blocked-autoplay" ||
-          state === "blocked-login"
+          ["failed", "blocked-autoplay", "blocked-login"].includes(state)
         ) {
           this.saved.stopped = true;
+          this.status = state as RuntimeStatus;
           await this.release();
           await this.disarm();
-          this.status = state;
           await this.persist();
         } else if (state === "paused") {
-          this.status = "paused";
           this.saved.stopped = true;
+          this.status = "paused";
           await this.persist();
         } else if (!this.saved.stopped) this.status = state;
         return true;
       } catch (error) {
-        await this.fault(error);
+        await this.blocked(error);
         return false;
       }
     });
@@ -667,60 +467,41 @@ export class PlaybackRuntime {
     binding: PlayerBinding,
   ): Promise<PlayerAuthorization | null> {
     return this.serial(async () => {
-      const epoch = this.epoch;
-      if (!this.matches(address, binding)) return null;
+      if (!this.matches(address, binding) || this.saved.stopped || !this.run)
+        return null;
       try {
-        if (!(await this.refresh(epoch))) return null;
-        await this.validateRun(epoch);
+        const epoch = this.epoch;
         if (
-          !this.matches(address, binding) ||
-          epoch !== this.epoch ||
-          !this.run
+          !(await this.refresh(epoch)) ||
+          !this.run ||
+          !this.candidate(this.run.item)
         )
           return null;
-        await this.ports.alarm(
-          PLAYBACK_WATCHDOG,
-          Math.min(
-            this.run.item.deadline,
-            this.run.stopAt,
-            this.ports.now() + 60000,
-          ),
-        );
+        if (!this.matches(address, binding)) return null;
+        await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
         return {
           binding: this.binding(this.run),
-          leaseUntil: Math.min(
-            this.run.item.deadline,
-            this.run.stopAt,
-            this.ports.now() + 70000,
-          ),
+          leaseUntil: this.ports.now() + 60000,
         };
       } catch (error) {
-        await this.fault(error);
+        await this.blocked(error);
         return null;
       }
     });
   }
   lost(tabId: number): Promise<void> {
-    if (this.run?.tabId === tabId && !this.saved.stopped) this.epoch++;
+    if (this.run?.tabId === tabId) this.epoch++;
     return this.serial(async () => {
-      if (this.run?.tabId === tabId) {
-        if (this.saved.stopped) {
-          this.run.tabId = null;
-          this.saved.player = null;
-          await this.release();
-          await this.persist();
-          return;
-        }
-        this.run.tabId = null;
-        this.saved.player = null;
-        await this.fault(new PlaybackRuntimeError("PLAYER_LOST"));
-      }
+      if (this.run?.tabId !== tabId) return;
+      this.run.tabId = null;
+      this.saved.player = null;
+      await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"));
     });
   }
   get dedicatedTabId(): number | null {
     return this.run?.tabId ?? null;
   }
-  get dedicatedItem(): ScheduledPlayback | null {
+  get dedicatedItem(): PlaylistItem | null {
     return this.run?.item ?? null;
   }
 }

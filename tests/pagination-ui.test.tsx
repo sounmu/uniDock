@@ -21,6 +21,7 @@ it("bounds rendered rows and preserves all deadline rows and API order across pa
       onCourse={() => {}}
     />,
   );
+  await click("보기 설정");
   await act(async () => {
     (
       document.querySelector('input[type="checkbox"]') as HTMLInputElement
@@ -58,7 +59,7 @@ it("keeps course selection callbacks correct beyond the first page", async () =>
     <ResultList result={{ status: "success", courses }} onCourse={onCourse} />,
   );
   await click("다음");
-  await click("과제 보기");
+  await click("과목 100");
   expect(onCourse).toHaveBeenCalledExactlyOnceWith("과목 100");
 });
 it("keeps the recording page while an open completes and resets on refresh", async () => {
@@ -80,6 +81,7 @@ it("keeps the recording page while an open completes and resets on refresh", asy
   );
   ui = await mount(render());
   await click("다음");
+  await click("강의 100");
   await click("LTI 탭 열기 ↗");
   expect(onRecording).toHaveBeenCalledExactlyOnceWith(
     recordings[100]!.launchHandle,
@@ -91,6 +93,7 @@ it("keeps the recording page while an open completes and resets on refresh", asy
       (b) => b.textContent === "LTI 탭 열기 ↗",
     )!.disabled,
   ).toBe(true);
+  await click("← 목록");
   await ui.render(render([...recordings]));
   expect(document.body.textContent).toContain("1–100 / 101개");
 });
@@ -128,6 +131,7 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
             : { status: "success", todo: values };
     ui = await mount(<ResultList result={result} onCourse={() => {}} />);
     if (key === "assignments" || key === "deadlines") {
+      await click("보기 설정");
       await act(async () => {
         (
           document.querySelector('input[type="checkbox"]') as HTMLInputElement

@@ -11,10 +11,21 @@ export type PlaybackState =
 
 export type PlaybackStatus = {
   state: PlaybackState;
-  reason?: "media" | "timeout" | "play" | "rate";
+  reason?: "media" | "timeout" | "play" | "rate" | "unverified-end";
 };
 
 export interface PlaybackOptions {
+  onDiagnostic?: (
+    code:
+      | "PLAY_REQUEST"
+      | "AUTOPLAY_DENIED"
+      | "MUTED_RETRY"
+      | "PLAY_ACCEPTED"
+      | "PLAY_REJECTED"
+      | "NATIVE_PLAYING"
+      | "MEDIA_PROGRESS"
+      | "END_UNVERIFIED",
+  ) => void;
   /** The caller identifies login pages; a video element cannot identify an SSO redirect. */
   isLoginPage?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
@@ -67,46 +78,6 @@ export class PlaybackPlayer {
     for (const cancel of [...this.cancelPending]) cancel();
   }
 
-  /** Reads native metadata only; never invokes play(), load(), or seek. */
-  readDuration(): Promise<number | null> {
-    if (
-      this.status.state === "stopped" ||
-      !this.valid() ||
-      this.options.isLoginPage?.()
-    )
-      return Promise.resolve(null);
-    const duration = () =>
-      this.video.readyState >= HTMLMediaElement.HAVE_METADATA &&
-      Number.isFinite(this.video.duration) &&
-      this.video.duration > 0
-        ? this.video.duration
-        : null;
-    const known = duration();
-    if (known !== null || this.video.error) return Promise.resolve(known);
-    const generation = this.generation;
-    return new Promise((resolve) => {
-      const finish = (value: number | null) => {
-        clearTimeout(timer);
-        this.video.removeEventListener("loadedmetadata", loaded);
-        this.video.removeEventListener("error", error);
-        this.cancelPending.delete(cancel);
-        resolve(value);
-      };
-      const loaded = (event: Event) => {
-        if (event.isTrusted && generation === this.generation && this.valid())
-          finish(duration());
-      };
-      const error = (event: Event) => {
-        if (event.isTrusted && generation === this.generation) finish(null);
-      };
-      const cancel = () => finish(null);
-      this.video.addEventListener("loadedmetadata", loaded);
-      this.video.addEventListener("error", error);
-      this.cancelPending.add(cancel);
-      const timer = setTimeout(cancel, this.timeoutMs);
-    });
-  }
-
   /** Starts once from the current native position, at normal speed. */
   start(): Promise<PlaybackStatus> {
     if (this.status.state !== "idle") return Promise.resolve(this.status);
@@ -126,10 +97,96 @@ export class PlaybackPlayer {
     const generation = this.generation;
     const current = () => generation === this.generation && this.valid();
     let settle: ((status: PlaybackStatus) => void) | undefined;
+    let observedPlaying = false;
+    let progressSeconds = 0;
+    let lastTime = 0;
+    let lastWall = 0;
+    let source = "";
+    let sourceObject: HTMLVideoElement["srcObject"] = null;
+    const resetEvidence = () => {
+      observedPlaying = false;
+      progressSeconds = 0;
+    };
+    const nativePlaying = (event: Event) => {
+      if (
+        !event.isTrusted ||
+        !current() ||
+        this.video.paused ||
+        this.video.seeking
+      )
+        return;
+      observedPlaying = true;
+      lastTime = this.video.currentTime;
+      lastWall = performance.now();
+      source = this.video.currentSrc;
+      sourceObject = this.video.srcObject;
+      this.options.onDiagnostic?.("NATIVE_PLAYING");
+    };
+    // The KU start control can begin playback before this adapter is attached.
+    // Seed only the baseline; completion still requires measured time progress.
+    if (
+      !this.video.paused &&
+      !this.video.ended &&
+      !this.video.seeking &&
+      this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+      observedPlaying = true;
+      lastTime = this.video.currentTime;
+      lastWall = performance.now();
+      source = this.video.currentSrc;
+      sourceObject = this.video.srcObject;
+    }
+    const progress = (event: Event) => {
+      if (
+        !event.isTrusted ||
+        !current() ||
+        !observedPlaying ||
+        this.video.seeking
+      )
+        return;
+      const time = this.video.currentTime;
+      const now = performance.now();
+      const delta = time - lastTime;
+      const wall = (now - lastWall) / 1000;
+      if (
+        source !== this.video.currentSrc ||
+        sourceObject !== this.video.srcObject ||
+        delta < 0 ||
+        delta > wall + 0.5
+      ) {
+        resetEvidence();
+        return;
+      }
+      const before = progressSeconds;
+      progressSeconds += Math.max(0, Math.min(delta, wall));
+      lastTime = time;
+      lastWall = now;
+      if (before < 1 && progressSeconds >= 1)
+        this.options.onDiagnostic?.("MEDIA_PROGRESS");
+    };
+    const reset = (event: Event) => {
+      if (event.isTrusted && current()) resetEvidence();
+    };
     const ended = (event: Event) => {
       if (event.isTrusted && current() && this.video.ended) {
         this.detachEvents?.();
         this.detachEvents = undefined;
+        const duration = this.video.duration;
+        if (
+          !observedPlaying ||
+          progressSeconds < 1 ||
+          this.video.seeking ||
+          source !== this.video.currentSrc ||
+          sourceObject !== this.video.srcObject ||
+          !Number.isFinite(duration) ||
+          duration <= 0 ||
+          Math.abs(duration - this.video.currentTime) > 0.5 ||
+          Math.abs(this.video.currentTime - lastTime) > 0.5
+        ) {
+          this.options.onDiagnostic?.("END_UNVERIFIED");
+          settle?.(this.set({ state: "paused", reason: "unverified-end" }));
+          return;
+        }
         settle?.(this.set({ state: "ended" }));
       }
     };
@@ -159,11 +216,21 @@ export class PlaybackPlayer {
       }
     };
     this.video.addEventListener("ended", ended);
+    this.video.addEventListener("playing", nativePlaying);
+    this.video.addEventListener("timeupdate", progress);
+    this.video.addEventListener("seeking", reset);
+    this.video.addEventListener("emptied", reset);
+    this.video.addEventListener("loadstart", reset);
     this.video.addEventListener("error", error);
     this.video.addEventListener("pause", paused);
     this.video.addEventListener("ratechange", rateChanged);
     this.detachEvents = () => {
       this.video.removeEventListener("ended", ended);
+      this.video.removeEventListener("playing", nativePlaying);
+      this.video.removeEventListener("timeupdate", progress);
+      this.video.removeEventListener("seeking", reset);
+      this.video.removeEventListener("emptied", reset);
+      this.video.removeEventListener("loadstart", reset);
       this.video.removeEventListener("error", error);
       this.video.removeEventListener("pause", paused);
       this.video.removeEventListener("ratechange", rateChanged);
@@ -189,10 +256,33 @@ export class PlaybackPlayer {
         }
       }, this.timeoutMs);
       try {
-        Promise.resolve(this.video.play()).then(
+        const requestPlay = async () => {
+          this.options.onDiagnostic?.("PLAY_REQUEST");
+          try {
+            await this.video.play();
+          } catch (cause) {
+            if (
+              !(cause instanceof DOMException) ||
+              cause.name !== "NotAllowedError"
+            )
+              throw cause;
+            this.options.onDiagnostic?.("AUTOPLAY_DENIED");
+            if (
+              !current() ||
+              this.status.state !== "starting" ||
+              this.video.muted
+            )
+              throw cause;
+            this.video.muted = true;
+            this.options.onDiagnostic?.("MUTED_RETRY");
+            await this.video.play();
+          }
+        };
+        requestPlay().then(
           () => {
             if (generation === this.generation && !this.valid()) this.stop();
             if (!current()) return;
+            this.options.onDiagnostic?.("PLAY_ACCEPTED");
             if (this.status.state === "failed") {
               this.video.pause();
               return;
@@ -204,6 +294,7 @@ export class PlaybackPlayer {
           (cause: unknown) => {
             if (generation === this.generation && !this.valid()) this.stop();
             if (!current()) return;
+            this.options.onDiagnostic?.("PLAY_REJECTED");
             this.detachEvents?.();
             this.detachEvents = undefined;
             const blocked =
