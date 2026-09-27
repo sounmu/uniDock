@@ -55,7 +55,7 @@ export function PlaybackPanel() {
                 </button>
               ) : (
                 <button
-                  className="btn-secondary"
+                  className="btn-primary"
                   disabled={pending || !snapshot}
                   onClick={() => open("select")}
                 >
@@ -63,7 +63,7 @@ export function PlaybackPanel() {
                 </button>
               )}
               <button
-                className="btn-secondary"
+                className="btn-primary"
                 disabled={pending}
                 onClick={() =>
                   void m.run({ version: 1, type: "PLAYBACK_REFRESH" })

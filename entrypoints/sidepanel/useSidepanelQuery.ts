@@ -38,7 +38,6 @@ export function useSidepanelQuery() {
     resetRecordingAction();
     setState({ status: "idle" });
   }
-  const courses = useRef<Extract<Result, { courses: unknown }> | null>(null);
   useEffect(
     () => () => {
       generation.current++;
@@ -50,14 +49,9 @@ export function useSidepanelQuery() {
     resetRecordingAction();
     setCourse("");
     setView("COURSES_LIST");
-    if (courses.current) {
-      generation.current++;
-      setState(courses.current);
-    } else {
-      void load({ version: 1, type: "COURSES_LIST" });
-    }
+    void load({ version: 1, type: "COURSES_LIST" });
   }
-  async function load(query: Request) {
+  async function load(query: Request, options: { refresh?: boolean } = {}) {
     if (!isRequest(query)) {
       clear();
       return;
@@ -73,23 +67,17 @@ export function useSidepanelQuery() {
     const work =
       query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
         ? queryActive(query, {
+            refresh: options.refresh,
             onTarget: (target) => {
               if (current === generation.current)
                 recordingTarget.current = target;
             },
           })
-        : queryActive(query);
+        : queryActive(query, { refresh: options.refresh });
     inFlight.current = work;
     const result = await work;
     if (inFlight.current === work) inFlight.current = null;
     if (current === generation.current) {
-      if (result.status === "success" && "courses" in result)
-        courses.current = result;
-      if (
-        result.status === "error" &&
-        ["LOGIN_REQUIRED", "FORBIDDEN"].includes(result.code)
-      )
-        courses.current = null;
       setState(result);
     }
   }

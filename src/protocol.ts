@@ -51,6 +51,13 @@ export type Request =
   | ListRequest
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
   | { version: 1; type: "RECORDING_OPEN" | "DOCUMENT_OPEN"; handle: string };
+export type PanelQueryMessage =
+  | Request
+  | {
+      version: 1;
+      type: "QUERY_REFRESH";
+      request: ListRequest;
+    };
 export function validHandle(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -117,6 +124,24 @@ export function isRequest(value: unknown): value is Request {
       )
     );
   return false;
+}
+export function panelQuery(
+  value: unknown,
+): { request: Request; refresh: boolean } | null {
+  if (isRequest(value)) return { request: value, refresh: false };
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    row.version !== 1 ||
+    row.type !== "QUERY_REFRESH" ||
+    Object.keys(row).length !== 3 ||
+    !isRequest(row.request)
+  )
+    return null;
+  const request = row.request;
+  return request.type.endsWith("_LIST")
+    ? { request: request as ListRequest, refresh: true }
+    : null;
 }
 export function parseResult(
   value: unknown,

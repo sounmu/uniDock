@@ -65,7 +65,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
         <button
           className="btn-ghost"
           disabled={downloads.progress.running || state.status === "loading"}
-          onClick={() => void model.load(model.query)}
+          onClick={() => void model.load(model.query, { refresh: true })}
         >
           목록 새로고침
         </button>

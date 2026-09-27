@@ -201,6 +201,7 @@ p {
   min-width: 0;
   max-width: 68%;
 }
+.header-actions .btn-primary,
 .header-actions .btn-secondary {
   min-height: var(--control-h-lg);
   white-space: nowrap;
@@ -253,9 +254,9 @@ p {
   font-weight: 500;
   word-break: keep-all;
 }
-.rail nav button[aria-current="page"] {
-  color: var(--brand);
-  background: var(--brand-wash);
+.rail nav button.btn-ghost[aria-current="page"] {
+  color: var(--surface);
+  background: var(--brand);
   font-weight: 600;
 }
 .icon {
@@ -306,7 +307,6 @@ p {
   top: 0;
   z-index: 1;
   background: var(--page);
-  padding-block: var(--space-2);
 }
 main:has(.detail-view) .screen-header,
 main:has(.detail-view) .guidance,

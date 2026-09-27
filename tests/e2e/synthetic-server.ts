@@ -47,7 +47,7 @@ export async function syntheticServer(directory: string) {
     "-subj",
     "/CN=mylms.korea.ac.kr",
   ]);
-  let coursesRequestSeen = false;
+  let coursesRequestCount = 0;
   const downloads: string[] = [];
   const pdf = textPdf("Operating systems schedule runnable processes.");
   const server = createServer(
@@ -55,6 +55,7 @@ export async function syntheticServer(directory: string) {
     (request, response) => {
       const url = new URL(request.url ?? "/", "https://mylms.korea.ac.kr");
       const routes: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
         "/api/v1/courses": [
           { id: 101, name: "Synthetic Operating Systems" },
           { id: 202, name: "Synthetic International Law" },
@@ -113,7 +114,7 @@ export async function syntheticServer(directory: string) {
           },
         ],
       };
-      if (url.pathname === "/api/v1/courses") coursesRequestSeen = true;
+      if (url.pathname === "/api/v1/courses") coursesRequestCount++;
       if (request.method !== "GET") {
         response.writeHead(405);
         response.end();
@@ -162,7 +163,8 @@ export async function syntheticServer(directory: string) {
     port: address.port,
     pdf,
     downloads,
-    coursesSeen: () => coursesRequestSeen,
+    coursesSeen: () => coursesRequestCount > 0,
+    coursesCount: () => coursesRequestCount,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

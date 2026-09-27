@@ -68,12 +68,13 @@ it("drops queued requests after switching to captions or unmounting", async () =
   await act(async () => next.resolve({ status: "success", upcoming: [] }));
   expect(query).toHaveBeenCalledTimes(2);
 });
-it("keeps cached courses visible when returning while another query is pending", async () => {
+it("reloads courses through the content cache when returning during a pending query", async () => {
   // Given
   const pending = deferred<Result>();
   query
     .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] })
-    .mockReturnValueOnce(pending.promise);
+    .mockReturnValueOnce(pending.promise)
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] });
   ui = await mount(<App />);
   await click("새로고침");
   // When
@@ -82,7 +83,11 @@ it("keeps cached courses visible when returning while another query is pending",
   await click("내 과목");
   await act(async () => pending.resolve({ status: "success", todo: [] }));
   // Then
-  expect(query).toHaveBeenCalledTimes(2);
+  expect(query).toHaveBeenCalledTimes(3);
+  expect(query.mock.calls[2]?.[0]).toEqual({
+    version: 1,
+    type: "COURSES_LIST",
+  });
   expect(ui.host.querySelector("li strong")?.textContent).toBe("과목");
 });
 it("runs the queued request even after the previous request fails", async () => {

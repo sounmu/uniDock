@@ -1,5 +1,5 @@
 import type { NavigationCatalog } from "../src/navigation-catalog";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { parseResult, request, type Request } from "../src/protocol";
 const list = vi.hoisted(() => vi.fn());
 const query = vi.hoisted(() => vi.fn());
@@ -27,9 +27,127 @@ function response(count = 1) {
   });
   return { respond, done };
 }
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async () => Response.json({ id: 42 })),
+  );
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+it("reuses bounded account-scoped list results and bypasses them on explicit refresh", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  list.mockResolvedValue({
+    status: "success",
+    courses: [{ name: "캐시 과목" }],
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+
+  for (const message of [
+    request,
+    request,
+    { version: 1, type: "QUERY_REFRESH", request },
+  ]) {
+    const result = response();
+    expect(listener(message, sender, result.respond)).toBe(true);
+    expect(await result.done).toEqual({
+      status: "success",
+      courses: [{ name: "캐시 과목" }],
+    });
+  }
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("clears cached lists when the current LMS account changes", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const identities = [1, 1, 2, 2];
+  vi.mocked(fetch).mockImplementation(async () =>
+    Response.json({ id: identities.shift() ?? 2 }),
+  );
+  list
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "A" }] })
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "B" }] });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const first = response();
+  listener(request, sender, first.respond);
+  expect(await first.done).toEqual({
+    status: "success",
+    courses: [{ name: "A" }],
+  });
+  const second = response();
+  listener(request, sender, second.respond);
+  expect(await second.done).toEqual({
+    status: "success",
+    courses: [{ name: "B" }],
+  });
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("clears cached projections after an uncached capability query loses access", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  list
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "A" }] })
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "B" }] });
+  query.mockResolvedValueOnce({ status: "error", code: "FORBIDDEN" });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async (message: unknown) => {
+    const result = response();
+    listener(message, sender, result.respond);
+    return result.done;
+  };
+  expect(await send(request)).toEqual({
+    status: "success",
+    courses: [{ name: "A" }],
+  });
+  expect(
+    await send({ version: 1, type: "RECORDINGS_LIST", course: "A" }),
+  ).toEqual({ status: "error", code: "FORBIDDEN" });
+  expect(await send(request)).toEqual({
+    status: "success",
+    courses: [{ name: "B" }],
+  });
+  expect(list).toHaveBeenCalledTimes(2);
 });
 it("rejects forged senders and unsupported actions; coalesces authorized requests", async () => {
   const addListener = vi.fn();

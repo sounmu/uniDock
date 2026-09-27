@@ -4,6 +4,8 @@ import {
   request,
   type Request,
   type Result,
+  type PanelQueryMessage,
+  type ListRequest,
 } from "./protocol";
 import { allowedPage } from "./security/policy";
 export interface QueryTarget {
@@ -13,6 +15,8 @@ export interface QueryTarget {
 export interface QueryOptions {
   target?: QueryTarget;
   onTarget?: (target: QueryTarget) => void;
+  /** Explicit user refresh: bypass a short-lived content-script cache. */
+  refresh?: boolean;
 }
 export async function queryActive(
   query: Request,
@@ -53,7 +57,16 @@ export async function queryActive(
       }
       options.onTarget?.({ id: tab.id, url: tab.url });
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
-      const result: unknown = await chrome.tabs.sendMessage(tab.id, query, {
+      if (options.refresh && !query.type.endsWith("_LIST"))
+        return { status: "error", code: "POLICY" };
+      const message: PanelQueryMessage = options.refresh
+        ? {
+            version: 1,
+            type: "QUERY_REFRESH",
+            request: query as ListRequest,
+          }
+        : query;
+      const result: unknown = await chrome.tabs.sendMessage(tab.id, message, {
         frameId: 0,
       });
       if (timedOut()) return { status: "error", code: "TIMEOUT" };

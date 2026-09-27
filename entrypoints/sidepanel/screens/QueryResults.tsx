@@ -48,7 +48,7 @@ export function Refresh({ model }: { readonly model: PanelModel }) {
     <button
       className="btn-primary"
       disabled={model.state.status === "loading" || !model.isQueryValid}
-      onClick={() => void model.load(model.query)}
+      onClick={() => void model.load(model.query, { refresh: true })}
     >
       {model.state.status === "loading" ? "조회 중…" : "새로고침"}
     </button>

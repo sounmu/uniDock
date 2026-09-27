@@ -96,6 +96,13 @@ it("shows only immediate playlist controls without scheduling settings or blocke
   expect(ui.host.textContent).not.toContain("재생 설정");
   expect(ui.host.textContent).not.toContain("대기 사유");
   expect(ui.host.querySelector('input[type="datetime-local"]')).toBeNull();
+  const actions = [...ui.host.querySelectorAll(".header-actions button")];
+  expect(
+    actions.map((button) => [button.textContent, button.className]),
+  ).toEqual([
+    ["영상 선택", "btn-primary"],
+    ["새로고침", "btn-primary"],
+  ]);
   await click("영상 선택");
   expect(ui.host.textContent).toContain("체크한 순서대로 바로 재생합니다");
 });
@@ -168,7 +175,7 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
   });
 });
 
-it("renders current and next videos and places matching stop and refresh buttons together", async () => {
+it("renders current and next videos and keeps refresh styled like other screens", async () => {
   setup({
     ...idle,
     status: "playing",
@@ -183,9 +190,10 @@ it("renders current and next videos and places matching stop and refresh buttons
     "자동 재생 끄기",
     "새로고침",
   ]);
-  expect(actions.every((button) => button.className === "btn-secondary")).toBe(
-    true,
-  );
+  expect(actions.map((button) => button.className)).toEqual([
+    "btn-secondary",
+    "btn-primary",
+  ]);
   await click("새로고침");
   await click("자동 재생 끄기");
   expect(command.mock.calls.map(([request]) => request.type)).toEqual(

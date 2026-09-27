@@ -123,6 +123,13 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
         .getByRole("navigation", { name: "주 메뉴", exact: true })
         .getByRole("button"),
     ).toHaveCount(4);
+    const initialCourseRequests = server.coursesCount();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+    await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
+    expect(server.coursesCount()).toBe(initialCourseRequests);
+    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
+    expect(server.coursesCount()).toBe(initialCourseRequests + 1);
     await capture(panel, "courses");
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
@@ -309,10 +316,21 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await capture(panel, "caption-detail");
     await panel.getByRole("button", { name: "← 목록" }).click();
     await expect(panel.locator(".list-row")).toBeFocused();
-    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
-    await expect(
-      panel.getByRole("button", { name: "자동 재생", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    const playbackMenu = panel.getByRole("button", {
+      name: "자동 재생",
+      exact: true,
+    });
+    await playbackMenu.click();
+    await expect(playbackMenu).toHaveAttribute("aria-current", "page");
+    await expect(playbackMenu).toHaveCSS(
+      "background-color",
+      "rgb(135, 32, 56)",
+    );
+    await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(playbackMenu.locator("svg")).toHaveCSS(
+      "color",
+      "rgb(255, 255, 255)",
+    );
     await capture(panel, "playback");
     await panel.getByRole("button", { name: "정보", exact: true }).click();
     await expect(panel.getByRole("heading", { name: "정보" })).toBeVisible();

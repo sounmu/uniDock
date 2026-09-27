@@ -154,6 +154,31 @@ it("sends new read requests and rejects mismatched result kinds", async () => {
   });
 });
 
+it("uses the closed refresh envelope only for explicit list refreshes", async () => {
+  const { sendMessage } = setup();
+  sendMessage.mockResolvedValue({ status: "success", courses: [] });
+  expect(
+    await queryActive({ version: 1, type: "COURSES_LIST" }, { refresh: true }),
+  ).toEqual({ status: "success", courses: [] });
+  expect(sendMessage).toHaveBeenCalledWith(
+    7,
+    {
+      version: 1,
+      type: "QUERY_REFRESH",
+      request: { version: 1, type: "COURSES_LIST" },
+    },
+    { frameId: 0 },
+  );
+  sendMessage.mockClear();
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDING_OPEN", handle: crypto.randomUUID() },
+      { refresh: true },
+    ),
+  ).toEqual({ status: "error", code: "POLICY" });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
 it.each([
   [url, "https://canvas.korea.ac.kr/courses/12/assignments/34"],
   [
