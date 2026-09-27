@@ -35,18 +35,13 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const startCount = useRef(0);
   const stopCount = useRef(0);
   const statusRequest = useRef<Promise<boolean> | null>(null);
+  const statusInvalidation = useRef(0);
   const mounted = useRef(true);
   const pending = foregroundCommands > 0 || recordingLoad;
 
   async function run(command: PlaybackCommand, background = false) {
     if (background && command.type === "PLAYBACK_STATUS") {
-      if (statusRequest.current) return statusRequest.current;
-      const request = runStatus(commandGeneration.current);
-      statusRequest.current = request;
-      void request.finally(() => {
-        if (statusRequest.current === request) statusRequest.current = null;
-      });
-      return request;
+      return requestStatus();
     }
     const generation = ++commandGeneration.current;
     const stopping = command.type === "PLAYBACK_STOP_ALL";
@@ -88,12 +83,33 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
     return result.status === "success";
   }
 
-  async function runStatus(generation: number) {
+  function requestStatus(invalidate = false): Promise<boolean> {
+    if (invalidate) statusInvalidation.current++;
+    if (statusRequest.current) return statusRequest.current;
+    const invalidation = statusInvalidation.current;
+    const request = runStatus(commandGeneration.current, invalidation);
+    statusRequest.current = request;
+    void request.finally(() => {
+      if (statusRequest.current !== request) return;
+      statusRequest.current = null;
+      // Collapse every notification received during this read into one
+      // trailing read. Never publish the now-known-stale response above.
+      if (mounted.current && statusInvalidation.current !== invalidation)
+        void requestStatus();
+    });
+    return request;
+  }
+
+  async function runStatus(generation: number, invalidation: number) {
     const result = await playbackCommand({
       version: 1,
       type: "PLAYBACK_STATUS",
     });
-    if (!mounted.current || generation !== commandGeneration.current)
+    if (
+      !mounted.current ||
+      generation !== commandGeneration.current ||
+      invalidation !== statusInvalidation.current
+    )
       return false;
     if (result.status === "success") setSnapshot(result.snapshot);
     return result.status === "success";
@@ -128,7 +144,7 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
         "type" in message &&
         message.type === "PLAYBACK_UPDATED"
       )
-        void run({ version: 1, type: "PLAYBACK_STATUS" }, true);
+        void requestStatus(true);
     };
     chrome.runtime.onMessage.addListener(updated);
     return () => {

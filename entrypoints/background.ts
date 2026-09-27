@@ -434,9 +434,13 @@ export default defineBackground(() => {
       ? createChromePlaybackRuntime()
       : null;
   const notifyPlayback = () => {
-    void chrome.runtime
-      .sendMessage({ version: 1, type: "PLAYBACK_UPDATED" })
-      .catch(() => {});
+    try {
+      void chrome.runtime
+        .sendMessage({ version: 1, type: "PLAYBACK_UPDATED" })
+        .catch(() => {});
+    } catch {
+      // A disappearing runtime receiver must not affect the state transition.
+    }
   };
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
     if (isPlaybackCommand(message)) {
@@ -448,7 +452,13 @@ export default defineBackground(() => {
         respond({ status: "error", code: "UNAVAILABLE" });
         return false;
       }
-      void playback.command(message).then(respond);
+      void playback.command(message).then((result) => {
+        // Reply first: panel convergence is best-effort and must never extend or
+        // change the outcome of the command that caused it. STATUS is the read
+        // used to consume this invalidation, so broadcasting it would loop.
+        respond(result);
+        if (message.type !== "PLAYBACK_STATUS") notifyPlayback();
+      });
       return true;
     }
     if (

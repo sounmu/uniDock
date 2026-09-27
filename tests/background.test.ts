@@ -303,6 +303,119 @@ it("accepts playback commands only from the panel and refuses forged player docu
   expect(chrome.tabs.get).not.toHaveBeenCalled();
 });
 
+function commandBroadcastFixture() {
+  let receive!: (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    respond: (value: unknown) => void,
+  ) => boolean;
+  vi.spyOn(PlaybackRuntime.prototype, "startup").mockReturnValue(
+    new Promise(() => {}),
+  );
+  const command = vi.spyOn(PlaybackRuntime.prototype, "command");
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test-extension",
+      getURL: (path: string) => `chrome-extension://test-extension/${path}`,
+      sendMessage,
+      onMessage: {
+        addListener: (listener: typeof receive) => {
+          receive = listener;
+        },
+      },
+      onStartup: { addListener: vi.fn() },
+      onInstalled: { addListener: vi.fn() },
+    },
+    action: actionMocks(),
+    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined) },
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+    tabs: {
+      onRemoved: { addListener: vi.fn() },
+      onActivated: { addListener: vi.fn() },
+      onUpdated: { addListener: vi.fn() },
+    },
+    alarms: {
+      clear: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue(undefined),
+      onAlarm: { addListener: vi.fn() },
+    },
+  });
+  background.main();
+  return {
+    command,
+    sendMessage,
+    receive,
+    panel: {
+      id: "test-extension",
+      url: "chrome-extension://test-extension/sidepanel.html",
+    } as chrome.runtime.MessageSender,
+  };
+}
+
+it("broadcasts settled mutating commands without delaying their reply and never broadcasts STATUS", async () => {
+  const f = commandBroadcastFixture();
+  const result = { status: "error", code: "STORAGE" } as const;
+  f.command.mockResolvedValue(result);
+  const order: string[] = [];
+  f.sendMessage.mockImplementation(() => {
+    order.push("notify");
+    throw new Error("no receiving panel");
+  });
+  const deliver = (type: "PLAYBACK_STATUS" | "PLAYBACK_REFRESH") =>
+    new Promise<unknown>((resolve) => {
+      expect(
+        f.receive({ version: 1, type }, f.panel, (value) => {
+          order.push("reply");
+          resolve(value);
+        }),
+      ).toBe(true);
+    });
+
+  expect(await deliver("PLAYBACK_STATUS")).toEqual(result);
+  expect(f.sendMessage).not.toHaveBeenCalled();
+  expect(await deliver("PLAYBACK_REFRESH")).toEqual(result);
+  expect(order).toEqual(["reply", "reply", "notify"]);
+  expect(f.sendMessage).toHaveBeenCalledWith({
+    version: 1,
+    type: "PLAYBACK_UPDATED",
+  });
+});
+
+it("does not broadcast rejected playback messages", () => {
+  const f = commandBroadcastFixture();
+  const respond = vi.fn();
+  expect(
+    f.receive(
+      { version: 1, type: "PLAYBACK_STOP_ALL", extra: true },
+      f.panel,
+      respond,
+    ),
+  ).toBe(false);
+  expect(
+    f.receive(
+      { version: 1, type: "PLAYBACK_STOP_ALL" },
+      { id: "test-extension", url: "https://mylms.korea.ac.kr/" },
+      respond,
+    ),
+  ).toBe(false);
+  expect(respond).toHaveBeenCalledWith({ status: "error", code: "POLICY" });
+  expect(f.command).not.toHaveBeenCalled();
+  expect(f.sendMessage).not.toHaveBeenCalled();
+});
+
 function activationListenerFixture(
   get: (tabId: number) => Promise<chrome.tabs.Tab>,
 ) {
@@ -314,9 +427,11 @@ function activationListenerFixture(
   const command = vi
     .spyOn(PlaybackRuntime.prototype, "command")
     .mockResolvedValue({ status: "error", code: "PLAYER_LOST" });
-  vi.spyOn(PlaybackRuntime.prototype, "dedicatedTabId", "get").mockImplementation(
-    () => dedicatedTabId,
-  );
+  vi.spyOn(
+    PlaybackRuntime.prototype,
+    "dedicatedTabId",
+    "get",
+  ).mockImplementation(() => dedicatedTabId);
   vi.stubGlobal("chrome", {
     runtime: {
       id: "test-extension",
@@ -372,8 +487,8 @@ function activationListenerFixture(
 
 it("pauses only when another tab makes the dedicated tab inactive in its own window", async () => {
   let active = true;
-  const get = vi.fn(async () =>
-    ({ id: 9, windowId: 3, active }) as chrome.tabs.Tab,
+  const get = vi.fn(
+    async () => ({ id: 9, windowId: 3, active }) as chrome.tabs.Tab,
   );
   const fixture = activationListenerFixture(get);
 
@@ -398,9 +513,9 @@ it("pauses only when another tab makes the dedicated tab inactive in its own win
 });
 
 it("ignores a dedicated-tab lookup failure", async () => {
-  const get = vi.fn<(tabId: number) => Promise<chrome.tabs.Tab>>().mockRejectedValue(
-    new Error("removed"),
-  );
+  const get = vi
+    .fn<(tabId: number) => Promise<chrome.tabs.Tab>>()
+    .mockRejectedValue(new Error("removed"));
   const fixture = activationListenerFixture(get);
 
   fixture.activate(20, 3);

@@ -647,6 +647,131 @@ it("refreshes the visible playlist after a background playback transition", asyn
   ]);
 });
 
+it("re-reads an invalidation received during STATUS without publishing the stale response", async () => {
+  const listeners = new Set<
+    (message: unknown, sender: chrome.runtime.MessageSender) => void
+  >();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "extension-test",
+      getURL: (path: string) => `chrome-extension://extension-test/${path}`,
+      onMessage: {
+        addListener: (
+          listener: (
+            message: unknown,
+            sender: chrome.runtime.MessageSender,
+          ) => void,
+        ) => listeners.add(listener),
+        removeListener: (
+          listener: (
+            message: unknown,
+            sender: chrome.runtime.MessageSender,
+          ) => void,
+        ) => listeners.delete(listener),
+      },
+    },
+  });
+  setup();
+  ui = await mount(<LifecycleHarness />);
+  const oldStatus = deferred<{
+    status: "success";
+    snapshot: PlaybackSnapshot;
+  }>();
+  const latestStatus = deferred<{
+    status: "success";
+    snapshot: PlaybackSnapshot;
+  }>();
+  command
+    .mockReturnValueOnce(oldStatus.promise)
+    .mockReturnValueOnce(latestStatus.promise);
+  const notify = () => {
+    for (const listener of listeners)
+      listener(
+        { version: 1, type: "PLAYBACK_UPDATED" },
+        {
+          id: "extension-test",
+          url: "chrome-extension://extension-test/background.js",
+        },
+      );
+  };
+
+  await act(async () => notify());
+  expect(command).toHaveBeenCalledTimes(3);
+  await act(async () => notify());
+  await act(async () =>
+    oldStatus.resolve({
+      status: "success",
+      snapshot: { ...idle, status: "playing" },
+    }),
+  );
+  expect(ui.host.querySelector('[data-testid="status"]')?.textContent).toBe(
+    "idle",
+  );
+  expect(command).toHaveBeenCalledTimes(4);
+  await act(async () =>
+    latestStatus.resolve({
+      status: "success",
+      snapshot: { ...idle, status: "stopped" },
+    }),
+  );
+  expect(ui.host.querySelector('[data-testid="status"]')?.textContent).toBe(
+    "stopped",
+  );
+});
+
+it("cancels an invalidation follow-up after unmount", async () => {
+  const listeners = new Set<
+    (message: unknown, sender: chrome.runtime.MessageSender) => void
+  >();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "extension-test",
+      getURL: (path: string) => `chrome-extension://extension-test/${path}`,
+      onMessage: {
+        addListener: (
+          listener: (
+            message: unknown,
+            sender: chrome.runtime.MessageSender,
+          ) => void,
+        ) => listeners.add(listener),
+        removeListener: (
+          listener: (
+            message: unknown,
+            sender: chrome.runtime.MessageSender,
+          ) => void,
+        ) => listeners.delete(listener),
+      },
+    },
+  });
+  setup();
+  ui = await mount(<LifecycleHarness />);
+  const status = deferred<{ status: "success"; snapshot: PlaybackSnapshot }>();
+  command.mockReturnValueOnce(status.promise);
+  await act(async () => {
+    for (const listener of listeners)
+      listener(
+        { version: 1, type: "PLAYBACK_UPDATED" },
+        {
+          id: "extension-test",
+          url: "chrome-extension://extension-test/background.js",
+        },
+      );
+  });
+  await act(async () => {
+    for (const listener of listeners)
+      listener(
+        { version: 1, type: "PLAYBACK_UPDATED" },
+        {
+          id: "extension-test",
+          url: "chrome-extension://extension-test/background.js",
+        },
+      );
+  });
+  await ui.unmount();
+  await act(async () => status.resolve({ status: "success", snapshot: idle }));
+  expect(command).toHaveBeenCalledTimes(3);
+});
+
 it("disables selection without a canonical item handle", async () => {
   setup();
   query.mockResolvedValue({
