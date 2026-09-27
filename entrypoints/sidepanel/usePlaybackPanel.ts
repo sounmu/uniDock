@@ -9,6 +9,11 @@ import { queryActive, type QueryTarget } from "../../src/transport";
 import { QueryGate } from "./query-gate";
 
 type RecordingDraft = Recording & { order: number | null };
+type RecordingSelection = {
+  generation: number;
+  recordings: RecordingDraft[];
+  target: QueryTarget | null;
+};
 
 export function usePlaybackPanel(sharedGate?: QueryGate) {
   const localGate = useRef(new QueryGate()).current;
@@ -23,9 +28,11 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const [course, setCourseValue] = useState("");
   const [deletePrompt, setDeletePrompt] = useState(false);
   const recordingGeneration = useRef(0);
-  const recordingTarget = useRef<QueryTarget | null>(null);
+  const recordingSelection = useRef<RecordingSelection | null>(null);
   const commandGeneration = useRef(0);
   const foregroundCount = useRef(0);
+  const startCount = useRef(0);
+  const stopCount = useRef(0);
   const statusRequest = useRef<Promise<boolean> | null>(null);
   const mounted = useRef(true);
   const pending = foregroundCommands > 0 || recordingLoad;
@@ -43,17 +50,27 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
     const generation = ++commandGeneration.current;
     const stopping = command.type === "PLAYBACK_STOP_ALL";
     const starting = command.type === "PLAYBACK_START";
-    if (stopping) setStopPending(true);
-    else {
-      if (starting) setStartPending(true);
+    if (stopping) {
+      stopCount.current++;
+      setStopPending(true);
+    } else {
+      if (starting) {
+        startCount.current++;
+        setStartPending(true);
+      }
       foregroundCount.current++;
       setForegroundCommands(foregroundCount.current);
     }
     const result = await playbackCommand(command);
     if (!mounted.current) return false;
-    if (stopping) setStopPending(false);
-    else {
-      if (starting) setStartPending(false);
+    if (stopping) {
+      stopCount.current--;
+      setStopPending(stopCount.current > 0);
+    } else {
+      if (starting) {
+        startCount.current--;
+        setStartPending(startCount.current > 0);
+      }
       foregroundCount.current--;
       setForegroundCommands(foregroundCount.current);
     }
@@ -126,17 +143,22 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
     setRecordingLoad(false);
     setCourseValue(value);
     setRecordingDrafts([]);
-    recordingTarget.current = null;
+    recordingSelection.current = null;
     setError("");
     if (value) void loadRecordings(value);
   }
 
   async function loadRecordings(selectedId = course) {
+    const current = ++recordingGeneration.current;
+    recordingSelection.current = null;
+    setRecordingDrafts([]);
     const selectedCourse = snapshot?.courses.find(
       (item) => item.id === selectedId,
     );
-    if (!selectedCourse) return;
-    const current = ++recordingGeneration.current;
+    if (!selectedCourse) {
+      setRecordingLoad(false);
+      return;
+    }
     setRecordingLoad(true);
     const lease = await gate.acquire();
     if (!mounted.current || current !== recordingGeneration.current) {
@@ -150,15 +172,21 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
         type: "RECORDINGS_LIST",
         course: selectedCourse.name,
       },
-      { onTarget: (accepted) => (target = accepted) },
+      { refresh: true, onTarget: (accepted) => (target = accepted) },
     ).finally(lease.release);
     if (!mounted.current || current !== recordingGeneration.current) return;
     setRecordingLoad(false);
     if (result.status === "success" && "recordings" in result) {
-      recordingTarget.current = target;
-      setRecordingDrafts(
-        result.recordings.map((item) => ({ ...item, order: null })),
-      );
+      const drafts = result.recordings.map((item) => ({
+        ...item,
+        order: null,
+      }));
+      recordingSelection.current = {
+        generation: current,
+        recordings: drafts,
+        target,
+      };
+      setRecordingDrafts(drafts);
       setError("");
     } else {
       setError("녹화 후보를 불러오지 못했습니다. LMS 탭에서 확인하세요.");
@@ -166,47 +194,65 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   }
 
   function selectRecording(handle: string, selected: boolean) {
-    setRecordingDrafts((items) => {
-      const target = items.find((item) => item.launchHandle === handle);
-      if (!target || (selected && target.order !== null)) return items;
-      if (selected) {
-        const next = Math.max(0, ...items.map((item) => item.order ?? 0)) + 1;
-        return items.map((item) =>
-          item.launchHandle === handle ? { ...item, order: next } : item,
-        );
-      }
-      const removed = target.order;
-      return items.map((item) => ({
-        ...item,
-        order:
+    const draft = recordingSelection.current;
+    if (!draft) return;
+    const target = draft.recordings.find(
+      (item) => item.launchHandle === handle,
+    );
+    if (!target || (selected && target.order !== null)) return;
+    const removed = target.order;
+    const updated = selected
+      ? draft.recordings.map((item) =>
           item.launchHandle === handle
-            ? null
-            : removed !== null && item.order !== null && item.order > removed
-              ? item.order - 1
-              : item.order,
-      }));
-    });
+            ? {
+                ...item,
+                order:
+                  Math.max(
+                    0,
+                    ...draft.recordings.map((entry) => entry.order ?? 0),
+                  ) + 1,
+              }
+            : item,
+        )
+      : draft.recordings.map((item) => ({
+          ...item,
+          order:
+            item.launchHandle === handle
+              ? null
+              : removed !== null && item.order !== null && item.order > removed
+                ? item.order - 1
+                : item.order,
+        }));
+    recordingSelection.current = { ...draft, recordings: updated };
+    setRecordingDrafts(updated);
   }
 
   async function startSelected() {
-    const handles = recordings
+    const draft = recordingSelection.current;
+    if (!draft) return false;
+    const handles = draft.recordings
       .filter((item) => item.order !== null && item.launchHandle)
       .sort((a, b) => a.order! - b.order!)
       .map((item) => item.launchHandle);
-    const target = recordingTarget.current;
+    const target = draft.target;
     if (!handles.length || handles.length > 100 || !target?.documentToken)
       return false;
-    const draftGeneration = recordingGeneration.current;
-    const ok = await run({
+    // Handles are one-use capabilities. Revoke this exact draft before the
+    // command can yield so duplicate clicks and failed/timed-out starts cannot
+    // submit it again. A later list owns a different generation and is never
+    // cleared by this command's completion.
+    if (recordingSelection.current?.generation !== draft.generation)
+      return false;
+    recordingGeneration.current++;
+    recordingSelection.current = null;
+    setRecordingDrafts([]);
+    return run({
       version: 1,
       type: "PLAYBACK_START",
       handles,
       sourceTabId: target.id,
       documentToken: target.documentToken,
     });
-    if (ok && draftGeneration === recordingGeneration.current)
-      setRecordingDrafts([]);
-    return ok;
   }
 
   return {

@@ -53,6 +53,52 @@ function PlaybackHarness({ gate }: { gate?: QueryGate }) {
   );
 }
 
+const draftHandle = "00000000-0000-4000-8000-000000000071";
+const draftTarget = {
+  id: 7,
+  url: "https://mylms.korea.ac.kr/",
+  documentToken: "00000000-0000-4000-8000-000000000099",
+};
+const draftRecording = {
+  title: "초안 영상",
+  module: "1주",
+  lmsHandle: draftHandle,
+  launchHandle: draftHandle,
+  type: "ExternalTool" as const,
+};
+
+function LifecycleHarness() {
+  const model = usePlaybackPanel();
+  return (
+    <div>
+      <output data-testid="draft">
+        {model.recordings.map((item) => `${item.launchHandle}:${item.order}`)}
+      </output>
+      <output data-testid="status">{model.snapshot?.status}</output>
+      <output data-testid="error">{model.error}</output>
+      <button onClick={() => void model.loadRecordings("12")}>load</button>
+      <button onClick={() => model.selectRecording(draftHandle, true)}>
+        select
+      </button>
+      <button onClick={() => void model.startSelected()}>start</button>
+      <button
+        onClick={() =>
+          void model.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
+        }
+      >
+        stop
+      </button>
+    </div>
+  );
+}
+
+function successfulDraftQuery() {
+  return query.mockImplementationOnce(async (_request, options) => {
+    options.onTarget(draftTarget);
+    return { status: "success", recordings: [draftRecording] };
+  });
+}
+
 it.each(["command", "recordings"] as const)(
   "stays busy until both overlapping operations finish when %s finishes first",
   async (first) => {
@@ -117,6 +163,104 @@ it("does not hold STOP behind the LMS query gate", async () => {
     type: "PLAYBACK_STOP_ALL",
   });
   lease.release();
+});
+
+it("invalidates the old target and selected draft as soon as reload starts", async () => {
+  setup();
+  successfulDraftQuery();
+  ui = await mount(<LifecycleHarness />);
+  await click("load");
+  await click("select");
+  expect(ui.host.querySelector('[data-testid="draft"]')?.textContent).toContain(
+    ":1",
+  );
+
+  const failedReload = deferred<{ status: "error"; code: "NETWORK" }>();
+  query.mockReturnValueOnce(failedReload.promise);
+  await click("load");
+  expect(ui.host.querySelector('[data-testid="draft"]')?.textContent).toBe("");
+  await click("start");
+  expect(
+    command.mock.calls.filter(([request]) => request.type === "PLAYBACK_START"),
+  ).toHaveLength(0);
+  await act(async () =>
+    failedReload.resolve({ status: "error", code: "NETWORK" }),
+  );
+  await click("start");
+  expect(
+    command.mock.calls.filter(([request]) => request.type === "PLAYBACK_START"),
+  ).toHaveLength(0);
+});
+
+it("spends a selected draft synchronously and never resends it after failure", async () => {
+  setup();
+  successfulDraftQuery();
+  ui = await mount(<LifecycleHarness />);
+  await click("load");
+  await click("select");
+  const failedStart = deferred<{ status: "error"; code: "TIMEOUT" }>();
+  command.mockReturnValueOnce(failedStart.promise);
+  const start = [...ui.host.querySelectorAll("button")].find(
+    (button) => button.textContent === "start",
+  )!;
+  await act(async () => {
+    start.click();
+    start.click();
+  });
+  expect(
+    command.mock.calls.filter(([request]) => request.type === "PLAYBACK_START"),
+  ).toHaveLength(1);
+  expect(ui.host.querySelector('[data-testid="draft"]')?.textContent).toBe("");
+  await act(async () =>
+    failedStart.resolve({ status: "error", code: "TIMEOUT" }),
+  );
+  await click("start");
+  expect(
+    command.mock.calls.filter(([request]) => request.type === "PLAYBACK_START"),
+  ).toHaveLength(1);
+});
+
+it("does not restore an old BUSY start after an urgent stop", async () => {
+  setup();
+  successfulDraftQuery();
+  ui = await mount(<LifecycleHarness />);
+  await click("load");
+  await click("select");
+  const oldStart = deferred<{ status: "error"; code: "BUSY" }>();
+  command.mockReturnValueOnce(oldStart.promise);
+  await click("start");
+  command.mockResolvedValueOnce({
+    status: "success",
+    snapshot: { ...idle, status: "stopped" },
+  });
+  await click("stop");
+  expect(ui.host.querySelector('[data-testid="status"]')?.textContent).toBe(
+    "stopped",
+  );
+  await act(async () => oldStart.resolve({ status: "error", code: "BUSY" }));
+  expect(ui.host.querySelector('[data-testid="status"]')?.textContent).toBe(
+    "stopped",
+  );
+  expect(ui.host.querySelector('[data-testid="error"]')?.textContent).toBe("");
+});
+
+it("preserves a newly loaded draft when an older start fails late", async () => {
+  setup();
+  successfulDraftQuery();
+  ui = await mount(<LifecycleHarness />);
+  await click("load");
+  await click("select");
+  const oldStart = deferred<{ status: "error"; code: "TIMEOUT" }>();
+  command.mockReturnValueOnce(oldStart.promise);
+  await click("start");
+
+  successfulDraftQuery();
+  await click("load");
+  await click("select");
+  await act(async () => oldStart.resolve({ status: "error", code: "TIMEOUT" }));
+  expect(ui.host.querySelector('[data-testid="draft"]')?.textContent).toContain(
+    `${draftHandle}:1`,
+  );
 });
 
 it("renders screen headers with and without optional content", async () => {

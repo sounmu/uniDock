@@ -246,6 +246,213 @@ test("production playback stays bound to the listing document across LMS tabs", 
   }
 });
 
+test("the panel revokes consumed and failed recording drafts until a fresh list", async ({
+  playwright,
+}) => {
+  test.setTimeout(90_000);
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(
+    path.join(tmpdir(), "unidock-draft-lifecycle-"),
+  );
+  let context: BrowserContext | undefined;
+  let failModules = false;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    await context.route(`${origin}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic LMS</title><body>Synthetic LMS</body></html>",
+        });
+        return;
+      }
+      if (/^\/courses\/101\/modules\/items\/(501|502)$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic module item</title></html>",
+        });
+        return;
+      }
+      if (url.pathname === "/api/v1/courses/101/modules" && failModules) {
+        await route.fulfill({ status: 503, body: "synthetic list failure" });
+        return;
+      }
+      const values: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
+        "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
+        "/api/v1/courses/101/assignments": [],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 20,
+            name: "1주차",
+            published: true,
+            items_count: 2,
+            items: [501, 502].map((id) => ({
+              id,
+              type: "ExternalTool",
+              title: `합성 영상 ${id}`,
+              html_url: `${origin}/courses/101/modules/items/${id}`,
+            })),
+          },
+        ],
+      };
+      if (url.pathname in values) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(values[url.pathname]),
+        });
+        return;
+      }
+      await route.fulfill({ status: 404, body: "not found" });
+    });
+
+    const lms = await context.newPage();
+    await lms.goto(origin);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    await lms.bringToFront();
+    await panel.getByRole("button", { name: "자동 재생" }).click();
+    await panel.getByRole("button", { name: "영상 선택" }).click();
+    await panel
+      .getByLabel("과목 선택")
+      .selectOption({ label: "합성 운영체제" });
+    await panel.getByRole("checkbox", { name: "합성 영상 501" }).check();
+
+    // Forward the real batch first so the content catalog consumes its one-use
+    // handles, then fault only that first worker transport response.
+    await worker.evaluate(() => {
+      const scope = globalThis as typeof globalThis & {
+        __draftFault?: {
+          batches: string[][];
+          restore: () => void;
+        };
+      };
+      const original = chrome.tabs.sendMessage.bind(chrome.tabs);
+      const send = original as (
+        tabId: number,
+        message: unknown,
+        options?: chrome.tabs.MessageSendOptions,
+      ) => Promise<unknown>;
+      const batches: string[][] = [];
+      let fault = true;
+      chrome.tabs.sendMessage = (async (
+        tabId: number,
+        message: unknown,
+        options?: chrome.tabs.MessageSendOptions,
+      ) => {
+        const value = message as { type?: string; handles?: string[] };
+        if (value.type !== "PLAYBACK_RESOLVE_BATCH")
+          return send(tabId, message, options);
+        const handles = [...(value.handles ?? [])];
+        const result = await send(tabId, message, options);
+        batches.push(handles);
+        if (fault) {
+          fault = false;
+          return { status: "error", code: "NETWORK" };
+        }
+        return result;
+      }) as typeof chrome.tabs.sendMessage;
+      scope.__draftFault = {
+        batches,
+        restore: () => {
+          chrome.tabs.sendMessage = original;
+          delete scope.__draftFault;
+        },
+      };
+    });
+
+    const selection = panel.locator(".detail-view");
+    await selection
+      .getByRole("button", { name: "자동 재생", exact: true })
+      .click();
+    await expect(panel.getByRole("alert")).toContainText("NETWORK");
+    await expect(selection.getByRole("checkbox")).toHaveCount(0);
+    await expect(
+      selection.getByRole("button", { name: "자동 재생", exact: true }),
+    ).toBeDisabled();
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __draftFault?: { batches: string[][] };
+            }
+          ).__draftFault?.batches.length,
+      ),
+    ).toBe(1);
+
+    await selection.getByRole("button", { name: "영상 불러오기" }).click();
+    await selection.getByRole("checkbox", { name: "합성 영상 501" }).check();
+    await selection
+      .getByRole("button", { name: "자동 재생", exact: true })
+      .click();
+    await expect(panel.locator(".playback-panel h1")).toContainText("시작 중");
+    const batches = await worker.evaluate(
+      () =>
+        (
+          globalThis as typeof globalThis & {
+            __draftFault?: { batches: string[][] };
+          }
+        ).__draftFault?.batches ?? [],
+    );
+    expect(batches).toHaveLength(2);
+    expect(batches[1]).not.toEqual(batches[0]);
+
+    await panel.getByRole("button", { name: "자동 재생 끄기" }).click();
+    await lms.bringToFront();
+    await panel.getByRole("button", { name: "영상 선택" }).click();
+    await panel
+      .getByLabel("과목 선택")
+      .selectOption({ label: "합성 운영체제" });
+    await panel.getByRole("checkbox", { name: "합성 영상 501" }).check();
+    failModules = true;
+    await selection.getByRole("button", { name: "영상 불러오기" }).click();
+    await expect(panel.getByRole("alert")).toContainText(
+      "녹화 후보를 불러오지 못했습니다",
+    );
+    await expect(selection.getByRole("checkbox")).toHaveCount(0);
+    await expect(
+      selection.getByRole("button", { name: "자동 재생", exact: true }),
+    ).toBeDisabled();
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __draftFault?: { batches: string[][] };
+            }
+          ).__draftFault?.batches.length,
+      ),
+    ).toBe(2);
+    await worker.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          __draftFault?: { restore: () => void };
+        }
+      ).__draftFault?.restore();
+    });
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("production extension plays a click-ordered playlist and explicitly recovers login", async ({
   playwright,
 }, testInfo) => {
