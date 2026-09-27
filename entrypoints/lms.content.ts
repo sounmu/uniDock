@@ -327,8 +327,27 @@ export default defineContentScript({
       }
     }
     let playbackPending: Promise<DiscoveryResult> | undefined;
-    let pending: { key: string; result: Promise<Result> } | undefined;
-    async function list(message: Request, refresh: boolean): Promise<Result> {
+    interface CachedOwner {
+      account: string;
+      epoch: number;
+    }
+    interface PendingQuery {
+      key: string;
+      result: Promise<Result>;
+      owner?: Promise<CachedOwner | undefined>;
+    }
+    let pending: PendingQuery | undefined;
+    const invalidateScope = (epoch: number) => {
+      if (epoch !== lifecycleEpoch) return;
+      clearCachedState();
+    };
+    async function list(
+      message: Request,
+      refresh: boolean,
+      initialEpoch?: number,
+      initialAccount?: Promise<string>,
+      publishOwner?: (owner: CachedOwner | undefined) => void,
+    ): Promise<Result> {
       const ttl = cacheTtl(message);
       const execute = () =>
         message.type === "COURSES_LIST"
@@ -347,23 +366,29 @@ export default defineContentScript({
         return result;
       }
 
-      let epoch = lifecycleEpoch;
+      let epoch = initialEpoch ?? lifecycleEpoch;
       let account: string;
       try {
-        account = await currentAccount(location.origin);
+        account = await (initialAccount ?? currentAccount(location.origin));
       } catch (error) {
+        publishOwner?.(undefined);
         if (epoch !== lifecycleEpoch)
           return { status: "error", code: "RELOAD_TAB" };
-        clearCachedState();
+        invalidateScope(epoch);
         return accountError(error);
       }
-      if (epoch !== lifecycleEpoch)
+      if (epoch !== lifecycleEpoch) {
+        publishOwner?.(undefined);
         return { status: "error", code: "RELOAD_TAB" };
-      if (cacheAccount !== account) {
-        clearCachedState();
-        epoch = lifecycleEpoch;
       }
-      cacheAccount = account;
+      if (cacheAccount !== account) {
+        if (cacheAccount !== undefined) {
+          invalidateScope(epoch);
+          epoch = lifecycleEpoch;
+        }
+        cacheAccount = account;
+      }
+      publishOwner?.({ account, epoch });
       const key = JSON.stringify(message);
       if (!refresh) {
         const hit = cache.get(key);
@@ -386,13 +411,13 @@ export default defineContentScript({
       } catch (error) {
         if (epoch !== lifecycleEpoch)
           return { status: "error", code: "RELOAD_TAB" };
-        clearCachedState();
+        invalidateScope(epoch);
         return accountError(error);
       }
       if (epoch !== lifecycleEpoch)
         return { status: "error", code: "RELOAD_TAB" };
       if (confirmedAccount !== account) {
-        clearCachedState();
+        invalidateScope(epoch);
         return { status: "error", code: "LOGIN_REQUIRED" };
       }
       cache.set(key, result, ttl);
@@ -490,28 +515,120 @@ export default defineContentScript({
           respond({ status: "error", code: "BUSY" });
           return false;
         }
-        if (!pending) {
+        const joined = pending !== undefined;
+        let operation = pending;
+        if (!operation) {
           if (
             request.type !== "RECORDING_OPEN" &&
             request.type !== "DOCUMENT_OPEN" &&
             request.type !== "DOCUMENT_DOWNLOAD"
           )
             catalog.clear();
-          const result =
-            request.type === "DOCUMENT_DOWNLOAD"
-              ? download(request)
-              : request.type === "RECORDING_OPEN" ||
-                  request.type === "DOCUMENT_OPEN"
-                ? open(request.handle, request.type)
-                : list(request, parsed.refresh);
-          pending = {
-            key,
-            result: result.finally(() => {
-              pending = undefined;
-            }),
-          };
+          const cacheable = cacheTtl(request) !== undefined;
+          let resolveOwner:
+            ((owner: CachedOwner | undefined) => void) | undefined;
+          let owner: Promise<CachedOwner | undefined> | undefined;
+          if (cacheable) {
+            let publishOwner!: (owner: CachedOwner | undefined) => void;
+            owner = new Promise<CachedOwner | undefined>((resolve) => {
+              publishOwner = resolve;
+            });
+            let ownerPublished = false;
+            resolveOwner = (value) => {
+              if (ownerPublished) return;
+              ownerPublished = true;
+              publishOwner(value);
+            };
+          }
+          let resolveResult!: (result: Result) => void;
+          let rejectResult!: (error: unknown) => void;
+          const sharedResult = new Promise<Result>((resolve, reject) => {
+            resolveResult = resolve;
+            rejectResult = reject;
+          });
+          operation = { key, result: sharedResult, owner };
+          const ownedOperation = operation;
+          ownedOperation.result = sharedResult.finally(() => {
+            if (pending === ownedOperation) pending = undefined;
+          });
+          // Publish the stable operation slot before starting any identity or
+          // query work, so every synchronously admitted follower captures it.
+          pending = ownedOperation;
+          let result: Promise<Result>;
+          if (cacheable) {
+            const epoch = lifecycleEpoch;
+            const account = currentAccount(location.origin);
+            result = list(
+              request,
+              parsed.refresh,
+              epoch,
+              account,
+              resolveOwner,
+            ).finally(() => resolveOwner?.(undefined));
+          } else {
+            result =
+              request.type === "DOCUMENT_DOWNLOAD"
+                ? download(request)
+                : request.type === "RECORDING_OPEN" ||
+                    request.type === "DOCUMENT_OPEN"
+                  ? open(request.handle, request.type)
+                  : list(request, parsed.refresh);
+          }
+          void result.then(resolveResult, rejectResult);
         }
-        void pending.result.then(respond);
+        const captured = operation;
+        if (!captured.owner) {
+          void captured.result.then(respond);
+          return true;
+        }
+        if (!joined) {
+          void (async (): Promise<Result> => {
+            const owner = await captured.owner;
+            const result = await captured.result;
+            if (
+              result.status === "success" &&
+              (!owner || owner.epoch !== lifecycleEpoch)
+            )
+              return { status: "error", code: "RELOAD_TAB" };
+            return result;
+          })().then(respond);
+          return true;
+        }
+        const callerEpoch = lifecycleEpoch;
+        const callerAccount = currentAccount(location.origin);
+        void (async (): Promise<Result> => {
+          let account: string;
+          try {
+            account = await callerAccount;
+          } catch (error) {
+            if (callerEpoch !== lifecycleEpoch)
+              return { status: "error", code: "RELOAD_TAB" };
+            invalidateScope(callerEpoch);
+            return accountError(error);
+          }
+          if (callerEpoch !== lifecycleEpoch)
+            return { status: "error", code: "RELOAD_TAB" };
+          const owner = await captured.owner;
+          if (!owner) {
+            const result = await captured.result;
+            if (result.status === "success" && callerEpoch !== lifecycleEpoch)
+              return { status: "error", code: "RELOAD_TAB" };
+            return result;
+          }
+          if (owner.epoch !== callerEpoch)
+            return { status: "error", code: "RELOAD_TAB" };
+          if (owner.account !== account) {
+            invalidateScope(owner.epoch);
+            return { status: "error", code: "LOGIN_REQUIRED" };
+          }
+          const result = await captured.result;
+          if (
+            result.status === "success" &&
+            (owner.epoch !== lifecycleEpoch || callerEpoch !== lifecycleEpoch)
+          )
+            return { status: "error", code: "RELOAD_TAB" };
+          return result;
+        })().then(respond);
         return true;
       },
     );

@@ -17,6 +17,7 @@ declare global {
     cacheLifecycle?: LifecycleEvidence;
     cacheInitialResult?: Promise<unknown>;
     cacheLateResult?: Promise<unknown>;
+    cacheAccountOwner?: Promise<unknown>;
   }
 }
 const fixtureHtml = `<!doctype html><html><title>Synthetic cache lifecycle</title>
@@ -38,6 +39,8 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
   );
   const coursesStarted = Promise.withResolvers<void>();
   const releaseCourses = Promise.withResolvers<void>();
+  const accountRaceStarted = Promise.withResolvers<void>();
+  const releaseAccountRace = Promise.withResolvers<void>();
   let context: BrowserContext | undefined;
   let extensionId: string | undefined;
   let account = 1;
@@ -92,6 +95,9 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
         if (coursesRequests === 1) {
           coursesStarted.resolve();
           await releaseCourses.promise;
+        } else if (coursesRequests === 2) {
+          accountRaceStarted.resolve();
+          await releaseAccountRace.promise;
         }
         await route.fulfill({
           json: [
@@ -188,25 +194,63 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     }, tabId);
     expect(busy).toEqual({ status: "error", code: "BUSY" });
     expect(coursesRequests).toBe(1);
-    expect(identities).toEqual([1]);
+    expect(identities).toEqual([1, 1]);
     timeline.push({ event: "release-old-courses", account: 1 });
     releaseCourses.resolve();
     const lateResult = await panel.evaluate(() => window.cacheLateResult);
     evidence.lateResult = lateResult;
-    evidence.initialResult = await panel.evaluate(
-      () => window.cacheInitialResult,
-    );
+    const initialResult = await panel.evaluate(() => window.cacheInitialResult);
+    evidence.initialResult = initialResult;
     timeline.push({ event: "old-operation-settled" });
     evidence.beforeAccountSwitch = {
       identities: [...identities],
       coursesRequests,
     };
-    // Keep collecting B's result on the baseline, so its cache leak is visible
-    // in the evidence as well as the rejected-late-result assertion.
     expect.soft(lateResult).toEqual({ status: "error", code: "RELOAD_TAB" });
+    expect(initialResult).toEqual({ channelClosed: true });
 
+    // In the restored lifecycle, hold a fresh A refresh and join it from B.
+    // Every admitted caller must independently probe identity before sharing.
+    await panel.evaluate((id) => {
+      const refresh = {
+        version: 1,
+        type: "QUERY_REFRESH",
+        request: { version: 1, type: "COURSES_LIST" },
+      };
+      window.cacheAccountOwner = chrome.tabs.sendMessage(id, refresh, {
+        frameId: 0,
+      });
+    }, tabId);
+    await accountRaceStarted.promise;
     account = 2;
     timeline.push({ event: "switch-fixture-account", account });
+    const accountFollower: unknown = await panel.evaluate(
+      (id) =>
+        chrome.tabs.sendMessage(
+          id,
+          {
+            version: 1,
+            type: "QUERY_REFRESH",
+            request: { version: 1, type: "COURSES_LIST" },
+          },
+          { frameId: 0 },
+        ),
+      tabId,
+    );
+    evidence.accountFollower = accountFollower;
+    expect(accountFollower).toEqual({
+      status: "error",
+      code: "LOGIN_REQUIRED",
+    });
+    expect(accountFollower).not.toEqual({
+      status: "success",
+      courses: [{ name: "Account A course" }],
+    });
+    releaseAccountRace.resolve();
+    const accountOwner = await panel.evaluate(() => window.cacheAccountOwner);
+    evidence.accountOwner = accountOwner;
+    expect(accountOwner).toEqual({ status: "error", code: "RELOAD_TAB" });
+
     const resultB: unknown = await panel.evaluate(
       (id) =>
         chrome.tabs.sendMessage(
@@ -221,11 +265,12 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
       status: "success",
       courses: [{ name: "Account B course" }],
     });
-    expect.soft(coursesRequests).toBe(2);
-    expect.soft(identities).toEqual([1, 2, 2]);
+    expect.soft(coursesRequests).toBe(3);
+    expect.soft(identities).toEqual([1, 1, 1, 2, 2, 2]);
     expect(errors).toEqual([]);
   } finally {
     releaseCourses.resolve();
+    releaseAccountRace.resolve();
     evidence.coursesRequests = coursesRequests;
     const evidencePath = testInfo.outputPath("cache-lifecycle-evidence.json");
     await writeFile(evidencePath, JSON.stringify(evidence, null, 2));

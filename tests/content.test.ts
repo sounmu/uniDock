@@ -34,6 +34,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -419,6 +420,264 @@ it("rejects forged senders and unsupported actions; coalesces authorized request
   await done;
   expect(respond).toHaveBeenCalledTimes(2);
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("keeps a captured same-account follower when the owner finishes before its probe", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const followerProbe = Promise.withResolvers<Response>();
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 2) return followerProbe.promise;
+    return Response.json({ id: 42 });
+  });
+  list.mockResolvedValue({
+    status: "success",
+    courses: [{ name: "shared" }],
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const owner = response();
+  const follower = response();
+  listener(request, sender, owner.respond);
+  listener(request, sender, follower.respond);
+
+  expect(await owner.done).toEqual({
+    status: "success",
+    courses: [{ name: "shared" }],
+  });
+  expect(list).toHaveBeenCalledTimes(1);
+  followerProbe.resolve(Response.json({ id: 42 }));
+  expect(await follower.done).toEqual({
+    status: "success",
+    courses: [{ name: "shared" }],
+  });
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("does not expose an account A refresh to an account B follower while A's final probe is delayed", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const finalProbe = Promise.withResolvers<Response>();
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 1) return Response.json({ id: 1 });
+    if (identities === 2) return finalProbe.promise;
+    return Response.json({ id: 2 });
+  });
+  list.mockResolvedValue({
+    status: "success",
+    courses: [{ name: "Account A" }],
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const refresh = { version: 1, type: "QUERY_REFRESH", request };
+  const owner = response();
+  listener(refresh, sender, owner.respond);
+  await vi.waitFor(() => expect(identities).toBe(2));
+  const follower = response();
+  listener(refresh, sender, follower.respond);
+
+  expect(await follower.done).toEqual({
+    status: "error",
+    code: "LOGIN_REQUIRED",
+  });
+  finalProbe.resolve(Response.json({ id: 1 }));
+  expect(await owner.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("fences a cached success from its owner and same-account follower when another follower changes account", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const ownerProbe = Promise.withResolvers<Response>();
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities <= 2) return Response.json({ id: 1 });
+    if (identities === 3) return ownerProbe.promise;
+    if (identities === 4) return Response.json({ id: 1 });
+    return Response.json({ id: 2 });
+  });
+  list.mockResolvedValue({
+    status: "success",
+    courses: [{ name: "Account A cached" }],
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = () => {
+    const result = response();
+    listener(request, sender, result.respond);
+    return result.done;
+  };
+
+  expect(await send()).toEqual({
+    status: "success",
+    courses: [{ name: "Account A cached" }],
+  });
+  const owner = send();
+  const accountAFollower = send();
+  const accountBFollower = send();
+  await vi.waitFor(() => expect(identities).toBe(5));
+
+  ownerProbe.resolve(Response.json({ id: 1 }));
+  expect(await accountBFollower).toEqual({
+    status: "error",
+    code: "LOGIN_REQUIRED",
+  });
+  expect(await owner).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(await accountAFollower).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ["401", "LOGIN_REQUIRED"],
+  ["timeout", "NETWORK"],
+] as const)(
+  "invalidates the shared operation when a follower identity probe returns %s",
+  async (name, code) => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", {
+      runtime: {
+        id: "fixture-extension",
+        getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+        onMessage: { addListener },
+      },
+    });
+    vi.stubGlobal("location", { href: origin + "/", origin });
+    const releaseList = Promise.withResolvers<unknown>();
+    let identities = 0;
+    vi.mocked(fetch).mockImplementation(async (_input, init) => {
+      identities++;
+      if (identities === 2) {
+        if (name === "401") return new Response(null, { status: 401 });
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("", "AbortError"));
+          });
+        });
+      }
+      return Response.json({ id: 1 });
+    });
+    list.mockImplementationOnce(() => releaseList.promise);
+    (content as unknown as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]![0];
+    const sender = {
+      id: "fixture-extension",
+      url: "chrome-extension://fixture-extension/sidepanel.html",
+    };
+    const owner = response();
+    const follower = response();
+    listener(request, sender, owner.respond);
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    if (name === "timeout") vi.useFakeTimers();
+    listener(request, sender, follower.respond);
+    if (name === "timeout") await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(await follower.done).toEqual({ status: "error", code });
+    releaseList.resolve({
+      status: "success",
+      courses: [{ name: "must not escape" }],
+    });
+    expect(await owner.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+    vi.useRealTimers();
+  },
+);
+
+it("ignores a follower probe that settles after pagehide without clearing the restored scope", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const followerProbe = Promise.withResolvers<Response>();
+  const releaseList = Promise.withResolvers<unknown>();
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 2) return followerProbe.promise;
+    return Response.json({ id: 42 });
+  });
+  list
+    .mockImplementationOnce(() => releaseList.promise)
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "restored" }],
+    });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const owner = response();
+  const follower = response();
+  listener(request, sender, owner.respond);
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  listener(request, sender, follower.respond);
+  await vi.waitFor(() => expect(identities).toBe(2));
+
+  pagehide();
+  followerProbe.resolve(Response.json({ id: 42 }));
+  expect(await follower.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+  releaseList.resolve({ status: "success", courses: [{ name: "stale" }] });
+  expect(await owner.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+
+  const restored = response();
+  listener(request, sender, restored.respond);
+  expect(await restored.done).toEqual({
+    status: "success",
+    courses: [{ name: "restored" }],
+  });
 });
 
 it.each<Request>([
