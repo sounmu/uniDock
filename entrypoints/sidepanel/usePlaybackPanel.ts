@@ -6,13 +6,17 @@ import {
 } from "../../src/playback/bridge";
 import type { Recording } from "../../src/recordings";
 import { queryActive, type QueryTarget } from "../../src/transport";
+import { QueryGate } from "./query-gate";
 
 type RecordingDraft = Recording & { order: number | null };
 
-export function usePlaybackPanel() {
+export function usePlaybackPanel(sharedGate?: QueryGate) {
+  const localGate = useRef(new QueryGate()).current;
+  const gate = sharedGate ?? localGate;
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [foregroundCommands, setForegroundCommands] = useState(0);
+  const [recordingLoad, setRecordingLoad] = useState(false);
   const [stopPending, setStopPending] = useState(false);
   const [startPending, setStartPending] = useState(false);
   const [recordings, setRecordingDrafts] = useState<RecordingDraft[]>([]);
@@ -23,6 +27,8 @@ export function usePlaybackPanel() {
   const commandGeneration = useRef(0);
   const foregroundCount = useRef(0);
   const statusRequest = useRef<Promise<boolean> | null>(null);
+  const mounted = useRef(true);
+  const pending = foregroundCommands > 0 || recordingLoad;
 
   async function run(command: PlaybackCommand, background = false) {
     if (background && command.type === "PLAYBACK_STATUS") {
@@ -41,16 +47,18 @@ export function usePlaybackPanel() {
     else {
       if (starting) setStartPending(true);
       foregroundCount.current++;
-      setPending(true);
+      setForegroundCommands(foregroundCount.current);
     }
     const result = await playbackCommand(command);
+    if (!mounted.current) return false;
     if (stopping) setStopPending(false);
     else {
       if (starting) setStartPending(false);
       foregroundCount.current--;
-      setPending(foregroundCount.current > 0);
+      setForegroundCommands(foregroundCount.current);
     }
-    if (generation !== commandGeneration.current) return false;
+    if (!mounted.current || generation !== commandGeneration.current)
+      return false;
     if (result.status === "success") {
       setSnapshot(result.snapshot);
       setError("");
@@ -67,17 +75,26 @@ export function usePlaybackPanel() {
       version: 1,
       type: "PLAYBACK_STATUS",
     });
-    if (generation !== commandGeneration.current) return false;
+    if (!mounted.current || generation !== commandGeneration.current)
+      return false;
     if (result.status === "success") setSnapshot(result.snapshot);
     return result.status === "success";
   }
 
   useEffect(() => {
+    mounted.current = true;
     void (async () => {
+      const initialGeneration = commandGeneration.current;
       await run({ version: 1, type: "PLAYBACK_STATUS" }, true);
-      await run({ version: 1, type: "PLAYBACK_REFRESH" });
+      if (mounted.current && initialGeneration === commandGeneration.current)
+        await run({ version: 1, type: "PLAYBACK_REFRESH" });
     })();
-    if (typeof chrome === "undefined" || !chrome.runtime?.onMessage) return;
+    if (typeof chrome === "undefined" || !chrome.runtime?.onMessage)
+      return () => {
+        mounted.current = false;
+        commandGeneration.current++;
+        recordingGeneration.current++;
+      };
     const updated = (
       message: unknown,
       sender: chrome.runtime.MessageSender,
@@ -96,12 +113,17 @@ export function usePlaybackPanel() {
         void run({ version: 1, type: "PLAYBACK_STATUS" }, true);
     };
     chrome.runtime.onMessage.addListener(updated);
-    return () => chrome.runtime.onMessage.removeListener(updated);
+    return () => {
+      mounted.current = false;
+      commandGeneration.current++;
+      recordingGeneration.current++;
+      chrome.runtime.onMessage.removeListener(updated);
+    };
   }, []);
 
   function setCourse(value: string) {
     recordingGeneration.current++;
-    setPending(false);
+    setRecordingLoad(false);
     setCourseValue(value);
     setRecordingDrafts([]);
     recordingTarget.current = null;
@@ -115,7 +137,12 @@ export function usePlaybackPanel() {
     );
     if (!selectedCourse) return;
     const current = ++recordingGeneration.current;
-    setPending(true);
+    setRecordingLoad(true);
+    const lease = await gate.acquire();
+    if (!mounted.current || current !== recordingGeneration.current) {
+      lease.release();
+      return;
+    }
     let target: QueryTarget | null = null;
     const result = await queryActive(
       {
@@ -124,9 +151,9 @@ export function usePlaybackPanel() {
         course: selectedCourse.name,
       },
       { onTarget: (accepted) => (target = accepted) },
-    );
-    if (current !== recordingGeneration.current) return;
-    setPending(false);
+    ).finally(lease.release);
+    if (!mounted.current || current !== recordingGeneration.current) return;
+    setRecordingLoad(false);
     if (result.status === "success" && "recordings" in result) {
       recordingTarget.current = target;
       setRecordingDrafts(

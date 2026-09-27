@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { mount, click } from "./ui-helpers";
+import { mount, click, deferred } from "./ui-helpers";
 
 const command = vi.hoisted(() => vi.fn());
 const query = vi.hoisted(() => vi.fn());
@@ -13,6 +13,8 @@ import { ListRow } from "../entrypoints/sidepanel/ui/ListRow";
 import { PlaybackConfirmation } from "../entrypoints/sidepanel/screens/PlaybackConfirmation";
 import type { PlaybackModel } from "../entrypoints/sidepanel/usePlaybackPanel";
 import type { PlaybackSnapshot } from "../src/playback/bridge";
+import { usePlaybackPanel } from "../entrypoints/sidepanel/usePlaybackPanel";
+import { QueryGate } from "../entrypoints/sidepanel/query-gate";
 
 let ui: Awaited<ReturnType<typeof mount>>;
 afterEach(async () => {
@@ -28,6 +30,94 @@ const idle: PlaybackSnapshot = {
   queue: [],
   status: "idle",
 };
+
+function PlaybackHarness({ gate }: { gate?: QueryGate }) {
+  const model = usePlaybackPanel(gate);
+  return (
+    <div>
+      <output>{model.pending ? "busy" : "idle"}</output>
+      <button onClick={() => void model.loadRecordings("12")}>load</button>
+      <button
+        onClick={() => void model.run({ version: 1, type: "PLAYBACK_REFRESH" })}
+      >
+        refresh
+      </button>
+      <button
+        onClick={() =>
+          void model.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
+        }
+      >
+        stop
+      </button>
+    </div>
+  );
+}
+
+it.each(["command", "recordings"] as const)(
+  "stays busy until both overlapping operations finish when %s finishes first",
+  async (first) => {
+    setup();
+    ui = await mount(<PlaybackHarness />);
+    const commandWork = deferred<{
+      status: "success";
+      snapshot: PlaybackSnapshot;
+    }>();
+    const recordingWork = deferred<{
+      status: "success";
+      recordings: [];
+    }>();
+    command.mockReturnValueOnce(commandWork.promise);
+    query.mockReturnValueOnce(recordingWork.promise);
+
+    await click("refresh");
+    await click("load");
+    expect(ui.host.querySelector("output")?.textContent).toBe("busy");
+    await act(async () => {
+      if (first === "command")
+        commandWork.resolve({ status: "success", snapshot: idle });
+      else recordingWork.resolve({ status: "success", recordings: [] });
+    });
+    expect(ui.host.querySelector("output")?.textContent).toBe("busy");
+    await act(async () => {
+      if (first === "command")
+        recordingWork.resolve({ status: "success", recordings: [] });
+      else commandWork.resolve({ status: "success", snapshot: idle });
+    });
+    expect(ui.host.querySelector("output")?.textContent).toBe("idle");
+  },
+);
+
+it("does not refresh or dispatch a gate-delayed recording query after unmount", async () => {
+  const status = deferred<{ status: "success"; snapshot: PlaybackSnapshot }>();
+  command.mockReturnValueOnce(status.promise);
+  ui = await mount(<PlaybackHarness />);
+  await ui.unmount();
+  await act(async () => status.resolve({ status: "success", snapshot: idle }));
+  expect(command).toHaveBeenCalledTimes(1);
+
+  const gate = new QueryGate();
+  const lease = await gate.acquire();
+  setup();
+  ui = await mount(<PlaybackHarness gate={gate} />);
+  await click("load");
+  await ui.unmount();
+  lease.release();
+  await act(async () => {});
+  expect(query).not.toHaveBeenCalled();
+});
+
+it("does not hold STOP behind the LMS query gate", async () => {
+  const gate = new QueryGate();
+  const lease = await gate.acquire();
+  setup();
+  ui = await mount(<PlaybackHarness gate={gate} />);
+  await click("stop");
+  expect(command).toHaveBeenCalledWith({
+    version: 1,
+    type: "PLAYBACK_STOP_ALL",
+  });
+  lease.release();
+});
 
 it("renders screen headers with and without optional content", async () => {
   ui = await mount(<ScreenHeader title="자동 재생" />);
@@ -184,7 +274,7 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
   });
 });
 
-it("does not let a late recording list replace a newer course source", async () => {
+it("dispatches only the latest recording list after waiting for the gate", async () => {
   const multiCourse: PlaybackSnapshot = {
     ...idle,
     courses: [
@@ -215,7 +305,7 @@ it("does not let a late recording list replace a newer course source", async () 
     select.value = "13";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  await vi.waitFor(() => expect(pending.size).toBe(2));
+  await vi.waitFor(() => expect(pending.size).toBe(1));
   const recording = (handle: string) => ({
     title: "영상",
     module: "1주",
@@ -224,6 +314,7 @@ it("does not let a late recording list replace a newer course source", async () 
     type: "ExternalTool" as const,
   });
   const cHandle = "00000000-0000-4000-8000-000000000003";
+  expect([...pending.keys()]).toEqual(["Course C"]);
   await act(async () => {
     const c = pending.get("Course C")!;
     c.options.onTarget({
@@ -232,18 +323,6 @@ it("does not let a late recording list replace a newer course source", async () 
       documentToken: "00000000-0000-4000-8000-000000000013",
     });
     c.resolve({ status: "success", recordings: [recording(cHandle)] });
-  });
-  await act(async () => {
-    const b = pending.get("Course B")!;
-    b.options.onTarget({
-      id: 12,
-      url: "https://mylms.korea.ac.kr/?source=B",
-      documentToken: "00000000-0000-4000-8000-000000000012",
-    });
-    b.resolve({
-      status: "success",
-      recordings: [recording("00000000-0000-4000-8000-000000000002")],
-    });
   });
   const choice = ui.host.querySelector<HTMLInputElement>(
     '.playback-choice input[type="checkbox"]',

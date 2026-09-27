@@ -4,6 +4,7 @@ import { StatusChip } from "./ui/StatusChip";
 import { Notice } from "./ui/Notice";
 import { DetailView, useDetail } from "./ui/DetailView";
 import { PlaybackConfirmation } from "./screens/PlaybackConfirmation";
+import type { QueryGate } from "./query-gate";
 
 const status: Record<string, string> = {
   idle: "대기",
@@ -16,8 +17,8 @@ const status: Record<string, string> = {
   failed: "실패",
 };
 
-export function PlaybackPanel() {
-  const m = usePlaybackPanel();
+export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
+  const m = usePlaybackPanel(gate);
   const { snapshot, pending, stopPending } = m;
   const { detail, open, back } = useDetail<"select">();
   const hasPlaylist = Boolean(snapshot?.current || snapshot?.queue.length);

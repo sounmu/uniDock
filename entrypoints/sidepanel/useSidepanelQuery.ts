@@ -4,8 +4,11 @@ import { queryActive, type QueryTarget } from "../../src/transport";
 import { usePanelNavigation } from "./usePanelNavigation";
 import { useDocumentDownloads } from "./useDocumentDownloads";
 import { messages } from "./query-messages";
+import { QueryGate } from "./query-gate";
 
-export function useSidepanelQuery() {
+export function useSidepanelQuery(sharedGate?: QueryGate) {
+  const localGate = useRef(new QueryGate()).current;
+  const gate = sharedGate ?? localGate;
   const { section, tasksMode, courseTab, course, setCourse, view, setView } =
     usePanelNavigation();
   const [start, setStart] = useState("");
@@ -17,6 +20,7 @@ export function useSidepanelQuery() {
   const inFlight = useRef<Promise<Result> | null>(null);
   const recordingTarget = useRef<QueryTarget | null>(null);
   const downloads = useDocumentDownloads({
+    gate,
     generation,
     inFlight,
     target: recordingTarget,
@@ -61,9 +65,12 @@ export function useSidepanelQuery() {
     if (query.type === "DOCUMENTS_LIST") downloads.reset();
     resetRecordingAction();
     setState({ status: "loading" });
-    // Finish the active request, then execute only the latest selected view.
-    if (inFlight.current) await inFlight.current;
-    if (current !== generation.current) return;
+    // Finish the active LMS request, then execute only the latest selected view.
+    const lease = await gate.acquire();
+    if (current !== generation.current) {
+      lease.release();
+      return;
+    }
     const work =
       query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
         ? queryActive(query, {
@@ -75,7 +82,7 @@ export function useSidepanelQuery() {
           })
         : queryActive(query, { refresh: options.refresh });
     inFlight.current = work;
-    const result = await work;
+    const result = await work.finally(lease.release);
     if (inFlight.current === work) inFlight.current = null;
     if (current === generation.current) {
       setState(result);
@@ -85,8 +92,7 @@ export function useSidepanelQuery() {
     type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
     handle: string,
   ) {
-    if (opening.current || inFlight.current || recordingAction.used.has(handle))
-      return;
+    if (opening.current || recordingAction.used.has(handle)) return;
     const target = recordingTarget.current;
     if (!target) {
       setRecordingAction((previous) => ({
@@ -102,9 +108,15 @@ export function useSidepanelQuery() {
       pending: true,
       notice: "",
     }));
+    const lease = await gate.acquire();
+    if (current !== generation.current) {
+      lease.release();
+      opening.current = false;
+      return;
+    }
     const work = queryActive({ version: 1, type, handle }, { target });
     inFlight.current = work;
-    const result = await work;
+    const result = await work.finally(lease.release);
     if (inFlight.current === work) inFlight.current = null;
     opening.current = false;
     if (current !== generation.current) return;

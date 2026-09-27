@@ -6,6 +6,7 @@ import {
   lmsFileDownloadUrl,
   safeDownloadPath,
 } from "../../src/security/download";
+import type { QueryGate } from "./query-gate";
 
 export type DownloadStatus =
   "queued" | "requested" | "complete" | "failed" | "cancelled" | "review";
@@ -23,6 +24,7 @@ type Expected = {
   readonly origin: string;
 };
 export function useDocumentDownloads(context: {
+  readonly gate: QueryGate;
   readonly generation: RefObject<number>;
   readonly inFlight: RefObject<Promise<Result> | null>;
   readonly target: RefObject<QueryTarget | null>;
@@ -134,7 +136,7 @@ export function useDocumentDownloads(context: {
     documents: readonly Document[],
     handles: readonly string[],
   ) {
-    const { generation, inFlight, target, course } = source.current;
+    const { gate, generation, inFlight, target, course } = source.current;
     const destination = target.current;
     if (running.current || inFlight.current || !destination) return;
     const selected = documents.filter(
@@ -158,6 +160,11 @@ export function useDocumentDownloads(context: {
     let done = 0;
     for (const item of selected) {
       if (current !== generation.current || token !== batch.current) break;
+      const lease = await gate.acquire();
+      if (current !== generation.current || token !== batch.current) {
+        lease.release();
+        break;
+      }
       const handle = item.downloadHandle;
       used.current.add(handle);
       const path = safeDownloadPath(course, item.module, item.title);
@@ -172,7 +179,7 @@ export function useDocumentDownloads(context: {
         { target: destination },
       );
       inFlight.current = work;
-      const result = await work;
+      const result = await work.finally(lease.release);
       if (inFlight.current === work) inFlight.current = null;
       done++;
       if (current !== generation.current) break;

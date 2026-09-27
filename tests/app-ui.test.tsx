@@ -4,19 +4,59 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Result } from "../src/protocol";
 import { mount, click, deferred } from "./ui-helpers";
 const query = vi.hoisted(() => vi.fn());
+const command = vi.hoisted(() => vi.fn());
 vi.mock("../src/transport", () => ({ queryActive: query }));
+vi.mock("../src/playback/bridge", () => ({ playbackCommand: command }));
 vi.mock("../entrypoints/sidepanel/CaptionsPanel", () => ({
   CaptionsPanel: () => <p>자막 화면</p>,
 }));
 import { App } from "../entrypoints/sidepanel/App";
 let ui: Awaited<ReturnType<typeof mount>>;
 beforeEach(() => {
+  command.mockResolvedValue({
+    status: "success",
+    snapshot: {
+      courses: [{ id: "12", name: "Course" }],
+      labels: {},
+      current: null,
+      queue: [],
+      status: "idle",
+    },
+  });
   vi.stubGlobal("chrome", {
     downloads: {
       onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
     },
   });
+});
+it("shares the query gate across main and playback navigation", async () => {
+  const held = deferred<Result>();
+  query
+    .mockReturnValueOnce(held.promise)
+    .mockResolvedValueOnce({ status: "success", courses: [] });
+  ui = await mount(<App />);
+  await click("할 일·일정");
+  await click("자동 재생");
+  await click("영상 선택");
+  const select = ui.host.querySelector("select")!;
+  await act(async () => {
+    select.value = "12";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await click("내 과목");
+  expect(query).toHaveBeenCalledTimes(1);
+
+  await act(async () => held.resolve({ status: "success", todo: [] }));
+
+  expect(query).toHaveBeenCalledTimes(2);
+  expect(query.mock.calls[1]?.[0]).toEqual({
+    version: 1,
+    type: "COURSES_LIST",
+  });
+  expect(
+    query.mock.calls.some(([request]) => request.type === "RECORDINGS_LIST"),
+  ).toBe(false);
 });
 afterEach(async () => {
   await ui?.unmount();

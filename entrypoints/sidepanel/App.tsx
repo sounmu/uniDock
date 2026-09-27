@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PlaybackPanel } from "./PlaybackPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
 import { useSidepanelQuery } from "./useSidepanelQuery";
@@ -6,8 +6,10 @@ import { Rail, type Section } from "./ui/Rail";
 import { DetailView } from "./ui/DetailView";
 import { CoursesScreen } from "./screens/CoursesScreen";
 import { TasksScreen } from "./screens/TasksScreen";
+import { QueryGate } from "./query-gate";
 export function App() {
-  const model = useSidepanelQuery();
+  const gate = useRef(new QueryGate()).current;
+  const model = useSidepanelQuery(gate);
   const [info, setInfo] = useState(false);
   function select(section: Section) {
     setInfo(false);
@@ -59,7 +61,7 @@ export function App() {
         <div hidden={info}>
           {model.section === "courses" && <CoursesScreen model={model} />}
           {model.section === "tasks" && <TasksScreen model={model} />}
-          {model.section === "playback" && <PlaybackPanel />}
+          {model.section === "playback" && <PlaybackPanel gate={gate} />}
           {model.section === "captions" && <CaptionsPanel />}
         </div>
         {info && (
