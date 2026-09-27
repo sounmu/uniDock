@@ -196,3 +196,134 @@ it("leaves unassociated and foreign download events unconfirmed", async () => {
   expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
   expect(search).not.toHaveBeenCalled();
 });
+it("does not bind a stale download search to a refreshed matching row", async () => {
+  // Given: the old download emits a change, but Chrome holds its lookup.
+  await materials();
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  const oldItem = {
+    id: 42,
+    byExtensionId: "test",
+    url: `${target.url}courses/101/files/501/download?download_frd=1`,
+    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    state: "in_progress",
+    mime: "application/pdf",
+  };
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0]({
+      ...oldItem,
+      byExtensionId: undefined,
+    });
+  });
+  const heldSearch = deferred<chrome.downloads.DownloadItem[]>();
+  search.mockReturnValueOnce(heldSearch.promise);
+  await act(async () => {
+    onChanged.addListener.mock.calls[0]?.[0]({
+      id: oldItem.id,
+      state: { current: "complete" },
+    });
+  });
+
+  // When: refresh creates the same expected path and the old lookup resolves.
+  query.mockImplementationOnce(async (_request, options) => {
+    options.onTarget(target);
+    return { status: "success", documents };
+  });
+  await click("목록 새로고침");
+  await click("PDF 전체 다운로드");
+  await act(async () => {
+    heldSearch.resolve([
+      { ...oldItem, state: "complete" } as chrome.downloads.DownloadItem,
+    ]);
+  });
+
+  // Then: only an event from the new download can complete the refreshed row.
+  expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
+  const newItem = { ...oldItem, id: 43 };
+  search.mockResolvedValueOnce([
+    { ...newItem, state: "complete" } as chrome.downloads.DownloadItem,
+  ]);
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0](newItem);
+    onChanged.addListener.mock.calls[0]?.[0]({
+      id: newItem.id,
+      state: { current: "complete" },
+    });
+  });
+  expect(chips()).toEqual(["완료", "요청됨", "LMS에서 확인"]);
+});
+it("continues tracking a started download after cancelling pending batch items", async () => {
+  // Given
+  await materials();
+  const first = deferred<Result>();
+  query.mockReturnValueOnce(first.promise);
+  await click("PDF 전체 다운로드");
+  const item = {
+    id: 42,
+    byExtensionId: "test",
+    url: `${target.url}courses/101/files/501/download?download_frd=1`,
+    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    state: "in_progress",
+    mime: "application/pdf",
+  };
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0](item);
+  });
+
+  // When
+  await click("취소");
+  await act(async () => first.resolve({ status: "success", downloaded: true }));
+  search.mockResolvedValueOnce([
+    { ...item, state: "complete" } as chrome.downloads.DownloadItem,
+  ]);
+  await act(async () => {
+    onChanged.addListener.mock.calls[0]?.[0]({
+      id: item.id,
+      state: { current: "complete" },
+    });
+  });
+
+  // Then
+  expect(chips()).toEqual(["완료", "취소됨", "LMS에서 확인"]);
+});
+it("ignores a held download search after unmount", async () => {
+  // Given
+  await materials();
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  const item = {
+    id: 42,
+    byExtensionId: undefined,
+    url: `${target.url}courses/101/files/501/download?download_frd=1`,
+    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    state: "in_progress",
+    mime: "application/pdf",
+  };
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0](item);
+  });
+  const heldSearch = deferred<chrome.downloads.DownloadItem[]>();
+  search.mockReturnValueOnce(heldSearch.promise);
+  await act(async () => {
+    onChanged.addListener.mock.calls[0]?.[0]({
+      id: item.id,
+      state: { current: "complete" },
+    });
+  });
+
+  // When
+  await ui.unmount();
+  await act(async () => {
+    heldSearch.resolve([
+      {
+        ...item,
+        byExtensionId: "test",
+        state: "complete",
+      } as chrome.downloads.DownloadItem,
+    ]);
+  });
+
+  // Then
+  expect(onCreated.removeListener).toHaveBeenCalled();
+  expect(onChanged.removeListener).toHaveBeenCalled();
+});

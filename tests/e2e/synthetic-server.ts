@@ -50,9 +50,10 @@ export async function syntheticServer(directory: string) {
   let coursesRequestCount = 0;
   const downloads: string[] = [];
   const pdf = textPdf("Operating systems schedule runnable processes.");
+  let nextDownloadGate: Promise<void> | undefined;
   const server = createServer(
     { key: await readFile(keyPath), cert: await readFile(certPath) },
-    (request, response) => {
+    async (request, response) => {
       const url = new URL(request.url ?? "/", "https://mylms.korea.ac.kr");
       const routes: Record<string, unknown> = {
         "/api/v1/users/self": { id: 71 },
@@ -145,12 +146,18 @@ export async function syntheticServer(directory: string) {
         url.search === "?download_frd=1"
       ) {
         downloads.push(url.pathname);
+        const gate = nextDownloadGate;
+        nextDownloadGate = undefined;
         response.writeHead(200, {
           "Content-Type": "application/pdf",
           "Content-Disposition": "attachment",
           "Content-Length": pdf.length,
         });
-        response.end(pdf);
+        if (gate) {
+          response.write(pdf.subarray(0, 1));
+          await gate;
+          response.end(pdf.subarray(1));
+        } else response.end(pdf);
         return;
       }
       if (
@@ -183,6 +190,13 @@ export async function syntheticServer(directory: string) {
     port: address.port,
     pdf,
     downloads,
+    holdNextDownload: () => {
+      let release!: () => void;
+      nextDownloadGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
     coursesSeen: () => coursesRequestCount > 0,
     coursesCount: () => coursesRequestCount,
     close: () =>

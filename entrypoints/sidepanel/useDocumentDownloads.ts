@@ -45,6 +45,8 @@ export function useDocumentDownloads(context: {
   const expected = useRef<Expected[]>([]);
   const candidates = useRef(new Set<number>());
   const bindings = useRef(new Map<number, string>());
+  // Unlike batch cancellation, a list reset retires browser observations too.
+  const observationEpoch = useRef(0);
   const source = useRef(context);
   source.current = context;
   useEffect(() => {
@@ -101,12 +103,23 @@ export function useDocumentDownloads(context: {
     };
     const changed = (delta: chrome.downloads.DownloadDelta) => {
       if (!candidates.current.has(delta.id)) return;
+      const epoch = observationEpoch.current;
       void chrome.downloads.search({ id: delta.id }).then(
         (items) => {
+          if (
+            !active ||
+            epoch !== observationEpoch.current ||
+            !candidates.current.has(delta.id)
+          )
+            return;
           for (const item of items) observe(item);
         },
         () => {
-          if (active)
+          if (
+            active &&
+            epoch === observationEpoch.current &&
+            candidates.current.has(delta.id)
+          )
             setNotice(
               "다운로드 상태를 확인하지 못했습니다. 브라우저 다운로드 목록을 확인하세요.",
             );
@@ -117,12 +130,14 @@ export function useDocumentDownloads(context: {
     chrome.downloads.onChanged.addListener(changed);
     return () => {
       active = false;
+      observationEpoch.current++;
       batch.current++;
       chrome.downloads.onCreated.removeListener(created);
       chrome.downloads.onChanged.removeListener(changed);
     };
   }, []);
   function reset() {
+    observationEpoch.current++;
     batch.current++;
     used.current.clear();
     expected.current = [];
