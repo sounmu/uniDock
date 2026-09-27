@@ -155,8 +155,8 @@ export async function detectCaptions(
         ) &&
         documentIds.every(
           (documentId) =>
-            batches.filter((batch) => batch.documentId === documentId).length ===
-            1,
+            batches.filter((batch) => batch.documentId === documentId)
+              .length === 1,
         );
       let blocked = dom.some(
         (batch) => batch.result?.blocked || batch.result?.limited,
