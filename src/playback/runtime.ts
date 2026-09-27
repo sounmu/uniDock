@@ -50,6 +50,11 @@ interface ActiveRun {
   tabId: number | null;
   address: PlayerAddress | null;
 }
+interface OperationContext {
+  readonly epoch: number;
+  readonly intentGeneration: number | null;
+}
+class SupersededOperationError extends Error {}
 export interface PlayerAuthorization {
   readonly binding: PlayerBinding;
   readonly leaseUntil: number;
@@ -65,6 +70,7 @@ export class PlaybackRuntime {
   private initialized = false;
   private consented = false;
   private epoch = 0;
+  private intentGeneration = 0;
   constructor(private readonly ports: RuntimePorts) {}
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -113,6 +119,37 @@ export class PlaybackRuntime {
     this.saved.player = null;
     await this.ports.alarm(PLAYBACK_WATCHDOG, null);
     if (tabId !== undefined && tabId !== null) await this.ports.close(tabId);
+  }
+  private async abandon(run: ActiveRun): Promise<void> {
+    const tabId = run.tabId;
+    if (this.run === run) {
+      this.run = null;
+      if (
+        this.saved.player?.tabId === tabId &&
+        this.saved.player.id === run.item.id
+      )
+        this.saved.player = null;
+      try {
+        await this.ports.alarm(PLAYBACK_WATCHDOG, null);
+      } finally {
+        if (tabId !== null) await this.ports.close(tabId);
+      }
+      return;
+    }
+    if (tabId !== null) await this.ports.close(tabId);
+  }
+  private context(intentGeneration: number | null = null): OperationContext {
+    return { epoch: this.epoch, intentGeneration };
+  }
+  private current(context: OperationContext): boolean {
+    return (
+      context.epoch === this.epoch &&
+      (context.intentGeneration === null ||
+        context.intentGeneration === this.intentGeneration)
+    );
+  }
+  private assertCurrent(context: OperationContext): void {
+    if (!this.current(context)) throw new SupersededOperationError();
   }
   private async init(): Promise<void> {
     if (this.initialized) return;
@@ -164,14 +201,17 @@ export class PlaybackRuntime {
       deadline: this.ports.now() + 70000,
     };
   }
-  private async startCurrent(epoch: number): Promise<void> {
+  private async startCurrent(context: OperationContext): Promise<void> {
+    this.assertCurrent(context);
     if (this.saved.stopped || this.run) return;
     const item = this.saved.playlist[0];
     if (!item) {
       this.status = "idle";
       return;
     }
-    if (!(await this.refresh(epoch))) return;
+    if (!(await this.refresh(context.epoch)))
+      throw new SupersededOperationError();
+    this.assertCurrent(context);
     if (!this.candidate(item))
       throw new PlaybackRuntimeError("STALE_SELECTION");
     const run: ActiveRun = {
@@ -185,22 +225,37 @@ export class PlaybackRuntime {
     this.status = "starting";
     const itemId = item.id.split(":")[1];
     const url = `${this.saved.origin}/courses/${item.courseId}/modules/items/${itemId}`;
-    const tabId = await this.ports.open(url);
-    run.tabId = tabId;
-    if (epoch !== this.epoch || this.run !== run) {
-      await this.release();
-      return;
+    try {
+      const tabId = await this.ports.open(url);
+      run.tabId = tabId;
+      if (!this.current(context) || this.run !== run)
+        throw new SupersededOperationError();
+      this.saved.player = { tabId, id: item.id, courseId: item.courseId };
+      await this.persist();
+      if (!this.current(context) || this.run !== run)
+        throw new SupersededOperationError();
+      await this.ports.navigate(tabId, url);
+      await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
+    } catch (error) {
+      if (!this.current(context) || this.run !== run) {
+        try {
+          await this.abandon(run);
+        } catch {
+          // Preserve the operation failure; captured-tab cleanup was attempted.
+        }
+      }
+      throw error;
     }
-    this.saved.player = { tabId, id: item.id, courseId: item.courseId };
-    await this.persist();
-    if (epoch !== this.epoch || this.run !== run) {
-      await this.release();
-      return;
-    }
-    await this.ports.navigate(tabId, url);
-    await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
   }
-  private async blocked(error: unknown): Promise<PlaybackResult> {
+  private async blocked(
+    error: unknown,
+    context?: OperationContext,
+  ): Promise<PlaybackResult> {
+    if (
+      error instanceof SupersededOperationError ||
+      (context && !this.current(context))
+    )
+      return { status: "error", code: "BUSY" };
     const code = error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
     this.epoch++;
     this.saved.stopped = true;
@@ -216,12 +271,14 @@ export class PlaybackRuntime {
   }
 
   startup(): Promise<PlaybackResult> {
+    const context = this.context();
     return this.serial(async () => {
       try {
         await this.init();
+        this.assertCurrent(context);
         return { status: "success", snapshot: this.snapshot() };
       } catch (error) {
-        return this.blocked(error);
+        return this.blocked(error, context);
       }
     });
   }
@@ -231,20 +288,24 @@ export class PlaybackRuntime {
       "PLAYBACK_STOP_ALL",
       "LOCAL_DATA_DELETE_ALL",
     ].includes(command.type);
-    if (urgent) {
+    const intent = ["PLAYBACK_START", "PLAYBACK_RESUME"].includes(command.type);
+    if (intent) this.intentGeneration++;
+    if (urgent || intent) {
       this.epoch++;
-      this.saved.stopped = true;
+      if (urgent) this.saved.stopped = true;
     }
-    const epoch = this.epoch;
+    const context = this.context(intent ? this.intentGeneration : null);
     return this.serial(async () => {
       try {
         await this.init();
+        if (!urgent) this.assertCurrent(context);
         switch (command.type) {
           case "PLAYBACK_STATUS":
           case "PLAYBACK_REFRESH":
             try {
-              await this.refresh(epoch);
+              await this.refresh(context.epoch);
             } catch (error) {
+              this.assertCurrent(context);
               if (
                 error instanceof PlaybackRuntimeError &&
                 error.code === "LOGIN_REQUIRED" &&
@@ -256,7 +317,7 @@ export class PlaybackRuntime {
                 await this.release();
                 await this.disarm();
                 await this.persist();
-                break;
+                return { status: "success", snapshot: this.snapshot() };
               }
               throw error;
             }
@@ -264,11 +325,12 @@ export class PlaybackRuntime {
           case "PLAYBACK_START": {
             const resolved: ResolvedRecording[] = [];
             for (const handle of command.handles) {
+              // Resolving consumes a one-use handle, so check immediately before it.
+              this.assertCurrent(context);
               const value = await this.ports.resolve(handle);
-              if (epoch !== this.epoch) break;
+              this.assertCurrent(context);
               resolved.push(value);
             }
-            if (epoch !== this.epoch) break;
             const latest = resolved.at(-1)!.discovery;
             const items = resolved.map(({ discovery, id, courseId }) => {
               if (
@@ -305,7 +367,8 @@ export class PlaybackRuntime {
             };
             this.consented = true;
             await this.persist();
-            await this.startCurrent(epoch);
+            this.assertCurrent(context);
+            await this.startCurrent(context);
             break;
           }
           case "PLAYBACK_PAUSE":
@@ -323,7 +386,7 @@ export class PlaybackRuntime {
             this.saved.stopped = false;
             if (this.run?.address) {
               if (
-                !(await this.refresh(epoch)) ||
+                !(await this.refresh(context.epoch)) ||
                 !this.candidate(this.run.item)
               )
                 throw new PlaybackRuntimeError("STALE_SELECTION");
@@ -337,7 +400,7 @@ export class PlaybackRuntime {
                 PLAYBACK_WATCHDOG,
                 this.ports.now() + 60000,
               );
-            } else await this.startCurrent(epoch);
+            } else await this.startCurrent(context);
             break;
           case "PLAYBACK_CANCEL": {
             const active = this.saved.playlist[0]?.id === command.id;
@@ -346,7 +409,7 @@ export class PlaybackRuntime {
             );
             if (active) {
               await this.release();
-              if (!this.saved.stopped) await this.startCurrent(epoch);
+              if (!this.saved.stopped) await this.startCurrent(context);
             }
             if (!this.saved.playlist.length) this.status = "idle";
             break;
@@ -368,29 +431,34 @@ export class PlaybackRuntime {
             this.status = "idle";
             return { status: "success", snapshot: this.snapshot() };
         }
+        if (!urgent) this.assertCurrent(context);
         await this.persist();
         return { status: "success", snapshot: this.snapshot() };
       } catch (error) {
-        return this.blocked(error);
+        return this.blocked(error, context);
       }
     });
   }
   alarm(name: string): Promise<PlaybackResult> {
+    const context = this.context();
     return this.serial(async () => {
       try {
         await this.init();
+        this.assertCurrent(context);
         if (name === PLAYBACK_WATCHDOG && this.run && !this.saved.stopped)
           throw new PlaybackRuntimeError("PLAYER_LOST");
         else if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
           await this.ports.alarm(name, null);
         return { status: "success", snapshot: this.snapshot() };
       } catch (error) {
-        return this.blocked(error);
+        return this.blocked(error, context);
       }
     });
   }
   authorize(address: PlayerAddress): Promise<PlayerAuthorization | null> {
+    const context = this.context();
     return this.serial(async () => {
+      if (!this.current(context)) return null;
       const run = this.run;
       if (
         !run ||
@@ -401,17 +469,16 @@ export class PlaybackRuntime {
       )
         return null;
       try {
-        const epoch = this.epoch;
-        if (!(await this.refresh(epoch)) || !this.candidate(run.item))
+        if (!(await this.refresh(context.epoch)) || !this.candidate(run.item))
           return null;
-        if (this.run !== run || epoch !== this.epoch) return null;
+        if (this.run !== run || !this.current(context)) return null;
         run.address = address;
         return {
           binding: this.binding(run),
           leaseUntil: this.ports.now() + 60000,
         };
       } catch (error) {
-        await this.blocked(error);
+        await this.blocked(error, context);
         return null;
       }
     });
@@ -432,7 +499,9 @@ export class PlaybackRuntime {
     binding: PlayerBinding,
     state: PlayerSignal,
   ): Promise<boolean> {
+    const context = this.context();
     return this.serial(async () => {
+      if (!this.current(context)) return false;
       if (!this.matches(address, binding)) return false;
       try {
         if (state === "ended") {
@@ -441,7 +510,7 @@ export class PlaybackRuntime {
           await this.release();
           await this.persist();
           // Native end is the only automatic advancement trigger.
-          await this.startCurrent(this.epoch);
+          await this.startCurrent(context);
         } else if (
           ["failed", "blocked-autoplay", "blocked-login"].includes(state)
         ) {
@@ -457,7 +526,7 @@ export class PlaybackRuntime {
         } else if (!this.saved.stopped) this.status = state;
         return true;
       } catch (error) {
-        await this.blocked(error);
+        await this.blocked(error, context);
         return false;
       }
     });
@@ -466,13 +535,14 @@ export class PlaybackRuntime {
     address: PlayerAddress,
     binding: PlayerBinding,
   ): Promise<PlayerAuthorization | null> {
+    const context = this.context();
     return this.serial(async () => {
+      if (!this.current(context)) return null;
       if (!this.matches(address, binding) || this.saved.stopped || !this.run)
         return null;
       try {
-        const epoch = this.epoch;
         if (
-          !(await this.refresh(epoch)) ||
+          !(await this.refresh(context.epoch)) ||
           !this.run ||
           !this.candidate(this.run.item)
         )
@@ -484,18 +554,19 @@ export class PlaybackRuntime {
           leaseUntil: this.ports.now() + 60000,
         };
       } catch (error) {
-        await this.blocked(error);
+        await this.blocked(error, context);
         return null;
       }
     });
   }
   lost(tabId: number): Promise<void> {
     if (this.run?.tabId === tabId) this.epoch++;
+    const context = this.context();
     return this.serial(async () => {
       if (this.run?.tabId !== tabId) return;
       this.run.tabId = null;
       this.saved.player = null;
-      await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"));
+      await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
     });
   }
   get dedicatedTabId(): number | null {

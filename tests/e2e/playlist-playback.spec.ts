@@ -328,3 +328,298 @@ test("production extension plays a click-ordered playlist and explicitly recover
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("a deferred old start failure cannot invalidate a newer stop and start", async ({
+  playwright,
+}) => {
+  test.setTimeout(90_000);
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-start-race-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    await context.route(`${origin}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic LMS</title><body>Synthetic LMS</body></html>",
+        });
+        return;
+      }
+      if (/^\/courses\/101\/modules\/items\/(501|502)$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic module item</title></html>",
+        });
+        return;
+      }
+      const values: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
+        "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
+        "/api/v1/courses/101/assignments": [],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 20,
+            name: "1주차",
+            published: true,
+            items_count: 2,
+            items: [
+              {
+                id: 501,
+                type: "ExternalTool",
+                title: "첫 번째 합성 영상",
+                html_url: `${origin}/courses/101/modules/items/501`,
+              },
+              {
+                id: 502,
+                type: "ExternalTool",
+                title: "두 번째 합성 영상",
+                html_url: `${origin}/courses/101/modules/items/502`,
+              },
+            ],
+          },
+        ],
+      };
+      if (url.pathname in values) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(values[url.pathname]),
+        });
+        return;
+      }
+      await route.fulfill({ status: 404, body: "not found" });
+    });
+
+    const lms = await context.newPage();
+    await lms.goto(origin);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    expect(
+      await panel.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "success" });
+
+    const handles = await panel.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({
+        url: ["https://mylms.korea.ac.kr/*"],
+      });
+      if (tab?.id === undefined) throw new Error("missing synthetic LMS tab");
+      const result = (await chrome.tabs.sendMessage(
+        tab.id,
+        {
+          version: 1,
+          type: "RECORDINGS_LIST",
+          course: "합성 운영체제",
+        },
+        { frameId: 0 },
+      )) as {
+        status: string;
+        recordings?: { launchHandle?: string }[];
+      };
+      const values =
+        result.status === "success"
+          ? (result.recordings ?? [])
+              .map((item) => item.launchHandle)
+              .filter((value): value is string => typeof value === "string")
+          : [];
+      if (values.length !== 2) throw new Error("missing playback handles");
+      return values;
+    });
+
+    // Fault injection is confined to the service worker's Chrome transport:
+    // content discovery/catalog ownership remains untouched. The real 25s
+    // boundedMessage timer callback is gated so it produces its production
+    // PlaybackRuntimeError("TIMEOUT") without waiting for wall-clock expiry.
+    await worker.evaluate(() => {
+      const scope = globalThis as typeof globalThis & {
+        __unidockRace?: {
+          entered: boolean;
+          timeoutArmed: boolean;
+          forwarded: string[];
+          release: () => void;
+          restore: () => void;
+        };
+      };
+      const originalSend = chrome.tabs.sendMessage.bind(chrome.tabs);
+      const send = originalSend as (
+        tabId: number,
+        message: unknown,
+        options?: chrome.tabs.MessageSendOptions,
+      ) => Promise<unknown>;
+      const originalSetTimeout = globalThis.setTimeout.bind(globalThis);
+      const originalClearTimeout = globalThis.clearTimeout.bind(globalThis);
+      let firstResolve = true;
+      let timeoutCallback: (() => void) | undefined;
+      const sentinel = 2_147_483_000;
+      const state = {
+        entered: false,
+        timeoutArmed: false,
+        forwarded: [] as string[],
+        release: () => timeoutCallback?.(),
+        restore: () => {
+          chrome.tabs.sendMessage = originalSend;
+          globalThis.setTimeout = originalSetTimeout;
+          globalThis.clearTimeout = originalClearTimeout;
+          delete scope.__unidockRace;
+        },
+      };
+      chrome.tabs.sendMessage = ((tabId, message, options) => {
+        const value = message as { type?: string; handle?: string };
+        if (value.type === "PLAYBACK_RESOLVE") {
+          if (firstResolve) {
+            firstResolve = false;
+            state.entered = true;
+            return new Promise(() => {});
+          }
+          if (typeof value.handle === "string")
+            state.forwarded.push(value.handle);
+        }
+        return send(
+          tabId as number,
+          message,
+          options as chrome.tabs.MessageSendOptions | undefined,
+        );
+      }) as typeof chrome.tabs.sendMessage;
+      globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => {
+        if (delay === 25_000 && typeof callback === "function") {
+          timeoutCallback = () => callback();
+          state.timeoutArmed = true;
+          return sentinel;
+        }
+        return originalSetTimeout(callback, delay);
+      }) as typeof globalThis.setTimeout;
+      globalThis.clearTimeout = ((id?: number) => {
+        if (id !== sentinel) originalClearTimeout(id);
+      }) as typeof globalThis.clearTimeout;
+      scope.__unidockRace = state;
+    });
+
+    await panel.evaluate((handle) => {
+      const scope = globalThis as typeof globalThis & {
+        __unidockRequests?: { old: Promise<unknown> };
+      };
+      scope.__unidockRequests = {
+        old: chrome.runtime.sendMessage({
+          version: 1,
+          type: "PLAYBACK_START",
+          handles: [handle],
+        }),
+      };
+    }, handles[0]);
+    await expect
+      .poll(() =>
+        worker.evaluate(() => {
+          const state = (
+            globalThis as typeof globalThis & {
+              __unidockRace?: { entered: boolean; timeoutArmed: boolean };
+            }
+          ).__unidockRace;
+          return {
+            entered: !!state?.entered,
+            timeoutArmed: !!state?.timeoutArmed,
+          };
+        }),
+      )
+      .toEqual({ entered: true, timeoutArmed: true });
+
+    await panel.evaluate((handle) => {
+      const scope = globalThis as typeof globalThis & {
+        __unidockRequests?: {
+          old: Promise<unknown>;
+          stop?: Promise<unknown>;
+          next?: Promise<unknown>;
+        };
+      };
+      if (!scope.__unidockRequests) throw new Error("missing old request");
+      scope.__unidockRequests.stop = chrome.runtime.sendMessage({
+        version: 1,
+        type: "PLAYBACK_STOP_ALL",
+      });
+      scope.__unidockRequests.next = chrome.runtime.sendMessage({
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [handle],
+      });
+    }, handles[1]);
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __unidockRace?: { forwarded: string[] };
+            }
+          ).__unidockRace?.forwarded ?? [],
+      ),
+    ).toEqual([]);
+
+    await worker.evaluate(() => {
+      const state = (
+        globalThis as typeof globalThis & {
+          __unidockRace?: { release: () => void };
+        }
+      ).__unidockRace;
+      if (!state) throw new Error("missing race gate");
+      state.release();
+    });
+    const results = await panel.evaluate(async () => {
+      const requests = (
+        globalThis as typeof globalThis & {
+          __unidockRequests?: {
+            old: Promise<unknown>;
+            stop?: Promise<unknown>;
+            next?: Promise<unknown>;
+          };
+        }
+      ).__unidockRequests;
+      if (!requests?.stop || !requests.next)
+        throw new Error("missing queued requests");
+      return Promise.all([requests.old, requests.stop, requests.next]);
+    });
+    expect(results[0]).toEqual({ status: "error", code: "BUSY" });
+    expect(results[1]).toMatchObject({
+      status: "success",
+      snapshot: { status: "stopped" },
+    });
+    expect(results[2]).toMatchObject({
+      status: "success",
+      snapshot: { status: "starting", current: { id: "101:502" } },
+    });
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __unidockRace?: { forwarded: string[] };
+            }
+          ).__unidockRace?.forwarded ?? [],
+      ),
+    ).toEqual([handles[1]]);
+    await worker.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          __unidockRace?: { restore: () => void };
+        }
+      ).__unidockRace?.restore();
+    });
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

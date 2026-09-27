@@ -19,7 +19,16 @@ const origin = "https://mylms.korea.ac.kr";
 const handles = [
   "00000000-0000-4000-8000-000000000001",
   "00000000-0000-4000-8000-000000000002",
-];
+] as const;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
 const address: PlayerAddress = { tabId: 9, frameId: 2, documentId: "doc" };
 const discovery: PlaybackDiscovery = {
   accountKey,
@@ -152,6 +161,292 @@ describe("immediate ordered playlist runtime", () => {
     ).toEqual({ status: "error", code: "STALE_SELECTION" });
     expect(f.saved).toBeNull();
     expect(f.opened).toEqual([]);
+  });
+
+  it("does not let a late start failure invalidate a newer stop and start", async () => {
+    const f = fixture();
+    const pending = deferred<never>();
+    const resolving = deferred<void>();
+    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => {
+      if (handle === handles[0]) {
+        resolving.resolve();
+        return pending.promise;
+      }
+      return { discovery, id: "101:502", courseId: "101" };
+    });
+
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+    });
+    await resolving.promise;
+    const stop = f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    pending.reject(new PlaybackRuntimeError("TIMEOUT"));
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(await stop).toMatchObject({ status: "success" });
+    expect(snapshot(await newStart)).toMatchObject({
+      status: "starting",
+      current: { id: "101:502" },
+    });
+    expect(f.saved?.stopped).toBe(false);
+    expect(f.opened).toEqual([`${origin}/courses/101/modules/items/502`]);
+  });
+
+  it("does not consume remaining old handles after a duplicate start supersedes it", async () => {
+    const f = fixture();
+    const firstResolution = deferred<{
+      discovery: PlaybackDiscovery;
+      id: string;
+      courseId: string;
+    }>();
+    const resolving = deferred<void>();
+    const resolve = vi
+      .spyOn(f.ports, "resolve")
+      .mockImplementation(async (handle) => {
+        if (handle === handles[0]) {
+          resolving.resolve();
+          return firstResolution.promise;
+        }
+        return { discovery, id: "101:502", courseId: "101" };
+      });
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles,
+    });
+    await resolving.promise;
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    firstResolution.resolve({ discovery, id: "101:501", courseId: "101" });
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await newStart).current?.id).toBe("101:502");
+    expect(resolve.mock.calls.map(([handle]) => handle)).toEqual([
+      handles[0],
+      handles[1],
+    ]);
+  });
+
+  it("does not consume handles for a start superseded before lane entry", async () => {
+    const f = fixture();
+    const oldDiscovery = deferred<PlaybackDiscovery>();
+    const discovering = deferred<void>();
+    vi.spyOn(f.ports, "discover")
+      .mockImplementationOnce(async () => {
+        discovering.resolve();
+        return oldDiscovery.promise;
+      })
+      .mockResolvedValue(discovery);
+    const resolve = vi.spyOn(f.ports, "resolve").mockResolvedValue({
+      discovery,
+      id: "101:502",
+      courseId: "101",
+    });
+    const status = f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" });
+    await discovering.promise;
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+    });
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    oldDiscovery.resolve(discovery);
+
+    expect(await status).toEqual({ status: "error", code: "BUSY" });
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await newStart).current?.id).toBe("101:502");
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(handles[1]);
+  });
+
+  it("does not let an old discovery error kill a newer stop and start intent", async () => {
+    const f = fixture();
+    await start(f);
+    const oldDiscovery = deferred<never>();
+    const discovering = deferred<void>();
+    vi.spyOn(f.ports, "discover")
+      .mockImplementationOnce(async () => {
+        discovering.resolve();
+        return oldDiscovery.promise;
+      })
+      .mockResolvedValue(discovery);
+    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+      discovery,
+      id: "101:502",
+      courseId: "101",
+    });
+    const oldStatus = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_STATUS",
+    });
+    await discovering.promise;
+    const stop = f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    oldDiscovery.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
+
+    expect(await oldStatus).toEqual({ status: "error", code: "BUSY" });
+    await stop;
+    expect(snapshot(await newStart)).toMatchObject({
+      status: "starting",
+      current: { id: "101:502" },
+    });
+    expect(f.saved?.stopped).toBe(false);
+  });
+
+  it("closes only the old tab when an open completes after a newer stop and start", async () => {
+    const f = fixture();
+    const oldOpen = deferred<number>();
+    const opening = deferred<void>();
+    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+      discovery,
+      id: handle === handles[0] ? "101:501" : "101:502",
+      courseId: "101",
+    }));
+    vi.spyOn(f.ports, "open")
+      .mockImplementationOnce(async () => {
+        opening.resolve();
+        return oldOpen.promise;
+      })
+      .mockResolvedValueOnce(10);
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+    });
+    await opening.promise;
+    const stop = f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    oldOpen.resolve(9);
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    await stop;
+    expect(snapshot(await newStart).current?.id).toBe("101:502");
+    expect(f.closed).toEqual([9]);
+    expect(f.runtime.dedicatedTabId).toBe(10);
+  });
+
+  it("still closes a superseded tab when watchdog cleanup fails", async () => {
+    const f = fixture();
+    const oldOpen = deferred<number>();
+    const opening = deferred<void>();
+    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+      discovery,
+      id: handle === handles[0] ? "101:501" : "101:502",
+      courseId: "101",
+    }));
+    vi.spyOn(f.ports, "open")
+      .mockImplementationOnce(async () => {
+        opening.resolve();
+        return oldOpen.promise;
+      })
+      .mockResolvedValueOnce(10);
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+    });
+    await opening.promise;
+    vi.spyOn(f.ports, "alarm").mockRejectedValueOnce(new Error("alarm"));
+    const stop = f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    const newStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    oldOpen.resolve(9);
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(f.closed).toContain(9);
+    await stop;
+    expect(snapshot(await newStart).current?.id).toBe("101:502");
+    expect(f.runtime.dedicatedTabId).toBe(10);
+  });
+
+  it("recovers through pause and resume when a superseded open rejects", async () => {
+    const f = fixture();
+    const oldOpen = deferred<never>();
+    const opening = deferred<void>();
+    vi.spyOn(f.ports, "open")
+      .mockImplementationOnce(async () => {
+        opening.resolve();
+        return oldOpen.promise;
+      })
+      .mockResolvedValueOnce(10);
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles,
+    });
+    await opening.promise;
+    const pause = f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
+    oldOpen.reject(new PlaybackRuntimeError("TIMEOUT"));
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await pause).status).toBe("paused");
+    expect(snapshot(await resume)).toMatchObject({
+      status: "starting",
+      current: { id: "101:501" },
+    });
+    expect(f.runtime.dedicatedTabId).toBe(10);
+  });
+
+  it("recovers through pause and resume when superseded player persistence rejects", async () => {
+    const f = fixture();
+    const oldPersist = deferred<never>();
+    const persisting = deferred<void>();
+    const save = f.ports.store.save.bind(f.ports.store);
+    let saves = 0;
+    vi.spyOn(f.ports.store, "save").mockImplementation(async (value) => {
+      saves++;
+      if (saves === 2) {
+        persisting.resolve();
+        return oldPersist.promise;
+      }
+      return save(value);
+    });
+    vi.spyOn(f.ports, "open")
+      .mockResolvedValueOnce(9)
+      .mockResolvedValueOnce(10);
+    const oldStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles,
+    });
+    await persisting.promise;
+    const pause = f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
+    oldPersist.reject(new PlaybackRuntimeError("STORAGE"));
+
+    expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await pause).status).toBe("paused");
+    expect(snapshot(await resume)).toMatchObject({
+      status: "starting",
+      current: { id: "101:501" },
+    });
+    expect(f.closed).toContain(9);
+    expect(f.runtime.dedicatedTabId).toBe(10);
   });
 
   it("advances immediately and only after matching native ended", async () => {
