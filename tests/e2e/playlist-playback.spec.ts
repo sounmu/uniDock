@@ -80,6 +80,13 @@ test("production extension plays a click-ordered playlist and explicitly recover
   const profile = await mkdtemp(path.join(tmpdir(), "unidock-playlist-"));
   let context: BrowserContext | undefined;
   let loggedIn = true;
+  let identityRequests = 0;
+  let identityGate:
+    | {
+        started: ReturnType<typeof Promise.withResolvers<void>>;
+        release: ReturnType<typeof Promise.withResolvers<void>>;
+      }
+    | undefined;
   const actions: string[] = [];
 
   function record(text: string) {
@@ -133,8 +140,18 @@ test("production extension plays a click-ordered playlist and explicitly recover
         return;
       }
       if (url.pathname === "/api/v1/users/self" && !loggedIn) {
+        identityRequests++;
         await route.fulfill({ status: 401, body: "login required" });
         return;
+      }
+      if (url.pathname === "/api/v1/users/self") {
+        identityRequests++;
+        const gate = identityGate;
+        if (gate) {
+          gate.started.resolve();
+          await gate.release.promise;
+          if (identityGate === gate) identityGate = undefined;
+        }
       }
       const values: Record<string, unknown> = {
         "/api/v1/users/self": { id: 71 },
@@ -192,11 +209,23 @@ test("production extension plays a click-ordered playlist and explicitly recover
     const worker =
       context.serviceWorkers()[0] ??
       (await context.waitForEvent("serviceworker"));
+    worker.on("console", (message) => {
+      if (message.type() === "error")
+        actions.push(`WORKER_CONSOLE_ERROR:${message.text()}`);
+    });
     const extensionId = new URL(worker.url()).host;
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    const secondPanel = await context.newPage();
+    await secondPanel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
     await panel.getByRole("button", { name: "자동 재생" }).click();
+    await secondPanel.getByRole("button", { name: "자동 재생" }).click();
+    await secondPanel.getByRole("button", { name: "영상 선택" }).click();
+    await expect(secondPanel.getByLabel("과목 선택")).toContainText(
+      "합성 운영체제",
+    );
+    await secondPanel.getByRole("button", { name: "← 목록" }).click();
     await panel.getByRole("button", { name: "영상 선택" }).click();
     await panel
       .getByLabel("과목 선택")
@@ -317,8 +346,45 @@ test("production extension plays a click-ordered playlist and explicitly recover
       path: testInfo.outputPath("playback-200pct-equivalent.png"),
       fullPage: true,
     });
-    await panel.getByRole("button", { name: "자동 재생 끄기" }).click();
-    await expect(panel.locator(".playback-panel h1")).toContainText("중지됨");
+    await expect(secondPanel.locator(".playback-panel h1")).toContainText(
+      "재생 중",
+    );
+    const beforeHeldRefresh = identityRequests;
+    identityGate = {
+      started: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    await panel.getByRole("button", { name: "새로고침" }).click();
+    await identityGate.started.promise;
+    await secondPanel.getByRole("button", { name: "자동 재생 끄기" }).click();
+    await expect(secondPanel.locator(".playback-panel h1")).toContainText(
+      "중지됨",
+    );
+    // The held LMS response is still gated: tab closure and the second panel's
+    // state are physical/message barriers, not fixed-sleep timing evidence.
+    expect(identityRequests).toBe(beforeHeldRefresh + 1);
+    await expect
+      .poll(
+        () =>
+          context!
+            .pages()
+            .filter((page) =>
+              /\/courses\/101\/modules\/items\//.test(page.url()),
+            ).length,
+      )
+      .toBe(0);
+    identityGate.release.resolve();
+    const consoleErrors = actions.filter(
+      (entry) =>
+        entry.startsWith("CONSOLE_ERROR:") ||
+        entry.startsWith("PAGE_ERROR:") ||
+        entry.startsWith("WORKER_CONSOLE_ERROR:"),
+    );
+    // The deliberate synthetic 401 used to exercise login recovery is the
+    // only expected browser-console error.
+    expect(consoleErrors).toEqual([
+      "CONSOLE_ERROR:Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    ]);
   } finally {
     await testInfo.attach("native-playback-actions", {
       body: Buffer.from(actions.join("\n")),
@@ -412,7 +478,7 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     expect(
       await panel.evaluate(() =>
-        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
       ),
     ).toMatchObject({ status: "success" });
 
@@ -499,8 +565,13 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       }) as typeof chrome.tabs.sendMessage;
       globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => {
         if (delay === 25_000 && typeof callback === "function") {
-          timeoutCallback = () => callback();
-          state.timeoutArmed = true;
+          // Keep the timeout belonging to the intentionally held first
+          // resolution. A compatible later resolution is allowed to proceed
+          // concurrently and must not replace this gate.
+          if (!timeoutCallback) {
+            timeoutCallback = () => callback();
+            state.timeoutArmed = true;
+          }
           return sentinel;
         }
         return originalSetTimeout(callback, delay);
@@ -558,6 +629,27 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
         handles: [handle],
       });
     }, handles[1]);
+    const prompt = await panel.evaluate(async () => {
+      const requests = (
+        globalThis as typeof globalThis & {
+          __unidockRequests?: {
+            stop?: Promise<unknown>;
+            next?: Promise<unknown>;
+          };
+        }
+      ).__unidockRequests;
+      if (!requests?.stop || !requests.next)
+        throw new Error("missing prompt requests");
+      return Promise.all([requests.stop, requests.next]);
+    });
+    expect(prompt[0]).toMatchObject({
+      status: "success",
+      snapshot: { status: "stopped" },
+    });
+    expect(prompt[1]).toMatchObject({
+      status: "success",
+      snapshot: { status: "starting", current: { id: "101:502" } },
+    });
     expect(
       await worker.evaluate(
         () =>
@@ -567,7 +659,7 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
             }
           ).__unidockRace?.forwarded ?? [],
       ),
-    ).toEqual([]);
+    ).toEqual([handles[1]]);
 
     await worker.evaluate(() => {
       const state = (
@@ -578,7 +670,7 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       if (!state) throw new Error("missing race gate");
       state.release();
     });
-    const results = await panel.evaluate(async () => {
+    const oldResult = await panel.evaluate(async () => {
       const requests = (
         globalThis as typeof globalThis & {
           __unidockRequests?: {
@@ -588,19 +680,9 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
           };
         }
       ).__unidockRequests;
-      if (!requests?.stop || !requests.next)
-        throw new Error("missing queued requests");
-      return Promise.all([requests.old, requests.stop, requests.next]);
+      return requests?.old;
     });
-    expect(results[0]).toEqual({ status: "error", code: "BUSY" });
-    expect(results[1]).toMatchObject({
-      status: "success",
-      snapshot: { status: "stopped" },
-    });
-    expect(results[2]).toMatchObject({
-      status: "success",
-      snapshot: { status: "starting", current: { id: "101:502" } },
-    });
+    expect(oldResult).toEqual({ status: "error", code: "BUSY" });
     expect(
       await worker.evaluate(
         () =>
@@ -699,7 +781,7 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     expect(
       await panel.evaluate(() =>
-        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
       ),
     ).toMatchObject({ status: "success" });
     const handles = await panel.evaluate(async () => {

@@ -18,7 +18,7 @@ const status: Record<string, string> = {
 
 export function PlaybackPanel() {
   const m = usePlaybackPanel();
-  const { snapshot, pending } = m;
+  const { snapshot, pending, stopPending } = m;
   const { detail, open, back } = useDetail<"select">();
   const hasPlaylist = Boolean(snapshot?.current || snapshot?.queue.length);
   const courseName = (id: string) =>
@@ -46,7 +46,7 @@ export function PlaybackPanel() {
               {hasPlaylist ? (
                 <button
                   className="btn-secondary"
-                  disabled={pending}
+                  disabled={stopPending}
                   onClick={() =>
                     void m.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
                   }

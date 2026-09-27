@@ -70,6 +70,17 @@ export function PlaybackConfirmation({
       </ul>
       <div className="notice">
         <p>선택한 {selected.length}개 영상을 표시된 순서대로 재생합니다.</p>
+        {m.startPending && (
+          <button
+            className="btn-secondary"
+            disabled={m.stopPending}
+            onClick={() =>
+              void m.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
+            }
+          >
+            자동 재생 끄기
+          </button>
+        )}
         <button
           className="btn-primary"
           disabled={m.pending || selected.length === 0 || selected.length > 100}

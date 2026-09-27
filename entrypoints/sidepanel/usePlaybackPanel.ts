@@ -13,15 +13,43 @@ export function usePlaybackPanel() {
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [stopPending, setStopPending] = useState(false);
+  const [startPending, setStartPending] = useState(false);
   const [recordings, setRecordingDrafts] = useState<RecordingDraft[]>([]);
   const [course, setCourseValue] = useState("");
   const [deletePrompt, setDeletePrompt] = useState(false);
   const recordingGeneration = useRef(0);
+  const commandGeneration = useRef(0);
+  const foregroundCount = useRef(0);
+  const statusRequest = useRef<Promise<boolean> | null>(null);
 
-  async function run(command: PlaybackCommand) {
-    setPending(true);
+  async function run(command: PlaybackCommand, background = false) {
+    if (background && command.type === "PLAYBACK_STATUS") {
+      if (statusRequest.current) return statusRequest.current;
+      const request = runStatus(commandGeneration.current);
+      statusRequest.current = request;
+      void request.finally(() => {
+        if (statusRequest.current === request) statusRequest.current = null;
+      });
+      return request;
+    }
+    const generation = ++commandGeneration.current;
+    const stopping = command.type === "PLAYBACK_STOP_ALL";
+    const starting = command.type === "PLAYBACK_START";
+    if (stopping) setStopPending(true);
+    else {
+      if (starting) setStartPending(true);
+      foregroundCount.current++;
+      setPending(true);
+    }
     const result = await playbackCommand(command);
-    setPending(false);
+    if (stopping) setStopPending(false);
+    else {
+      if (starting) setStartPending(false);
+      foregroundCount.current--;
+      setPending(foregroundCount.current > 0);
+    }
+    if (generation !== commandGeneration.current) return false;
     if (result.status === "success") {
       setSnapshot(result.snapshot);
       setError("");
@@ -33,8 +61,21 @@ export function usePlaybackPanel() {
     return result.status === "success";
   }
 
+  async function runStatus(generation: number) {
+    const result = await playbackCommand({
+      version: 1,
+      type: "PLAYBACK_STATUS",
+    });
+    if (generation !== commandGeneration.current) return false;
+    if (result.status === "success") setSnapshot(result.snapshot);
+    return result.status === "success";
+  }
+
   useEffect(() => {
-    void run({ version: 1, type: "PLAYBACK_STATUS" });
+    void (async () => {
+      await run({ version: 1, type: "PLAYBACK_STATUS" }, true);
+      await run({ version: 1, type: "PLAYBACK_REFRESH" });
+    })();
     if (typeof chrome === "undefined" || !chrome.runtime?.onMessage) return;
     const updated = (
       message: unknown,
@@ -51,7 +92,7 @@ export function usePlaybackPanel() {
         "type" in message &&
         message.type === "PLAYBACK_UPDATED"
       )
-        void run({ version: 1, type: "PLAYBACK_STATUS" });
+        void run({ version: 1, type: "PLAYBACK_STATUS" }, true);
     };
     chrome.runtime.onMessage.addListener(updated);
     return () => chrome.runtime.onMessage.removeListener(updated);
@@ -119,12 +160,14 @@ export function usePlaybackPanel() {
       .sort((a, b) => a.order! - b.order!)
       .map((item) => item.launchHandle);
     if (!handles.length || handles.length > 100) return false;
+    const draftGeneration = recordingGeneration.current;
     const ok = await run({
       version: 1,
       type: "PLAYBACK_START",
       handles,
     });
-    if (ok) setRecordingDrafts([]);
+    if (ok && draftGeneration === recordingGeneration.current)
+      setRecordingDrafts([]);
     return ok;
   }
 
@@ -132,6 +175,8 @@ export function usePlaybackPanel() {
     snapshot,
     error,
     pending,
+    stopPending,
+    startPending,
     recordings,
     course,
     setCourse,

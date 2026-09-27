@@ -13,6 +13,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
 
 function actionMocks() {
   const setPopup = vi.fn().mockResolvedValue(undefined);
@@ -277,7 +286,7 @@ it("accepts playback commands only from the panel and refuses forged player docu
     id: "test-extension",
     url: "chrome-extension://test-extension/sidepanel.html",
   };
-  const noLms = await deliver({ version: 1, type: "PLAYBACK_STATUS" }, panel);
+  const noLms = await deliver({ version: 1, type: "PLAYBACK_REFRESH" }, panel);
   expect(noLms).toEqual({ status: "error", code: "OPEN_LMS" });
   const forged = await deliver(
     { version: 1, type: "PLAYBACK_PLAYER_HELLO" },
@@ -343,13 +352,200 @@ const validDiscovery = {
   candidates: [],
 };
 
+it("keeps overlapping created-tab ownership isolated through late cleanup", async () => {
+  const candidates = [
+    { id: "101:501", courseId: "101", title: "First" },
+    { id: "101:502", courseId: "101", title: "Second" },
+  ];
+  const discovery = { ...validDiscovery, candidates };
+  const firstHandle = "00000000-0000-4000-8000-000000000001";
+  const secondHandle = "00000000-0000-4000-8000-000000000002";
+  const firstCreate = deferred<chrome.tabs.Tab>();
+  const creating = deferred<void>();
+  let creates = 0;
+  const removed: number[] = [];
+  const local: Record<string, unknown> = {};
+  const session: Record<string, unknown> = {};
+  vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: async (key: string) => ({ [key]: local[key] }),
+        set: async (values: Record<string, unknown>) =>
+          Object.assign(local, values),
+        remove: async (key: string) => {
+          delete local[key];
+        },
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: async (key: string) => ({ [key]: session[key] }),
+        set: async (values: Record<string, unknown>) =>
+          Object.assign(session, values),
+        remove: async (key: string) => {
+          delete session[key];
+        },
+      },
+    },
+    tabs: {
+      query: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 7, url: "https://mylms.korea.ac.kr/", active: true },
+        ]),
+      get: vi.fn(async (tabId: number) =>
+        tabId === 7
+          ? { id: 7, url: "https://mylms.korea.ac.kr/", active: true }
+          : { id: tabId, url: "about:blank", active: true },
+      ),
+      sendMessage: vi.fn(
+        async (_tabId: number, message: { type: string; handle?: string }) => {
+          if (message.type === "PLAYBACK_DISCOVER")
+            return { status: "success", discovery };
+          const id = message.handle === firstHandle ? "101:501" : "101:502";
+          return {
+            status: "success",
+            resolved: { discovery, id, courseId: "101" },
+          };
+        },
+      ),
+      create: vi.fn(async () => {
+        creates++;
+        if (creates === 1) {
+          creating.resolve();
+          return firstCreate.promise;
+        }
+        return { id: 10, url: "about:blank" };
+      }),
+      update: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn(async (tabId: number) => {
+        removed.push(tabId);
+      }),
+    },
+    alarms: {
+      clear: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue(undefined),
+      getAll: vi.fn().mockResolvedValue([]),
+    },
+  });
+  const runtime = createChromePlaybackRuntime();
+  const oldStart = runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [firstHandle],
+  });
+  await creating.promise;
+  await runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+  expect(
+    await runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [secondHandle],
+    }),
+  ).toMatchObject({ status: "success" });
+
+  firstCreate.resolve({ id: 9, url: "about:blank" } as chrome.tabs.Tab);
+  expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+  expect(removed).toEqual([9]);
+  expect(session["unidock.playback.owned-tab"]).toEqual({
+    version: 1,
+    tabs: { "10": { courseId: "101", itemId: "502" } },
+  });
+
+  await runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+  expect(removed).toEqual([9, 10]);
+  expect(session).not.toHaveProperty("unidock.playback.owned-tab");
+});
+
+it("closes a pending created tab after local deletion erases its stored ownership", async () => {
+  const discovery = {
+    ...validDiscovery,
+    candidates: [{ id: "101:501", courseId: "101", title: "First" }],
+  };
+  const handle = "00000000-0000-4000-8000-000000000001";
+  const registration = deferred<void>();
+  const releaseRegistration = deferred<void>();
+  const removed: number[] = [];
+  const local: Record<string, unknown> = {};
+  const session: Record<string, unknown> = {};
+  vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: async (key: string) => ({ [key]: local[key] }),
+        set: async (values: Record<string, unknown>) =>
+          Object.assign(local, values),
+        remove: async (keys: string | string[]) => {
+          for (const key of Array.isArray(keys) ? keys : [keys])
+            delete local[key];
+        },
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: async (key: string) => ({ [key]: session[key] }),
+        set: async (values: Record<string, unknown>) => {
+          Object.assign(session, values);
+          registration.resolve();
+          await releaseRegistration.promise;
+        },
+        remove: async (keys: string | string[]) => {
+          for (const key of Array.isArray(keys) ? keys : [keys])
+            delete session[key];
+        },
+      },
+    },
+    tabs: {
+      query: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 7, url: "https://mylms.korea.ac.kr/", active: true },
+        ]),
+      get: vi.fn(async (tabId: number) =>
+        tabId === 7
+          ? { id: 7, url: "https://mylms.korea.ac.kr/", active: true }
+          : { id: tabId, url: "about:blank", active: true },
+      ),
+      sendMessage: vi.fn(async () => ({
+        status: "success",
+        resolved: { discovery, id: "101:501", courseId: "101" },
+      })),
+      create: vi.fn().mockResolvedValue({ id: 9, url: "about:blank" }),
+      update: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn(async (tabId: number) => {
+        removed.push(tabId);
+      }),
+    },
+    alarms: {
+      clear: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue(undefined),
+      getAll: vi.fn().mockResolvedValue([]),
+    },
+  });
+  const runtime = createChromePlaybackRuntime();
+  const start = runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [handle],
+  });
+  await registration.promise;
+  expect(session).toHaveProperty("unidock.playback.owned-tab");
+
+  expect(
+    await runtime.command({ version: 1, type: "LOCAL_DATA_DELETE_ALL" }),
+  ).toMatchObject({ status: "success", snapshot: { status: "idle" } });
+  expect(session).not.toHaveProperty("unidock.playback.owned-tab");
+  releaseRegistration.resolve();
+
+  expect(await start).toEqual({ status: "error", code: "BUSY" });
+  expect(removed).toEqual([9]);
+  expect(session).not.toHaveProperty("unidock.playback.owned-tab");
+});
+
 it("projects only a bounded top-frame discovery without persisting data while OFF", async () => {
   const f = playbackAdapterFixture({
     response: { status: "success", discovery: validDiscovery },
   });
   const result = await f.runtime.command({
     version: 1,
-    type: "PLAYBACK_STATUS",
+    type: "PLAYBACK_REFRESH",
   });
   expect(result.status).toBe("success");
   if (result.status !== "success") throw new Error(result.code);
@@ -372,7 +568,7 @@ it("revalidates through the pinned LMS source after the dedicated player becomes
     response: { status: "success", discovery: validDiscovery },
   });
   expect(
-    await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+    await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
   ).toMatchObject({ status: "success" });
   expect(
     await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
@@ -389,7 +585,7 @@ it("rediscovers an inactive LMS tab when the in-memory source pointer is absent"
     { id: 7, url: "https://mylms.korea.ac.kr/", active: false },
   ]) as unknown as typeof chrome.tabs.query;
   expect(
-    await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+    await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
   ).toMatchObject({ status: "success" });
   expect(chrome.tabs.query).toHaveBeenCalledWith({
     url: ["https://mylms.korea.ac.kr/*", "https://canvas.korea.ac.kr/*"],
@@ -433,7 +629,7 @@ it.each([
   async ({ tabUrl, changedUrl, response, code }) => {
     const f = playbackAdapterFixture({ response, tabUrl, changedUrl });
     expect(
-      await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
     ).toEqual({ status: "error", code });
     expect(f.values).not.toHaveProperty(PLAYBACK_STORAGE_KEY);
   },

@@ -1,4 +1,8 @@
-import { emptyPlayback, type PlaybackStore } from "./storage";
+import {
+  emptyPlayback,
+  type PlaybackStore,
+  type StoredPlayback,
+} from "./storage";
 import type { PlaylistItem } from "./playlist";
 import {
   type PlaybackCommand,
@@ -50,6 +54,7 @@ interface ActiveRun {
   token: string;
   tabId: number | null;
   address: PlayerAddress | null;
+  transitioning: boolean;
 }
 interface WatchdogArm {
   readonly name: string;
@@ -72,12 +77,18 @@ export class PlaybackRuntime {
   private discovery: PlaybackDiscovery | null = null;
   private status: RuntimeStatus = "idle";
   private run: ActiveRun | null = null;
+  /** State commits and immutable storage writes are ordered here; LMS reads never enter it. */
   private lane: Promise<unknown> = Promise.resolve();
-  private initialized = false;
+  private initialization: Promise<void> | null = null;
   private consented = false;
   private epoch = 0;
   private intentGeneration = 0;
   private watchdog: WatchdogArm | null = null;
+  private discoveryInFlight: {
+    readonly epoch: number;
+    readonly request: Promise<PlaybackDiscovery>;
+  } | null = null;
+  private readonly resolutions = new Map<string, Promise<ResolvedRecording>>();
   constructor(private readonly ports: RuntimePorts) {}
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -102,72 +113,21 @@ export class PlaybackRuntime {
       status: this.status,
     };
   }
+  private storedCopy(): StoredPlayback {
+    return {
+      ...this.saved,
+      playlist: this.saved.playlist.map((item) => ({ ...item })),
+      player: this.saved.player ? { ...this.saved.player } : null,
+    };
+  }
   private async persist(): Promise<void> {
     if (!this.consented || !this.saved.accountKey) return;
+    const value = this.storedCopy();
     try {
-      await this.ports.store.save(this.saved);
+      await this.ports.store.save(value);
     } catch {
       throw new PlaybackRuntimeError("STORAGE");
     }
-  }
-  private async disarmWatchdog(): Promise<void> {
-    const watchdog = this.watchdog;
-    // Invalidate the callback identity before yielding to Chrome. An already
-    // queued onAlarm delivery must not acquire a replacement run or lease.
-    this.watchdog = null;
-    await Promise.all([
-      this.ports.alarm(PLAYBACK_WATCHDOG, null),
-      ...(watchdog ? [this.ports.alarm(watchdog.name, null)] : []),
-    ]);
-  }
-  private async armWatchdog(run: ActiveRun): Promise<void> {
-    const previous = this.watchdog;
-    const watchdog: WatchdogArm = {
-      name: `${PLAYBACK_WATCHDOG}:${this.ports.uuid()}`,
-      runId: run.runId,
-      deadline: this.ports.now() + 60000,
-    };
-    // Publish a fresh, opaque per-arm identity before the first await. The
-    // suffix is independent of the player authorization token.
-    this.watchdog = watchdog;
-    if (previous) await this.ports.alarm(previous.name, null);
-    if (this.watchdog === watchdog)
-      await this.ports.alarm(watchdog.name, watchdog.deadline);
-  }
-  private async disarm(): Promise<void> {
-    await this.disarmWatchdog();
-    await Promise.all([
-      this.ports.alarm(PLAYBACK_ALARM, null),
-      this.ports.alarm(PLAYBACK_PREFLIGHT, null),
-      // Remove a possible alarm left by the non-migrated v1 scheduler.
-      this.ports.alarm("unidock.playback.retention", null),
-    ]);
-  }
-  private async release(): Promise<void> {
-    const run = this.run;
-    this.run = null;
-    const tabId = run?.tabId ?? this.saved.player?.tabId;
-    this.saved.player = null;
-    await this.disarmWatchdog();
-    if (tabId !== undefined && tabId !== null) await this.ports.close(tabId);
-  }
-  private async abandon(run: ActiveRun): Promise<void> {
-    const tabId = run.tabId;
-    if (this.run === run) {
-      this.run = null;
-      if (
-        this.saved.player?.tabId === tabId &&
-        this.saved.player.id === run.item.id
-      )
-        this.saved.player = null;
-      try {
-        await this.disarmWatchdog();
-      } finally {
-        if (tabId !== null) await this.ports.close(tabId);
-      }
-      return;
-    }
-    if (tabId !== null) await this.ports.close(tabId);
   }
   private context(intentGeneration: number | null = null): OperationContext {
     return { epoch: this.epoch, intentGeneration };
@@ -182,102 +142,206 @@ export class PlaybackRuntime {
   private assertCurrent(context: OperationContext): void {
     if (!this.current(context)) throw new SupersededOperationError();
   }
-  private async init(): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-    const loaded = await this.ports.store.load();
-    this.consented = loaded !== null;
-    this.saved = loaded ?? emptyPlayback();
-    await this.ports.clearAlarmPrefix(PLAYBACK_WATCHDOG);
-    await this.disarm();
-    if (this.saved.player) await this.release();
-    // A worker/browser restart never starts or advances retained media.
-    if (this.saved.playlist.length) {
-      this.saved.stopped = true;
-      this.status = "paused";
-      await this.persist();
-    }
+  private discover(epoch: number): Promise<PlaybackDiscovery> {
+    if (this.discoveryInFlight?.epoch === epoch)
+      return this.discoveryInFlight.request;
+    const request = this.ports.discover();
+    const inFlight = { epoch, request };
+    this.discoveryInFlight = inFlight;
+    void request
+      .finally(() => {
+        if (this.discoveryInFlight === inFlight) this.discoveryInFlight = null;
+      })
+      .catch(() => {});
+    return request;
   }
-  private async refresh(epoch: number): Promise<boolean> {
-    const discovery = await this.ports.discover();
-    if (epoch !== this.epoch) return false;
-    if (
-      this.saved.accountKey &&
-      this.saved.accountKey !== discovery.accountKey
-    ) {
-      await this.release();
-      await this.ports.store.clear();
-      this.saved = emptyPlayback();
+  private resolve(handle: string): Promise<ResolvedRecording> {
+    const known = this.resolutions.get(handle);
+    if (known) return known;
+    const request = this.ports.resolve(handle);
+    this.resolutions.set(handle, request);
+    void request
+      .finally(() => {
+        if (this.resolutions.get(handle) === request)
+          this.resolutions.delete(handle);
+      })
+      .catch(() => {});
+    return request;
+  }
+  private async disarmWatchdog(): Promise<void> {
+    const watchdog = this.watchdog;
+    this.watchdog = null;
+    await Promise.all([
+      this.ports.alarm(PLAYBACK_WATCHDOG, null),
+      ...(watchdog ? [this.ports.alarm(watchdog.name, null)] : []),
+    ]);
+  }
+  private async armWatchdog(run: ActiveRun): Promise<void> {
+    const previous = this.watchdog;
+    const watchdog: WatchdogArm = {
+      name: `${PLAYBACK_WATCHDOG}:${this.ports.uuid()}`,
+      runId: run.runId,
+      deadline: this.ports.now() + 60000,
+    };
+    this.watchdog = watchdog;
+    if (previous) await this.ports.alarm(previous.name, null);
+    if (this.watchdog === watchdog)
+      await this.ports.alarm(watchdog.name, watchdog.deadline);
+  }
+  private async disarm(): Promise<void> {
+    await this.disarmWatchdog();
+    await Promise.all([
+      this.ports.alarm(PLAYBACK_ALARM, null),
+      this.ports.alarm(PLAYBACK_PREFLIGHT, null),
+      this.ports.alarm("unidock.playback.retention", null),
+    ]);
+  }
+  /** Detach first, then start physical cleanup. Late operations can no longer own this run. */
+  private release(run = this.run): Promise<void> {
+    const tabId = run?.tabId ?? this.saved.player?.tabId;
+    if (!run || this.run === run) {
+      this.run = null;
+      this.saved.player = null;
+    }
+    const cleanup = this.disarmWatchdog();
+    const close =
+      tabId === undefined || tabId === null
+        ? Promise.resolve()
+        : this.ports.close(tabId);
+    return Promise.all([cleanup, close]).then(() => undefined);
+  }
+  private async abandon(run: ActiveRun): Promise<void> {
+    if (this.run === run) await this.release(run);
+    else if (run.tabId !== null) await this.ports.close(run.tabId);
+  }
+  private ensureInitialized(): Promise<void> {
+    return (this.initialization ??= this.serial(async () => {
+      const loaded = await this.ports.store.load();
+      this.consented = loaded !== null;
+      this.saved = loaded ?? emptyPlayback();
+      await this.ports.clearAlarmPrefix(PLAYBACK_WATCHDOG);
+      await this.disarm();
+      if (this.saved.player) await this.release();
+      if (this.saved.playlist.length) {
+        this.saved.stopped = true;
+        this.status = "paused";
+        await this.persist();
+      }
+    }));
+  }
+  private commitDiscovery(
+    discovery: PlaybackDiscovery,
+    context: OperationContext,
+  ): Promise<void> {
+    return this.serial(async () => {
+      this.assertCurrent(context);
+      if (
+        this.saved.accountKey &&
+        this.saved.accountKey !== discovery.accountKey
+      ) {
+        await this.release();
+        this.assertCurrent(context);
+        await this.ports.store.clear();
+        this.assertCurrent(context);
+        this.saved = emptyPlayback();
+        this.discovery = discovery;
+        this.consented = false;
+        this.status = "idle";
+        throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
+      }
+      if (!this.saved.accountKey)
+        this.saved = emptyPlayback(discovery.accountKey, discovery.origin);
+      if (this.saved.origin !== discovery.origin)
+        throw new PlaybackRuntimeError("POLICY");
       this.discovery = discovery;
-      this.consented = false;
-      this.status = "idle";
-      throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
-    }
-    if (!this.saved.accountKey)
-      this.saved = emptyPlayback(discovery.accountKey, discovery.origin);
-    if (this.saved.origin !== discovery.origin)
-      throw new PlaybackRuntimeError("POLICY");
-    this.discovery = discovery;
-    return true;
+    });
   }
-  private candidate(item: PlaylistItem): boolean {
-    return !!this.discovery?.candidates.some(
+  private candidate(item: PlaylistItem, discovery = this.discovery): boolean {
+    return !!discovery?.candidates.some(
       (known) => known.id === item.id && known.courseId === item.courseId,
     );
   }
   private binding(run: ActiveRun): PlayerBinding {
-    // `deadline` is a short-lived authorization bound, not an LMS or playlist deadline.
     return {
       runId: run.runId,
       token: run.token,
       deadline: this.ports.now() + 70000,
     };
   }
-  private async startCurrent(context: OperationContext): Promise<void> {
-    this.assertCurrent(context);
-    if (this.saved.stopped || this.run) return;
-    const item = this.saved.playlist[0];
-    if (!item) {
-      this.status = "idle";
-      return;
-    }
-    if (!(await this.refresh(context.epoch)))
-      throw new SupersededOperationError();
-    this.assertCurrent(context);
-    if (!this.candidate(item))
-      throw new PlaybackRuntimeError("STALE_SELECTION");
-    const run: ActiveRun = {
+  private newRun(item: PlaylistItem): ActiveRun {
+    return {
       item,
       runId: this.ports.uuid(),
       token: this.ports.uuid(),
       tabId: null,
       address: null,
+      transitioning: false,
     };
-    this.run = run;
-    this.status = "starting";
-    const itemId = item.id.split(":")[1];
-    const url = `${this.saved.origin}/courses/${item.courseId}/modules/items/${itemId}`;
+  }
+  private async launch(
+    run: ActiveRun,
+    context: OperationContext,
+  ): Promise<void> {
+    const itemId = run.item.id.split(":")[1];
+    const url = `${this.saved.origin}/courses/${run.item.courseId}/modules/items/${itemId}`;
     try {
       const tabId = await this.ports.open(url);
       run.tabId = tabId;
       if (!this.current(context) || this.run !== run)
         throw new SupersededOperationError();
-      this.saved.player = { tabId, id: item.id, courseId: item.courseId };
-      await this.persist();
-      if (!this.current(context) || this.run !== run)
-        throw new SupersededOperationError();
+      await this.serial(async () => {
+        this.assertCurrent(context);
+        if (this.run !== run) throw new SupersededOperationError();
+        this.saved.player = {
+          tabId,
+          id: run.item.id,
+          courseId: run.item.courseId,
+        };
+        await this.persist();
+      });
+      this.assertCurrent(context);
+      if (this.run !== run) throw new SupersededOperationError();
       await this.ports.navigate(tabId, url);
+      this.assertCurrent(context);
+      if (this.run !== run) throw new SupersededOperationError();
       await this.armWatchdog(run);
     } catch (error) {
       if (!this.current(context) || this.run !== run) {
         try {
           await this.abandon(run);
         } catch {
-          // Preserve the operation failure; captured-tab cleanup was attempted.
+          // Preserve the superseded operation result after captured-tab cleanup.
         }
       }
       throw error;
     }
+  }
+  private async prepareAndStart(context: OperationContext): Promise<void> {
+    this.assertCurrent(context);
+    const item = this.saved.playlist[0];
+    if (!item || this.saved.stopped || this.run) return;
+    const discovery = await this.discover(context.epoch);
+    this.assertCurrent(context);
+    await this.commitDiscovery(discovery, context);
+    this.assertCurrent(context);
+    const run = await this.serial(async () => {
+      this.assertCurrent(context);
+      const current = this.saved.playlist[0];
+      if (
+        this.saved.stopped ||
+        this.run ||
+        current?.id !== item.id ||
+        current.courseId !== item.courseId
+      )
+        return null;
+      if (!this.candidate(item, discovery))
+        throw new PlaybackRuntimeError("STALE_SELECTION");
+      const created = this.newRun(item);
+      this.run = created;
+      this.status = "starting";
+      return created;
+    });
+    if (run) await this.launch(run, context);
   }
   private async blocked(
     error: unknown,
@@ -288,31 +352,35 @@ export class PlaybackRuntime {
       (context && !this.current(context))
     )
       return { status: "error", code: "BUSY" };
-    const code = error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
-    this.epoch++;
-    this.saved.stopped = true;
-    this.status = code === "LOGIN_REQUIRED" ? "blocked-login" : "failed";
-    try {
-      await this.release();
-      await this.disarm();
-      await this.persist();
-    } catch {
-      return { status: "error", code: "STORAGE" };
-    }
-    return { status: "error", code };
+    return this.serial(async () => {
+      if (context && !this.current(context))
+        return { status: "error", code: "BUSY" } as PlaybackResult;
+      const code =
+        error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
+      this.epoch++;
+      this.saved.stopped = true;
+      this.status = code === "LOGIN_REQUIRED" ? "blocked-login" : "failed";
+      try {
+        await this.release();
+        await this.disarm();
+        await this.persist();
+      } catch {
+        return { status: "error", code: "STORAGE" };
+      }
+      return { status: "error", code };
+    });
+  }
+  private success(): PlaybackResult {
+    return { status: "success", snapshot: this.snapshot() };
   }
 
-  startup(): Promise<PlaybackResult> {
-    const context = this.context();
-    return this.serial(async () => {
-      try {
-        await this.init();
-        this.assertCurrent(context);
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.blocked(error, context);
-      }
-    });
+  async startup(): Promise<PlaybackResult> {
+    try {
+      await this.ensureInitialized();
+      return this.success();
+    } catch (error) {
+      return this.blocked(error);
+    }
   }
   command(command: PlaybackCommand): Promise<PlaybackResult> {
     const urgent = [
@@ -322,201 +390,271 @@ export class PlaybackRuntime {
     ].includes(command.type);
     const intent = ["PLAYBACK_START", "PLAYBACK_RESUME"].includes(command.type);
     if (intent) this.intentGeneration++;
-    if (urgent || intent) {
-      this.epoch++;
-      if (urgent) this.saved.stopped = true;
-    }
+    if (urgent || intent) this.epoch++;
     const context = this.context(intent ? this.intentGeneration : null);
-    return this.serial(async () => {
-      try {
-        await this.init();
-        if (!urgent) this.assertCurrent(context);
-        switch (command.type) {
-          case "PLAYBACK_STATUS":
-          case "PLAYBACK_REFRESH":
-            try {
-              await this.refresh(context.epoch);
-            } catch (error) {
-              this.assertCurrent(context);
-              if (
-                error instanceof PlaybackRuntimeError &&
-                error.code === "LOGIN_REQUIRED" &&
-                this.saved.playlist.length
-              ) {
-                this.epoch++;
-                this.saved.stopped = true;
-                this.status = "blocked-login";
-                await this.release();
-                await this.disarm();
-                await this.persist();
-                return { status: "success", snapshot: this.snapshot() };
-              }
-              throw error;
-            }
-            break;
-          case "PLAYBACK_START": {
-            const resolved: ResolvedRecording[] = [];
-            for (const handle of command.handles) {
-              // Resolving consumes a one-use handle, so check immediately before it.
-              this.assertCurrent(context);
-              const value = await this.ports.resolve(handle);
-              this.assertCurrent(context);
-              resolved.push(value);
-            }
-            const latest = resolved.at(-1)!.discovery;
-            const items = resolved.map(({ discovery, id, courseId }) => {
-              if (
-                discovery.accountKey !== latest.accountKey ||
-                discovery.origin !== latest.origin ||
-                !latest.candidates.some(
-                  (candidate) =>
-                    candidate.id === id && candidate.courseId === courseId,
-                )
-              )
-                throw new PlaybackRuntimeError("STALE_SELECTION");
-              return { id, courseId };
-            });
-            if (new Set(items.map((item) => item.id)).size !== items.length)
-              throw new PlaybackRuntimeError("STALE_SELECTION");
-            if (
-              this.saved.accountKey &&
-              this.saved.accountKey !== latest.accountKey
-            ) {
-              await this.release();
-              await this.ports.store.clear();
-              this.saved = emptyPlayback();
-              this.discovery = latest;
-              this.consented = false;
-              this.status = "idle";
-              throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
-            }
-            await this.release();
-            this.discovery = latest;
-            this.saved = {
-              ...emptyPlayback(latest.accountKey, latest.origin),
-              playlist: items,
-              stopped: false,
-            };
-            this.consented = true;
-            await this.persist();
-            this.assertCurrent(context);
-            await this.startCurrent(context);
-            break;
-          }
-          case "PLAYBACK_PAUSE":
-            if (this.run?.address)
-              await this.ports.control(
-                this.run.address,
-                this.binding(this.run),
-                "pause",
-              );
-            this.saved.stopped = true;
+    return this.executeCommand(command, context, urgent);
+  }
+  private async executeCommand(
+    command: PlaybackCommand,
+    context: OperationContext,
+    urgent: boolean,
+  ): Promise<PlaybackResult> {
+    try {
+      await this.ensureInitialized();
+      if (command.type === "PLAYBACK_STATUS") return this.success();
+
+      if (urgent) {
+        // Mark stopped before the first cleanup await. This is deliberately not
+        // queued behind a discovery/resolve/open operation.
+        this.saved.stopped = true;
+        const run = this.run;
+        let physical: Promise<void>;
+        if (
+          command.type === "PLAYBACK_PAUSE" &&
+          run?.address &&
+          this.status === "playing" &&
+          !run.transitioning
+        ) {
+          physical = this.ports.control(
+            run.address,
+            this.binding(run),
+            "pause",
+          );
+        } else {
+          physical = this.release(run);
+        }
+        return await this.serial(async () => {
+          await physical;
+          if (command.type === "PLAYBACK_PAUSE") {
             this.status = "paused";
             await this.disarmWatchdog();
-            break;
-          case "PLAYBACK_RESUME":
-            this.saved.stopped = false;
-            if (this.run?.address) {
-              if (
-                !(await this.refresh(context.epoch)) ||
-                !this.candidate(this.run.item)
-              )
-                throw new PlaybackRuntimeError("STALE_SELECTION");
-              await this.ports.control(
-                this.run.address,
-                this.binding(this.run),
-                "resume",
-              );
-              this.status = "playing";
-              await this.armWatchdog(this.run);
-            } else await this.startCurrent(context);
-            break;
-          case "PLAYBACK_CANCEL": {
-            const active = this.saved.playlist[0]?.id === command.id;
-            this.saved.playlist = this.saved.playlist.filter(
-              (item) => item.id !== command.id,
-            );
-            if (active) {
-              await this.release();
-              if (!this.saved.stopped) await this.startCurrent(context);
-            }
-            if (!this.saved.playlist.length) this.status = "idle";
-            break;
-          }
-          case "PLAYBACK_STOP_ALL":
-            await this.release();
+          } else if (command.type === "PLAYBACK_STOP_ALL") {
             this.saved.playlist = [];
-            this.saved.stopped = true;
             this.status = "stopped";
             await this.disarm();
-            break;
-          case "LOCAL_DATA_DELETE_ALL":
-            await this.release();
+          } else {
             await this.disarm();
             await this.ports.store.erase();
             this.saved = emptyPlayback();
             this.discovery = null;
             this.consented = false;
             this.status = "idle";
-            return { status: "success", snapshot: this.snapshot() };
+            return this.success();
+          }
+          await this.persist();
+          return this.success();
+        });
+      }
+
+      this.assertCurrent(context);
+      if (command.type === "PLAYBACK_REFRESH") {
+        try {
+          const discovery = await this.discover(context.epoch);
+          this.assertCurrent(context);
+          await this.commitDiscovery(discovery, context);
+        } catch (error) {
+          this.assertCurrent(context);
+          if (
+            error instanceof PlaybackRuntimeError &&
+            error.code === "LOGIN_REQUIRED" &&
+            this.saved.playlist.length
+          ) {
+            return this.serial(async () => {
+              this.assertCurrent(context);
+              this.epoch++;
+              this.saved.stopped = true;
+              this.status = "blocked-login";
+              await this.release();
+              await this.disarm();
+              await this.persist();
+              return this.success();
+            });
+          }
+          throw error;
         }
-        if (!urgent) this.assertCurrent(context);
-        await this.persist();
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.blocked(error, context);
+        return this.success();
       }
-    });
-  }
-  alarm(name: string): Promise<PlaybackResult> {
-    const context = this.context();
-    return this.serial(async () => {
-      try {
-        await this.init();
+
+      if (command.type === "PLAYBACK_START") {
+        const resolved: ResolvedRecording[] = [];
+        for (const handle of command.handles) {
+          this.assertCurrent(context);
+          resolved.push(await this.resolve(handle));
+          this.assertCurrent(context);
+        }
+        const latest = resolved.at(-1)!.discovery;
+        const items = resolved.map(({ discovery, id, courseId }) => {
+          if (
+            discovery.accountKey !== latest.accountKey ||
+            discovery.origin !== latest.origin ||
+            !latest.candidates.some(
+              (candidate) =>
+                candidate.id === id && candidate.courseId === courseId,
+            )
+          )
+            throw new PlaybackRuntimeError("STALE_SELECTION");
+          return { id, courseId };
+        });
+        if (new Set(items.map((item) => item.id)).size !== items.length)
+          throw new PlaybackRuntimeError("STALE_SELECTION");
+        await this.serial(async () => {
+          this.assertCurrent(context);
+          if (
+            this.saved.accountKey &&
+            this.saved.accountKey !== latest.accountKey
+          ) {
+            await this.release();
+            this.assertCurrent(context);
+            await this.ports.store.clear();
+            this.assertCurrent(context);
+            this.saved = emptyPlayback();
+            this.discovery = latest;
+            this.consented = false;
+            this.status = "idle";
+            throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
+          }
+          await this.release();
+          this.assertCurrent(context);
+          this.discovery = latest;
+          this.saved = {
+            ...emptyPlayback(latest.accountKey, latest.origin),
+            playlist: items,
+            stopped: false,
+          };
+          this.consented = true;
+          await this.persist();
+        });
         this.assertCurrent(context);
-        const watchdog = this.watchdog;
-        if (
-          watchdog?.name === name &&
-          this.run?.runId === watchdog.runId &&
-          !this.saved.stopped &&
-          (this.status === "starting" || this.status === "playing")
-        )
-          throw new PlaybackRuntimeError("PLAYER_LOST");
-        if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
-          await this.ports.alarm(name, null);
-        return { status: "success", snapshot: this.snapshot() };
-      } catch (error) {
-        return this.blocked(error, context);
+        const run = await this.serial(async () => {
+          this.assertCurrent(context);
+          const created = this.newRun(items[0]!);
+          this.run = created;
+          this.status = "starting";
+          return created;
+        });
+        await this.launch(run, context);
+        return this.success();
       }
-    });
+
+      if (command.type === "PLAYBACK_RESUME") {
+        const captured = await this.serial(async () => {
+          this.assertCurrent(context);
+          if (this.run) this.run.transitioning = true;
+          return this.run;
+        });
+        if (captured?.address) {
+          const discovery = await this.discover(context.epoch);
+          this.assertCurrent(context);
+          if (!this.candidate(captured.item, discovery))
+            throw new PlaybackRuntimeError("STALE_SELECTION");
+          await this.commitDiscovery(discovery, context);
+          this.assertCurrent(context);
+          await this.ports.control(
+            captured.address,
+            this.binding(captured),
+            "resume",
+          );
+          await this.serial(async () => {
+            this.assertCurrent(context);
+            if (this.run !== captured) throw new SupersededOperationError();
+            captured.transitioning = false;
+            this.saved.stopped = false;
+            this.status = "playing";
+            await this.armWatchdog(captured);
+            this.assertCurrent(context);
+            await this.persist();
+          });
+        } else {
+          await this.serial(async () => {
+            this.assertCurrent(context);
+            this.saved.stopped = false;
+          });
+          await this.prepareAndStart(context);
+          await this.serial(async () => {
+            this.assertCurrent(context);
+            await this.persist();
+          });
+        }
+        return this.success();
+      }
+
+      if (command.type === "PLAYBACK_CANCEL") {
+        await this.serial(async () => {
+          this.assertCurrent(context);
+          const active = this.saved.playlist[0]?.id === command.id;
+          this.saved.playlist = this.saved.playlist.filter(
+            (item) => item.id !== command.id,
+          );
+          if (active) {
+            await this.release();
+            this.assertCurrent(context);
+          }
+          if (!this.saved.playlist.length) {
+            this.saved.stopped = true;
+            this.status = "idle";
+          }
+          await this.persist();
+        });
+        if (!this.saved.stopped && !this.run)
+          await this.prepareAndStart(context);
+        return this.success();
+      }
+      return this.success();
+    } catch (error) {
+      return this.blocked(error, context);
+    }
   }
-  authorize(address: PlayerAddress): Promise<PlayerAuthorization | null> {
+
+  async alarm(name: string): Promise<PlaybackResult> {
     const context = this.context();
-    return this.serial(async () => {
-      if (!this.current(context)) return null;
-      const run = this.run;
+    try {
+      await this.ensureInitialized();
+      this.assertCurrent(context);
+      const watchdog = this.watchdog;
       if (
-        !run ||
-        run.tabId !== address.tabId ||
-        run.address ||
-        this.saved.stopped ||
-        this.status !== "starting"
+        watchdog?.name === name &&
+        this.run?.runId === watchdog.runId &&
+        !this.saved.stopped &&
+        (this.status === "starting" || this.status === "playing")
       )
-        return null;
-      try {
-        if (!(await this.refresh(context.epoch)) || !this.candidate(run.item))
+        throw new PlaybackRuntimeError("PLAYER_LOST");
+      if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
+        await this.ports.alarm(name, null);
+      return this.success();
+    } catch (error) {
+      return this.blocked(error, context);
+    }
+  }
+  async authorize(address: PlayerAddress): Promise<PlayerAuthorization | null> {
+    const context = this.context();
+    await this.ensureInitialized();
+    const run = this.run;
+    if (
+      !run ||
+      run.tabId !== address.tabId ||
+      run.address ||
+      this.saved.stopped ||
+      this.status !== "starting"
+    )
+      return null;
+    try {
+      const discovery = await this.discover(context.epoch);
+      this.assertCurrent(context);
+      if (!this.candidate(run.item, discovery)) return null;
+      await this.commitDiscovery(discovery, context);
+      return this.serial(async () => {
+        if (!this.current(context) || this.run !== run || run.address)
           return null;
-        if (this.run !== run || !this.current(context)) return null;
         run.address = address;
         return {
           binding: this.binding(run),
           leaseUntil: this.ports.now() + 60000,
         };
-      } catch (error) {
-        await this.blocked(error, context);
-        return null;
-      }
-    });
+      });
+    } catch (error) {
+      await this.blocked(error, context);
+      return null;
+    }
   }
   private matches(address: PlayerAddress, binding: PlayerBinding): boolean {
     const run = this.run;
@@ -529,80 +667,107 @@ export class PlaybackRuntime {
       run.token === binding.token
     );
   }
-  signal(
+  async signal(
     address: PlayerAddress,
     binding: PlayerBinding,
     state: PlayerSignal,
   ): Promise<boolean> {
     const context = this.context();
-    return this.serial(async () => {
-      if (!this.current(context)) return false;
-      if (!this.matches(address, binding)) return false;
-      try {
-        if (state === "ended") {
-          if (this.status !== "playing" || this.saved.stopped) return false;
+    await this.ensureInitialized();
+    if (!this.matches(address, binding)) return false;
+    try {
+      if (state === "ended") {
+        if (this.status !== "playing" || this.saved.stopped) return false;
+        await this.serial(async () => {
+          this.assertCurrent(context);
+          if (!this.matches(address, binding))
+            throw new SupersededOperationError();
           this.saved.playlist.shift();
           await this.release();
+          this.assertCurrent(context);
+          if (!this.saved.playlist.length) {
+            this.saved.stopped = true;
+            this.status = "idle";
+          }
           await this.persist();
-          // Native end is the only automatic advancement trigger.
-          await this.startCurrent(context);
-        } else if (
-          ["failed", "blocked-autoplay", "blocked-login"].includes(state)
-        ) {
-          this.saved.stopped = true;
-          this.status = state as RuntimeStatus;
-          await this.release();
-          await this.disarm();
-          await this.persist();
-        } else if (state === "paused") {
-          this.saved.stopped = true;
-          this.status = "paused";
-          await this.persist();
-        } else if (!this.saved.stopped) this.status = state;
-        return true;
-      } catch (error) {
-        await this.blocked(error, context);
-        return false;
+        });
+        await this.prepareAndStart(context);
+      } else {
+        await this.serial(async () => {
+          this.assertCurrent(context);
+          if (!this.matches(address, binding))
+            throw new SupersededOperationError();
+          if (["failed", "blocked-autoplay", "blocked-login"].includes(state)) {
+            this.saved.stopped = true;
+            this.status = state as RuntimeStatus;
+            await this.release();
+            this.assertCurrent(context);
+            await this.disarm();
+            this.assertCurrent(context);
+            await this.persist();
+          } else if (state === "paused") {
+            this.saved.stopped = true;
+            this.status = "paused";
+            await this.persist();
+          } else if (!this.saved.stopped) this.status = state;
+        });
       }
-    });
+      return true;
+    } catch (error) {
+      await this.blocked(error, context);
+      return false;
+    }
   }
-  lease(
+  async lease(
     address: PlayerAddress,
     binding: PlayerBinding,
   ): Promise<PlayerAuthorization | null> {
     const context = this.context();
-    return this.serial(async () => {
-      if (!this.current(context)) return null;
-      if (!this.matches(address, binding) || this.saved.stopped || !this.run)
-        return null;
-      try {
+    await this.ensureInitialized();
+    const run = this.run;
+    if (!run || !this.matches(address, binding) || this.saved.stopped)
+      return null;
+    try {
+      // Every lease is based on a current in-flight/fresh discovery, never a cached result.
+      const discovery = await this.discover(context.epoch);
+      this.assertCurrent(context);
+      if (!this.candidate(run.item, discovery)) return null;
+      await this.commitDiscovery(discovery, context);
+      return this.serial(async () => {
         if (
-          !(await this.refresh(context.epoch)) ||
-          !this.run ||
-          !this.candidate(this.run.item)
+          !this.current(context) ||
+          this.run !== run ||
+          !this.matches(address, binding)
         )
           return null;
-        if (!this.matches(address, binding)) return null;
-        await this.armWatchdog(this.run);
+        await this.armWatchdog(run);
+        if (
+          !this.current(context) ||
+          this.run !== run ||
+          !this.matches(address, binding)
+        )
+          return null;
         return {
-          binding: this.binding(this.run),
+          binding: this.binding(run),
           leaseUntil: this.ports.now() + 60000,
         };
-      } catch (error) {
-        await this.blocked(error, context);
-        return null;
-      }
-    });
+      });
+    } catch (error) {
+      await this.blocked(error, context);
+      return null;
+    }
   }
-  lost(tabId: number): Promise<void> {
-    if (this.run?.tabId === tabId) this.epoch++;
+  async lost(tabId: number): Promise<void> {
+    await this.ensureInitialized();
+    if (this.run?.tabId !== tabId) return;
+    this.epoch++;
     const context = this.context();
-    return this.serial(async () => {
+    await this.serial(async () => {
       if (this.run?.tabId !== tabId) return;
       this.run.tabId = null;
       this.saved.player = null;
-      await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
     });
+    await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
   }
   get dedicatedTabId(): number | null {
     return this.run?.tabId ?? null;

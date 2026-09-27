@@ -201,6 +201,47 @@ it("renders current and next videos and keeps refresh styled like other screens"
   );
 });
 
+it("keeps stop available during refresh and ignores the stale refresh result", async () => {
+  const playing: PlaybackSnapshot = {
+    ...idle,
+    status: "playing",
+    current: { id: "12:34", courseId: "12" },
+    queue: [],
+  };
+  let releaseRefresh!: (value: {
+    status: "success";
+    snapshot: PlaybackSnapshot;
+  }) => void;
+  const refresh = new Promise<{
+    status: "success";
+    snapshot: PlaybackSnapshot;
+  }>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  command.mockImplementation(async (request) => {
+    if (request.type === "PLAYBACK_STATUS")
+      return { status: "success", snapshot: playing };
+    if (request.type === "PLAYBACK_REFRESH") return refresh;
+    if (request.type === "PLAYBACK_STOP_ALL")
+      return { status: "success", snapshot: idle };
+    throw new Error("unexpected command");
+  });
+  ui = await mount(<PlaybackPanel />);
+
+  const stop = [...ui.host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "자동 재생 끄기",
+  );
+  expect(stop?.disabled).toBe(false);
+  await act(async () => stop?.click());
+  expect(ui.host.textContent).toContain("자동 재생 · 대기");
+
+  await act(async () =>
+    releaseRefresh({ status: "success", snapshot: playing }),
+  );
+  expect(ui.host.textContent).toContain("자동 재생 · 대기");
+  expect(ui.host.textContent).not.toContain("운영체제 1강");
+});
+
 it("preserves a login-blocked playlist and offers explicit session recovery", async () => {
   setup({
     ...idle,
@@ -278,7 +319,10 @@ it("refreshes the visible playlist after a background playback transition", asyn
   });
   setup();
   ui = await mount(<PlaybackPanel />);
-  expect(command).toHaveBeenCalledTimes(1);
+  expect(command.mock.calls.map(([request]) => request.type)).toEqual([
+    "PLAYBACK_STATUS",
+    "PLAYBACK_REFRESH",
+  ]);
   await act(async () => {
     for (const listener of listeners)
       listener(
@@ -289,7 +333,11 @@ it("refreshes the visible playlist after a background playback transition", asyn
         },
       );
   });
-  expect(command).toHaveBeenCalledTimes(2);
+  expect(command.mock.calls.map(([request]) => request.type)).toEqual([
+    "PLAYBACK_STATUS",
+    "PLAYBACK_REFRESH",
+    "PLAYBACK_STATUS",
+  ]);
 });
 
 it("disables selection without a canonical item handle", async () => {

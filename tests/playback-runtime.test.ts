@@ -161,6 +161,187 @@ describe("immediate ordered playlist runtime", () => {
     expect(JSON.stringify(f.saved)).not.toContain("First");
   });
 
+  it("keeps status in memory and coalesces only concurrent discovery reads", async () => {
+    const f = fixture();
+    await f.runtime.startup();
+    const discover = deferred<PlaybackDiscovery>();
+    const called = deferred<void>();
+    const request = vi
+      .spyOn(f.ports, "discover")
+      .mockImplementation(async () => {
+        called.resolve();
+        return discover.promise;
+      });
+
+    const first = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+    await called.promise;
+    const second = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+    const statuses = await Promise.all([
+      f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+    ]);
+
+    expect(statuses.every((result) => result.status === "success")).toBe(true);
+    expect(request).toHaveBeenCalledTimes(1);
+    discover.resolve(discovery);
+    expect((await first).status).toBe("success");
+    expect((await second).status).toBe("success");
+  });
+
+  it("shares initialization without exposing early state or starting discovery", async () => {
+    const f = fixture();
+    const load = deferred<StoredPlayback | null>();
+    const loaded = deferred<void>();
+    const discover = vi.spyOn(f.ports, "discover");
+    vi.spyOn(f.ports.store, "load").mockImplementation(async () => {
+      loaded.resolve();
+      return load.promise;
+    });
+
+    const status = f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" });
+    const refresh = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+    await loaded.promise;
+    expect(f.ports.store.load).toHaveBeenCalledTimes(1);
+    expect(discover).not.toHaveBeenCalled();
+
+    load.resolve(null);
+    expect((await status).status).toBe("success");
+    expect((await refresh).status).toBe("success");
+    expect(discover).toHaveBeenCalledTimes(1);
+  });
+
+  it("physically stops before a held refresh is released", async () => {
+    const f = fixture();
+    await playing(f);
+    const discover = deferred<PlaybackDiscovery>();
+    const called = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+      called.resolve();
+      return discover.promise;
+    });
+    const refresh = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+    await called.promise;
+
+    const stopped = await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_STOP_ALL",
+    });
+    expect(stopped).toMatchObject({
+      status: "success",
+      snapshot: { status: "stopped" },
+    });
+    expect(f.closed).toEqual([9]);
+
+    discover.resolve(discovery);
+    expect(await refresh).toEqual({ status: "error", code: "BUSY" });
+    expect(f.runtime.dedicatedTabId).toBeNull();
+  });
+
+  it("closes promptly and orders erase after an already-started immutable save", async () => {
+    const f = fixture();
+    const saveGate = deferred<void>();
+    const saving = deferred<void>();
+    const originalSave = f.ports.store.save.bind(f.ports.store);
+    let saves = 0;
+    vi.spyOn(f.ports.store, "save").mockImplementation(async (value) => {
+      saves++;
+      if (saves === 2) {
+        saving.resolve();
+        await saveGate.promise;
+      }
+      await originalSave(value);
+    });
+    const erase = vi.spyOn(f.ports.store, "erase");
+
+    const pendingStart = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+    });
+    await saving.promise;
+    const deleting = f.runtime.command({
+      version: 1,
+      type: "LOCAL_DATA_DELETE_ALL",
+    });
+    await vi.waitFor(() => expect(f.closed).toEqual([9]));
+    expect(erase).not.toHaveBeenCalled();
+
+    saveGate.resolve();
+    expect(await pendingStart).toEqual({ status: "error", code: "BUSY" });
+    expect(await deleting).toMatchObject({
+      status: "success",
+      snapshot: { status: "idle" },
+    });
+    expect(f.saved).toBeNull();
+    expect(erase).toHaveBeenCalledOnce();
+  });
+
+  it("does not queue a lease behind a held refresh or resurrect after stop", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const discover = deferred<PlaybackDiscovery>();
+    const called = deferred<void>();
+    const request = vi
+      .spyOn(f.ports, "discover")
+      .mockImplementation(async () => {
+        called.resolve();
+        return discover.promise;
+      });
+    const refresh = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+    await called.promise;
+    const lease = f.runtime.lease(address, binding);
+    expect(request).toHaveBeenCalledTimes(1);
+
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    expect(f.closed).toEqual([9]);
+    discover.resolve(discovery);
+    expect(await lease).toBeNull();
+    expect(await refresh).toEqual({ status: "error", code: "BUSY" });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a replacement authorization independent of an obsolete failed refresh", async () => {
+    const f = fixture();
+    await start(f);
+    const oldDiscovery = deferred<PlaybackDiscovery>();
+    const oldStarted = deferred<void>();
+    const discover = vi
+      .spyOn(f.ports, "discover")
+      .mockImplementationOnce(async () => {
+        oldStarted.resolve();
+        return oldDiscovery.promise;
+      })
+      .mockResolvedValue(discovery);
+    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+      discovery,
+      id: "101:502",
+      courseId: "101",
+    });
+
+    const oldRefresh = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_REFRESH",
+    });
+    await oldStarted.promise;
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    const authorization = await f.runtime.authorize(address);
+    expect(authorization).not.toBeNull();
+    expect(discover).toHaveBeenCalledTimes(2);
+
+    oldDiscovery.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
+    expect(await oldRefresh).toEqual({ status: "error", code: "BUSY" });
+    expect(f.runtime.dedicatedItem).toEqual({
+      id: "101:502",
+      courseId: "101",
+    });
+    expect(f.closed).toEqual([9]);
+  });
+
   it("does not persist or launch a partial playlist when a later handle is stale", async () => {
     const f = fixture();
     f.failSecondResolve = true;
@@ -264,7 +445,7 @@ describe("immediate ordered playlist runtime", () => {
       id: "101:502",
       courseId: "101",
     });
-    const status = f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" });
+    const status = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
     await discovering.promise;
     const oldStart = f.runtime.command({
       version: 1,
@@ -302,7 +483,7 @@ describe("immediate ordered playlist runtime", () => {
     });
     const oldStatus = f.runtime.command({
       version: 1,
-      type: "PLAYBACK_STATUS",
+      type: "PLAYBACK_REFRESH",
     });
     await discovering.promise;
     const stop = f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
@@ -479,6 +660,160 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.saved?.playlist).toEqual([{ id: "101:502", courseId: "101" }]);
     expect(JSON.stringify(f.saved)).not.toContain("finishedIds");
     expect(JSON.stringify(f.saved)).not.toContain("terminalAt");
+  });
+
+  it("does not launch a cancelled native-advance head after held discovery", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const nextDiscovery = deferred<PlaybackDiscovery>();
+    const discovering = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+      discovering.resolve();
+      return nextDiscovery.promise;
+    });
+
+    const ended = f.runtime.signal(address, binding, "ended");
+    await discovering.promise;
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_CANCEL",
+      id: "101:502",
+    });
+    nextDiscovery.resolve(discovery);
+
+    expect(await ended).toBe(true);
+    expect(f.opened).toEqual([`${origin}/courses/101/modules/items/501`]);
+    expect(f.saved?.playlist).toEqual([]);
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "idle", current: null, queue: [] });
+  });
+
+  it("does not let obsolete-head discovery reject the replacement queue", async () => {
+    const f = fixture();
+    const thirdHandle = "00000000-0000-4000-8000-000000000003";
+    const initial: PlaybackDiscovery = {
+      ...discovery,
+      candidates: [
+        ...discovery.candidates,
+        { id: "101:503", courseId: "101", title: "Third" },
+      ],
+    };
+    const ids = new Map([
+      [handles[0], "101:501"],
+      [handles[1], "101:502"],
+      [thirdHandle, "101:503"],
+    ]);
+    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+      discovery: initial,
+      id: ids.get(handle)!,
+      courseId: "101",
+    }));
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0], handles[1], thirdHandle],
+    });
+    const authorization = await f.runtime.authorize(address);
+    if (!authorization) throw new Error("not authorized");
+    await f.runtime.signal(address, authorization.binding, "playing");
+
+    const nextDiscovery = deferred<PlaybackDiscovery>();
+    const discovering = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementation(async () => {
+      discovering.resolve();
+      return nextDiscovery.promise;
+    });
+    const ended = f.runtime.signal(address, authorization.binding, "ended");
+    await discovering.promise;
+    const cancelled = f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_CANCEL",
+      id: "101:502",
+    });
+    nextDiscovery.resolve({
+      ...initial,
+      candidates: initial.candidates.filter(({ id }) => id !== "101:502"),
+    });
+
+    expect(await ended).toBe(true);
+    expect(await cancelled).toMatchObject({ status: "success" });
+    expect(f.opened).toEqual([
+      `${origin}/courses/101/modules/items/501`,
+      `${origin}/courses/101/modules/items/503`,
+    ]);
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({
+      status: "starting",
+      current: { id: "101:503", courseId: "101" },
+    });
+  });
+
+  it("does not launch a cancelled retained-resume head after held discovery", async () => {
+    const f = fixture();
+    f.saved = {
+      ...emptyPlayback(accountKey, origin),
+      playlist: [{ id: "101:502", courseId: "101" }],
+      stopped: true,
+    };
+    const nextDiscovery = deferred<PlaybackDiscovery>();
+    const discovering = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+      discovering.resolve();
+      return nextDiscovery.promise;
+    });
+
+    const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
+    await discovering.promise;
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_CANCEL",
+      id: "101:502",
+    });
+    nextDiscovery.resolve(discovery);
+
+    expect(await resume).toMatchObject({ status: "success" });
+    expect(f.opened).toEqual([]);
+    expect(f.saved?.playlist).toEqual([]);
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "idle", current: null, queue: [] });
+  });
+
+  it("settles an ended final item to an idle persisted state", async () => {
+    const f = fixture();
+    const started = snapshot(
+      await f.runtime.command({
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [handles[0]],
+      }),
+    );
+    expect(started.current?.id).toBe("101:501");
+    const authorization = await f.runtime.authorize(address);
+    if (!authorization) throw new Error("not authorized");
+    await f.runtime.signal(address, authorization.binding, "playing");
+    expect(
+      await f.runtime.signal(address, authorization.binding, "ended"),
+    ).toBe(true);
+
+    expect(f.saved).toMatchObject({
+      playlist: [],
+      stopped: true,
+      player: null,
+    });
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "idle", current: null, queue: [] });
   });
 
   it("preserves the next item on login failure and requires explicit resume", async () => {

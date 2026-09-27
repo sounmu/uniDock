@@ -46,7 +46,88 @@ async function boundedMessage(
 export function createChromePlaybackRuntime(): PlaybackRuntime {
   const store = new ChromePlaybackStore();
   const ownershipKey = "unidock.playback.owned-tab";
+  let ownershipLane: Promise<unknown> = Promise.resolve();
+  const ownedInMemory = new Map<number, OwnedTab>();
   let sourceTabId: number | undefined;
+  interface OwnedTab {
+    readonly courseId: string;
+    readonly itemId: string;
+  }
+  function ownedTab(value: unknown): value is OwnedTab {
+    return (
+      object(value) &&
+      Object.keys(value).length === 2 &&
+      stableId(value.courseId) &&
+      stableId(value.itemId)
+    );
+  }
+  function mutateOwnership<T>(operation: () => Promise<T>): Promise<T> {
+    const next = ownershipLane.then(operation, operation);
+    ownershipLane = next;
+    return next;
+  }
+  async function registerOwnership(
+    tabId: number,
+    owner: OwnedTab,
+  ): Promise<void> {
+    await mutateOwnership(async () => {
+      const stored = await chrome.storage.session.get(ownershipKey);
+      const current: unknown = stored[ownershipKey];
+      const tabs: Record<string, OwnedTab> = {};
+      if (object(current) && current.version === 1 && object(current.tabs)) {
+        for (const [id, value] of Object.entries(current.tabs))
+          if (/^(0|[1-9]\d*)$/.test(id) && ownedTab(value)) tabs[id] = value;
+      } else if (
+        object(current) &&
+        typeof current.tabId === "number" &&
+        Number.isInteger(current.tabId) &&
+        current.tabId >= 0 &&
+        stableId(current.courseId) &&
+        stableId(current.itemId)
+      ) {
+        // Preserve a v1 singleton until its retained tab is explicitly closed.
+        tabs[String(current.tabId)] = {
+          courseId: current.courseId,
+          itemId: current.itemId,
+        };
+      }
+      tabs[String(tabId)] = owner;
+      await chrome.storage.session.set({
+        [ownershipKey]: { version: 1, tabs },
+      });
+    });
+  }
+  function takeOwnership(tabId: number): Promise<OwnedTab | null> {
+    return mutateOwnership(async () => {
+      const stored = await chrome.storage.session.get(ownershipKey);
+      const current: unknown = stored[ownershipKey];
+      if (object(current) && current.version === 1 && object(current.tabs)) {
+        const owner = current.tabs[String(tabId)];
+        if (!ownedTab(owner)) return null;
+        const tabs = Object.fromEntries(
+          Object.entries(current.tabs).filter(
+            ([id, value]) => id !== String(tabId) && ownedTab(value),
+          ),
+        );
+        if (Object.keys(tabs).length)
+          await chrome.storage.session.set({
+            [ownershipKey]: { version: 1, tabs },
+          });
+        else await chrome.storage.session.remove(ownershipKey);
+        return owner;
+      }
+      // Backward compatibility for the pre-map singleton record.
+      if (
+        !object(current) ||
+        current.tabId !== tabId ||
+        !stableId(current.courseId) ||
+        !stableId(current.itemId)
+      )
+        return null;
+      await chrome.storage.session.remove(ownershipKey);
+      return { courseId: current.courseId, itemId: current.itemId };
+    });
+  }
   async function query(
     handle?: string,
   ): Promise<{ result: Record<string, unknown>; origin: string }> {
@@ -141,11 +222,14 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       if (tab.id === undefined)
         throw new PlaybackRuntimeError("TAB_OPEN_FAILED");
       const path = new URL(url).pathname.split("/");
+      const owner = { courseId: path[2]!, itemId: path[5]! };
+      // Keep a worker-local cleanup capability before storage yields. Local-data
+      // deletion may erase session storage while this registration is pending.
+      ownedInMemory.set(tab.id, owner);
       try {
-        await chrome.storage.session.set({
-          [ownershipKey]: { tabId: tab.id, courseId: path[2], itemId: path[5] },
-        });
+        await registerOwnership(tab.id, owner);
       } catch {
+        ownedInMemory.delete(tab.id);
         await chrome.tabs.remove(tab.id);
         throw new PlaybackRuntimeError("STORAGE");
       }
@@ -158,16 +242,9 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     },
     async close(tabId) {
       // Session storage survives worker eviction but not browser restart. Never trust a reused tab ID.
-      const stored = await chrome.storage.session.get(ownershipKey);
-      const owner: unknown = stored[ownershipKey];
-      if (
-        !object(owner) ||
-        owner.tabId !== tabId ||
-        !stableId(owner.courseId) ||
-        !stableId(owner.itemId)
-      )
-        return;
-      await chrome.storage.session.remove(ownershipKey);
+      const owner = (await takeOwnership(tabId)) ?? ownedInMemory.get(tabId);
+      if (!owner) return;
+      ownedInMemory.delete(tabId);
       let tab: chrome.tabs.Tab;
       try {
         tab = await chrome.tabs.get(tabId);
