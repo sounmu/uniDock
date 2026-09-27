@@ -7,6 +7,7 @@ import {
   type PanelQueryMessage,
   type ListRequest,
   type CapabilityListRequest,
+  DOWNLOAD_REQUEST_WINDOW_MS,
 } from "./protocol";
 import { allowedPage } from "./security/policy";
 export interface QueryTarget {
@@ -28,7 +29,7 @@ export async function queryActive(
   options: QueryOptions = {},
 ): Promise<Result> {
   if (!isRequest(query)) return { status: "error", code: "POLICY" };
-  const deadline = Date.now() + 23000;
+  const deadline = Date.now() + DOWNLOAD_REQUEST_WINDOW_MS;
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = () => expired || Date.now() >= deadline;
@@ -70,21 +71,29 @@ export async function queryActive(
         (!capabilityList && options.capabilityScope !== undefined)
       )
         return { status: "error", code: "POLICY" };
-      const message: PanelQueryMessage = capabilityList
-        ? {
-            version: 1,
-            type: "CAPABILITY_LIST",
-            scope: options.capabilityScope!,
-            refresh: options.refresh === true,
-            request: query as CapabilityListRequest,
-          }
-        : options.refresh
+      const message: PanelQueryMessage =
+        query.type === "DOCUMENT_DOWNLOAD"
           ? {
               version: 1,
-              type: "QUERY_REFRESH",
-              request: query as ListRequest,
+              type: "DOCUMENT_DOWNLOAD_REQUEST",
+              deadline,
+              request: query,
             }
-          : query;
+          : capabilityList
+            ? {
+                version: 1,
+                type: "CAPABILITY_LIST",
+                scope: options.capabilityScope!,
+                refresh: options.refresh === true,
+                request: query as CapabilityListRequest,
+              }
+            : options.refresh
+              ? {
+                  version: 1,
+                  type: "QUERY_REFRESH",
+                  request: query as ListRequest,
+                }
+              : query;
       const result: unknown = await chrome.tabs.sendMessage(tab.id, message, {
         frameId: 0,
       });

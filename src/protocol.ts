@@ -57,7 +57,13 @@ export type Request =
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
   | { version: 1; type: "RECORDING_OPEN" | "DOCUMENT_OPEN"; handle: string };
 export type PanelQueryMessage =
-  | Request
+  | Exclude<Request, { type: "DOCUMENT_DOWNLOAD" }>
+  | {
+      version: 1;
+      type: "DOCUMENT_DOWNLOAD_REQUEST";
+      deadline: number;
+      request: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>;
+    }
   | {
       version: 1;
       type: "QUERY_REFRESH";
@@ -76,6 +82,19 @@ export function validHandle(value: unknown): value is string {
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
       value,
     )
+  );
+}
+export const DOWNLOAD_REQUEST_WINDOW_MS = 23_000;
+export function validDownloadDeadline(
+  value: unknown,
+  now = Date.now(),
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value > now &&
+    value <= now + DOWNLOAD_REQUEST_WINDOW_MS
   );
 }
 export type Result =
@@ -137,16 +156,35 @@ export function isRequest(value: unknown): value is Request {
     );
   return false;
 }
-export function panelQuery(
-  value: unknown,
-): { request: Request; refresh: boolean; scope?: string } | null {
+export function panelQuery(value: unknown): {
+  request: Request;
+  refresh: boolean;
+  scope?: string;
+  deadline?: number;
+} | null {
   if (isRequest(value))
-    return value.type === "RECORDINGS_LIST" || value.type === "DOCUMENTS_LIST"
+    return value.type === "RECORDINGS_LIST" ||
+      value.type === "DOCUMENTS_LIST" ||
+      value.type === "DOCUMENT_DOWNLOAD"
       ? null
       : { request: value, refresh: false };
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   if (row.version !== 1) return null;
+  if (row.type === "DOCUMENT_DOWNLOAD_REQUEST") {
+    if (
+      Object.keys(row).length !== 4 ||
+      !validDownloadDeadline(row.deadline) ||
+      !isRequest(row.request) ||
+      row.request.type !== "DOCUMENT_DOWNLOAD"
+    )
+      return null;
+    return {
+      request: row.request,
+      refresh: false,
+      deadline: row.deadline,
+    };
+  }
   if (row.type === "CAPABILITY_LIST") {
     if (
       Object.keys(row).length !== 5 ||

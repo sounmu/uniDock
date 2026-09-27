@@ -179,6 +179,53 @@ it("uses the closed refresh envelope only for explicit list refreshes", async ()
   expect(sendMessage).not.toHaveBeenCalled();
 });
 
+it("mints one absolute deadline before looking up a download target", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-28T00:00:00Z"));
+  const { sendMessage } = setup();
+  sendMessage.mockResolvedValue({ status: "success", downloaded: true });
+  const request = {
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD",
+    handle: crypto.randomUUID(),
+    course: "Course",
+  } as const;
+
+  expect(await queryActive(request)).toEqual({
+    status: "success",
+    downloaded: true,
+  });
+  expect(sendMessage).toHaveBeenCalledWith(
+    7,
+    {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD_REQUEST",
+      deadline: Date.now() + 23_000,
+      request,
+    },
+    { frameId: 0 },
+  );
+});
+
+it("never sends a download request after a late active-tab lookup", async () => {
+  vi.useFakeTimers();
+  const { query, sendMessage } = setup();
+  let finish!: (tabs: { id: number; url: string }[]) => void;
+  query.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+  const pending = queryActive({
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD",
+    handle: crypto.randomUUID(),
+    course: "Course",
+  });
+
+  await vi.advanceTimersByTimeAsync(23_000);
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+  finish([{ id: 7, url }]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
 it.each([
   [url, "https://canvas.korea.ac.kr/courses/12/assignments/34"],
   [

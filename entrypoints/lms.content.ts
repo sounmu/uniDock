@@ -9,6 +9,7 @@ import { listCourses, listQuery } from "../src/api/client";
 import {
   panelQuery,
   parseResult,
+  validDownloadDeadline,
   validHandle,
   type Result,
   type Request,
@@ -345,6 +346,7 @@ export default defineContentScript({
     }
     async function download(
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
+      deadline: number,
     ): Promise<Result> {
       const epoch = lifecycleEpoch;
       const catalog = catalogs.findPublished(message.handle);
@@ -365,6 +367,10 @@ export default defineContentScript({
         invalidateScope(epoch);
         return { status: "error", code: "LOGIN_REQUIRED" };
       }
+      // Account verification is the final await before accepting the one-use
+      // capability. An expired panel operation must not spend it.
+      if (!validDownloadDeadline(deadline))
+        return { status: "error", code: "TIMEOUT" };
       const entry = catalog.takeDownload(message.handle, location.origin);
       if (!entry) return { status: "error", code: "STALE_SELECTION" };
       const filename = safeDownloadPath(
@@ -377,6 +383,7 @@ export default defineContentScript({
         const dispatched = chrome.runtime.sendMessage({
           version: 1,
           type: "DOWNLOAD_LMS_FILE",
+          deadline,
           url: entry.url,
           filename,
         });
@@ -527,6 +534,22 @@ export default defineContentScript({
     }
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        if (
+          object(message) &&
+          message.version === 1 &&
+          message.type === "DOWNLOAD_SOURCE_CHECK" &&
+          Object.keys(message).length === 3 &&
+          validHandle(message.nonce) &&
+          backgroundSender(sender) &&
+          allowedPage(location.href)
+        ) {
+          respond({
+            version: 1,
+            type: "DOWNLOAD_SOURCE_OK",
+            nonce: message.nonce,
+          });
+          return false;
+        }
         if (
           object(message) &&
           message.version === 1 &&
@@ -771,7 +794,7 @@ export default defineContentScript({
           } else {
             result =
               request.type === "DOCUMENT_DOWNLOAD"
-                ? download(request)
+                ? download(request, parsed.deadline!)
                 : request.type === "RECORDING_OPEN" ||
                     request.type === "DOCUMENT_OPEN"
                   ? open(request.handle, request.type)

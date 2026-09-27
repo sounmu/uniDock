@@ -1681,19 +1681,53 @@ it("routes document handles through the background LMS boundary and consumes the
     handle: result.documents[0]!.downloadHandle,
     course: "Course",
   };
+  const untimed = response();
+  expect(listener(download, sender, untimed.respond)).toBe(false);
+  expect(untimed.respond).not.toHaveBeenCalled();
+
+  vi.useFakeTimers();
+  let finishAccount!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(
+    () => new Promise((resolve) => (finishAccount = resolve)),
+  );
+  const expiring = response();
+  listener(
+    {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD_REQUEST",
+      deadline: Date.now() + 100,
+      request: download,
+    },
+    sender,
+    expiring.respond,
+  );
+  await vi.advanceTimersByTimeAsync(100);
+  finishAccount(Response.json({ id: 42 }));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await expiring.done).toEqual({ status: "error", code: "TIMEOUT" });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  vi.mocked(fetch).mockImplementation(async () => Response.json({ id: 42 }));
+
+  const downloadEnvelope = {
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD_REQUEST",
+    deadline: Date.now() + 23_000,
+    request: download,
+  };
   // When
   const started = response();
-  listener(download, sender, started.respond);
+  listener(downloadEnvelope, sender, started.respond);
   // Then
   expect(await started.done).toEqual({ status: "success", downloaded: true });
   expect(sendMessage).toHaveBeenLastCalledWith({
     version: 1,
     type: "DOWNLOAD_LMS_FILE",
+    deadline: downloadEnvelope.deadline,
     url: `${origin}/courses/101/files/777/download?download_frd=1`,
     filename: "uniDock/Course/Week/file.pdf",
   });
   const second = response();
-  listener(download, sender, second.respond);
+  listener(downloadEnvelope, sender, second.respond);
   expect(await second.done).toEqual({
     status: "error",
     code: "STALE_SELECTION",
