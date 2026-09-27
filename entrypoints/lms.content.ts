@@ -86,9 +86,7 @@ async function currentAccount(
   }
 }
 
-function accountError(
-  error: unknown,
-): Extract<Result, { status: "error" }> {
+function accountError(error: unknown): Extract<Result, { status: "error" }> {
   const known = [
     "LOGIN_REQUIRED",
     "FORBIDDEN",
@@ -283,6 +281,7 @@ export default defineContentScript({
   runAt: "document_idle",
   allFrames: false,
   main() {
+    const documentToken = crypto.randomUUID();
     let activeCatalog = new NavigationCatalog();
     const stagingCatalogs = new Set<NavigationCatalog>();
     const cache = new QueryResultCache();
@@ -411,8 +410,7 @@ export default defineContentScript({
     ): Promise<Result> {
       const ttl = cacheTtl(message);
       const capabilityList =
-        message.type === "RECORDINGS_LIST" ||
-        message.type === "DOCUMENTS_LIST";
+        message.type === "RECORDINGS_LIST" || message.type === "DOCUMENTS_LIST";
       let epoch = initialEpoch ?? lifecycleEpoch;
       let account: string;
       try {
@@ -535,8 +533,17 @@ export default defineContentScript({
         ) {
           if (
             message.type === "PLAYBACK_DISCOVER" &&
-            Object.keys(message).length === 3
+            (Object.keys(message).length === 3 ||
+              (Object.keys(message).length === 4 &&
+                validHandle(message.documentToken)))
           ) {
+            if (
+              message.documentToken !== undefined &&
+              message.documentToken !== documentToken
+            ) {
+              respond({ status: "error", code: "RELOAD_TAB" });
+              return false;
+            }
             const href = location.href;
             playbackPending ??= scopedPlaybackDiscovery(
               message.salt,
@@ -544,18 +551,21 @@ export default defineContentScript({
             ).finally(() => {
               playbackPending = undefined;
             });
-            void playbackPending.then((result) =>
+            void playbackPending.then((result) => {
               respond(
-                location.href === href
-                  ? result
-                  : { status: "error", code: "RELOAD_TAB" },
-              ),
-            );
+                location.href !== href
+                  ? { status: "error", code: "RELOAD_TAB" }
+                  : result.status === "success"
+                    ? { ...result, documentToken }
+                    : result,
+              );
+            });
             return true;
           }
           if (
             message.type === "PLAYBACK_RESOLVE" &&
-            Object.keys(message).length === 4 &&
+            Object.keys(message).length === 5 &&
+            message.documentToken === documentToken &&
             validHandle(message.handle)
           ) {
             const href = location.href;
@@ -621,8 +631,7 @@ export default defineContentScript({
               }
               const candidate = result.discovery.candidates.find(
                 (item) =>
-                  item.courseId === ids[1] &&
-                  item.id === `${ids[1]}:${ids[2]}`,
+                  item.courseId === ids[1] && item.id === `${ids[1]}:${ids[2]}`,
               );
               respond(
                 candidate
@@ -638,6 +647,13 @@ export default defineContentScript({
               );
             })();
             return true;
+          }
+          if (
+            message.type === "PLAYBACK_RESOLVE" ||
+            message.type === "PLAYBACK_DISCOVER"
+          ) {
+            respond({ status: "error", code: "RELOAD_TAB" });
+            return false;
           }
         }
         const parsed = panelQuery(message);
@@ -721,7 +737,13 @@ export default defineContentScript({
         }
         const captured = operation;
         if (!captured.owner) {
-          void captured.result.then(respond);
+          void captured.result.then((result) =>
+            respond(
+              request.type === "RECORDINGS_LIST" && result.status === "success"
+                ? { ...result, documentToken }
+                : result,
+            ),
+          );
           return true;
         }
         if (!joined) {
@@ -734,7 +756,13 @@ export default defineContentScript({
             )
               return { status: "error", code: "RELOAD_TAB" };
             return result;
-          })().then(respond);
+          })().then((result) =>
+            respond(
+              request.type === "RECORDINGS_LIST" && result.status === "success"
+                ? { ...result, documentToken }
+                : result,
+            ),
+          );
           return true;
         }
         const callerEpoch = lifecycleEpoch;
@@ -771,7 +799,13 @@ export default defineContentScript({
           )
             return { status: "error", code: "RELOAD_TAB" };
           return result;
-        })().then(respond);
+        })().then((result) =>
+          respond(
+            request.type === "RECORDINGS_LIST" && result.status === "success"
+              ? { ...result, documentToken }
+              : result,
+          ),
+        );
         return true;
       },
     );

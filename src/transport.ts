@@ -11,6 +11,8 @@ import { allowedPage } from "./security/policy";
 export interface QueryTarget {
   id: number;
   url: string;
+  /** Ephemeral content-document identity; present for recording catalogs. */
+  documentToken?: string;
 }
 export interface QueryOptions {
   target?: QueryTarget;
@@ -55,7 +57,6 @@ export async function queryActive(
         if (current.url !== tab.url)
           return { status: "error", code: "RELOAD_TAB" };
       }
-      options.onTarget?.({ id: tab.id, url: tab.url });
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
       if (options.refresh && !query.type.endsWith("_LIST"))
         return { status: "error", code: "POLICY" };
@@ -74,7 +75,38 @@ export async function queryActive(
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
       if (current.url !== tab.url)
         return { status: "error", code: "RELOAD_TAB" };
-      return parseResult(result, query, new URL(tab.url).origin);
+      if (
+        query.type === "RECORDINGS_LIST" &&
+        result !== null &&
+        typeof result === "object" &&
+        "status" in result &&
+        result.status === "success" &&
+        (Object.keys(result).length !== 3 ||
+          !("recordings" in result) ||
+          !("documentToken" in result))
+      )
+        return { status: "error", code: "INVALID_RESPONSE" };
+      const parsed = parseResult(result, query, new URL(tab.url).origin);
+      if (parsed.status === "success") {
+        const documentToken =
+          result !== null &&
+          typeof result === "object" &&
+          "documentToken" in result &&
+          typeof result.documentToken === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+            result.documentToken,
+          )
+            ? result.documentToken
+            : undefined;
+        if (query.type === "RECORDINGS_LIST" && !documentToken)
+          return { status: "error", code: "INVALID_RESPONSE" };
+        options.onTarget?.({
+          id: tab.id,
+          url: tab.url,
+          ...(documentToken ? { documentToken } : {}),
+        });
+      }
+      return parsed;
     };
     return await Promise.race([work(), timeout]);
   } catch {

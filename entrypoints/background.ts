@@ -19,7 +19,9 @@ import {
   itemKey,
   stableId,
   type PlayerSignal,
+  type PlaybackSource,
 } from "../src/playback/bridge";
+import { validHandle } from "../src/protocol";
 import { allowedPage, LMS_MATCHES } from "../src/security/policy";
 import { navigationUrl } from "../src/security/navigation";
 
@@ -48,7 +50,6 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
   const ownershipKey = "unidock.playback.owned-tab";
   let ownershipLane: Promise<unknown> = Promise.resolve();
   const ownedInMemory = new Map<number, OwnedTab>();
-  let sourceTabId: number | undefined;
   interface OwnedTab {
     readonly courseId: string;
     readonly itemId: string;
@@ -130,12 +131,21 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
   }
   async function query(
     handle?: string,
-  ): Promise<{ result: Record<string, unknown>; origin: string }> {
+    source?: PlaybackSource,
+    onSelected?: (tabId: number) => void,
+  ): Promise<{
+    result: Record<string, unknown>;
+    origin: string;
+    tabId: number;
+  }> {
     let pinned: chrome.tabs.Tab | undefined;
-    if (sourceTabId !== undefined && sourceTabId !== runtime.dedicatedTabId) {
+    if (source?.sourceTabId === runtime.dedicatedTabId)
+      throw new PlaybackRuntimeError("RELOAD_TAB");
+    if (source && source.sourceTabId !== runtime.dedicatedTabId) {
       try {
-        const known = await chrome.tabs.get(sourceTabId);
+        const known = await chrome.tabs.get(source.sourceTabId);
         if (
+          known.id === source.sourceTabId &&
           known.url &&
           LMS_MATCHES.some((match) =>
             known.url?.startsWith(match.slice(0, -1)),
@@ -144,8 +154,9 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
         )
           pinned = known;
       } catch {
-        sourceTabId = undefined;
+        throw new PlaybackRuntimeError("RELOAD_TAB");
       }
+      if (!pinned) throw new PlaybackRuntimeError("RELOAD_TAB");
     }
     const tabs = pinned
       ? []
@@ -164,13 +175,24 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     const tab = pinned ?? tabs.find((candidate) => candidate.active) ?? tabs[0];
     if (tab?.id === undefined || !tab.url)
       throw new PlaybackRuntimeError("OPEN_LMS");
-    sourceTabId = tab.id;
+    onSelected?.(tab.id);
     const salt = await store.accountSalt();
     const result = await boundedMessage(
       tab.id,
       handle
-        ? { version: 1, type: "PLAYBACK_RESOLVE", handle, salt }
-        : { version: 1, type: "PLAYBACK_DISCOVER", salt },
+        ? {
+            version: 1,
+            type: "PLAYBACK_RESOLVE",
+            handle,
+            salt,
+            documentToken: source?.documentToken,
+          }
+        : {
+            version: 1,
+            type: "PLAYBACK_DISCOVER",
+            salt,
+            ...(source ? { documentToken: source.documentToken } : {}),
+          },
       { frameId: 0 },
     );
     const current = await chrome.tabs.get(tab.id);
@@ -181,22 +203,47 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     }
     if (!object(result) || result.status !== "success")
       throw new PlaybackRuntimeError("INVALID_RESPONSE");
-    return { result, origin: new URL(tab.url).origin };
+    return { result, origin: new URL(tab.url).origin, tabId: tab.id };
   }
   const runtime: PlaybackRuntime = new PlaybackRuntime({
     store,
     now: Date.now,
     uuid: () => crypto.randomUUID(),
-    async discover() {
-      const { result, origin } = await query();
-      if (!isDiscovery(result.discovery) || result.discovery.origin !== origin)
+    async discover(source) {
+      const { result, origin } = await query(undefined, source);
+      if (
+        Object.keys(result).length !== 3 ||
+        !isDiscovery(result.discovery) ||
+        result.discovery.origin !== origin ||
+        !validHandle(result.documentToken) ||
+        (source !== undefined && result.documentToken !== source.documentToken)
+      )
         throw new PlaybackRuntimeError("INVALID_RESPONSE");
       return result.discovery;
     },
-    async resolve(handle) {
-      const { result, origin } = await query(handle);
+    async bind(onSelected) {
+      const { result, origin, tabId } = await query(
+        undefined,
+        undefined,
+        onSelected,
+      );
+      if (
+        Object.keys(result).length !== 3 ||
+        !isDiscovery(result.discovery) ||
+        result.discovery.origin !== origin ||
+        !validHandle(result.documentToken)
+      )
+        throw new PlaybackRuntimeError("INVALID_RESPONSE");
+      return {
+        discovery: result.discovery,
+        source: { sourceTabId: tabId, documentToken: result.documentToken },
+      };
+    },
+    async resolve(handle, source) {
+      const { result, origin } = await query(handle, source);
       const value = result.resolved;
       if (
+        Object.keys(result).length !== 2 ||
         !object(value) ||
         Object.keys(value).length !== 3 ||
         !isDiscovery(value.discovery) ||
@@ -409,12 +456,9 @@ export default defineBackground(() => {
       void (async () => {
         const inactiveSignal =
           message.type === "PLAYBACK_PLAYER_EVENT" &&
-          [
-            "paused",
-            "blocked-login",
-            "blocked-autoplay",
-            "failed",
-          ].includes(String(message.state));
+          ["paused", "blocked-login", "blocked-autoplay", "failed"].includes(
+            String(message.state),
+          );
         const address = await playerAddress(sender, playback, inactiveSignal);
         if (!address) return { ok: false };
         if (
@@ -478,7 +522,9 @@ export default defineBackground(() => {
     chrome.runtime.onStartup?.addListener(recover);
     chrome.runtime.onInstalled?.addListener(recover);
     chrome.tabs.onRemoved.addListener((tabId) => {
-      void playback.lost(tabId).then(notifyPlayback);
+      void Promise.all([playback.sourceLost(tabId), playback.lost(tabId)]).then(
+        notifyPlayback,
+      );
     });
     chrome.tabs.onActivated.addListener(({ tabId }) => {
       if (playback.dedicatedTabId !== null && tabId !== playback.dedicatedTabId)
@@ -487,6 +533,8 @@ export default defineBackground(() => {
           .then(notifyPlayback);
     });
     chrome.tabs.onUpdated.addListener((tabId, change) => {
+      if (change.status === "loading")
+        void playback.sourceLost(tabId).then(notifyPlayback);
       if (
         tabId === playback.dedicatedTabId &&
         change.url &&

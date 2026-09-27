@@ -97,9 +97,8 @@ test("production capabilities cannot cross synthetic LMS accounts", async ({
       tabId,
     );
     expect(listed).toMatchObject({ status: "success" });
-    const handle = (
-      listed as { recordings: { launchHandle: string }[] }
-    ).recordings[0]!.launchHandle;
+    const handle = (listed as { recordings: { launchHandle: string }[] })
+      .recordings[0]!.launchHandle;
 
     account = 2;
     const opened: unknown = await panel.evaluate(
@@ -114,9 +113,11 @@ test("production capabilities cannot cross synthetic LMS accounts", async ({
     expect(opened).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
     expect(itemNavigations).toBe(0);
     expect(
-      context.pages().some((page) =>
-        page.url().startsWith(`${origin}/courses/101/modules/items/501`),
-      ),
+      context
+        .pages()
+        .some((page) =>
+          page.url().startsWith(`${origin}/courses/101/modules/items/501`),
+        ),
     ).toBe(false);
     expect(errors).toEqual([]);
   } finally {

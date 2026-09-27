@@ -10,6 +10,7 @@ import {
   type PlaybackError,
   type PlaybackResult,
   type PlaybackSnapshot,
+  type PlaybackSource,
   type PlayerBinding,
   type PlayerSignal,
   type ResolvedRecording,
@@ -30,8 +31,15 @@ export interface RuntimePorts {
   readonly store: PlaybackStore;
   readonly now: () => number;
   readonly uuid: () => string;
-  readonly discover: () => Promise<PlaybackDiscovery>;
-  readonly resolve: (handle: string) => Promise<ResolvedRecording>;
+  readonly discover: (source?: PlaybackSource) => Promise<PlaybackDiscovery>;
+  readonly bind: (onSelected: (tabId: number) => void) => Promise<{
+    readonly discovery: PlaybackDiscovery;
+    readonly source: PlaybackSource;
+  }>;
+  readonly resolve: (
+    handle: string,
+    source: PlaybackSource,
+  ) => Promise<ResolvedRecording>;
   readonly open: (url: string) => Promise<number>;
   readonly navigate: (tabId: number, url: string) => Promise<void>;
   readonly close: (tabId: number) => Promise<void>;
@@ -65,6 +73,11 @@ interface OperationContext {
   readonly epoch: number;
   readonly intentGeneration: number | null;
 }
+interface PendingSource {
+  readonly tabId: number;
+  readonly source?: PlaybackSource;
+  readonly context: OperationContext;
+}
 class SupersededOperationError extends Error {}
 export interface PlayerAuthorization {
   readonly binding: PlayerBinding;
@@ -77,6 +90,8 @@ export class PlaybackRuntime {
   private discovery: PlaybackDiscovery | null = null;
   private status: RuntimeStatus = "idle";
   private run: ActiveRun | null = null;
+  private source: PlaybackSource | null = null;
+  private pendingSource: PendingSource | null = null;
   /** State commits and immutable storage writes are ordered here; LMS reads never enter it. */
   private lane: Promise<unknown> = Promise.resolve();
   private initialization: Promise<void> | null = null;
@@ -86,6 +101,7 @@ export class PlaybackRuntime {
   private watchdog: WatchdogArm | null = null;
   private discoveryInFlight: {
     readonly epoch: number;
+    readonly sourceKey: string;
     readonly request: Promise<PlaybackDiscovery>;
   } | null = null;
   private readonly resolutions = new Map<string, Promise<ResolvedRecording>>();
@@ -142,11 +158,20 @@ export class PlaybackRuntime {
   private assertCurrent(context: OperationContext): void {
     if (!this.current(context)) throw new SupersededOperationError();
   }
-  private discover(epoch: number): Promise<PlaybackDiscovery> {
-    if (this.discoveryInFlight?.epoch === epoch)
+  private discover(
+    epoch: number,
+    source: PlaybackSource | null = this.source,
+  ): Promise<PlaybackDiscovery> {
+    const sourceKey = source
+      ? `${source.sourceTabId}:${source.documentToken}`
+      : "unbound";
+    if (
+      this.discoveryInFlight?.epoch === epoch &&
+      this.discoveryInFlight.sourceKey === sourceKey
+    )
       return this.discoveryInFlight.request;
-    const request = this.ports.discover();
-    const inFlight = { epoch, request };
+    const request = this.ports.discover(source ?? undefined);
+    const inFlight = { epoch, sourceKey, request };
     this.discoveryInFlight = inFlight;
     void request
       .finally(() => {
@@ -155,15 +180,18 @@ export class PlaybackRuntime {
       .catch(() => {});
     return request;
   }
-  private resolve(handle: string): Promise<ResolvedRecording> {
-    const known = this.resolutions.get(handle);
+  private resolve(
+    handle: string,
+    source: PlaybackSource,
+  ): Promise<ResolvedRecording> {
+    const key = `${source.sourceTabId}:${source.documentToken}:${handle}`;
+    const known = this.resolutions.get(key);
     if (known) return known;
-    const request = this.ports.resolve(handle);
-    this.resolutions.set(handle, request);
+    const request = this.ports.resolve(handle, source);
+    this.resolutions.set(key, request);
     void request
       .finally(() => {
-        if (this.resolutions.get(handle) === request)
-          this.resolutions.delete(handle);
+        if (this.resolutions.get(key) === request) this.resolutions.delete(key);
       })
       .catch(() => {});
     return request;
@@ -245,6 +273,7 @@ export class PlaybackRuntime {
         this.assertCurrent(context);
         this.saved = emptyPlayback();
         this.discovery = discovery;
+        this.source = null;
         this.consented = false;
         this.status = "idle";
         throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
@@ -322,11 +351,14 @@ export class PlaybackRuntime {
       throw error;
     }
   }
-  private async prepareAndStart(context: OperationContext): Promise<void> {
+  private async prepareAndStart(
+    context: OperationContext,
+    knownDiscovery?: PlaybackDiscovery,
+  ): Promise<void> {
     this.assertCurrent(context);
     const item = this.saved.playlist[0];
     if (!item || this.saved.stopped || this.run) return;
-    const discovery = await this.discover(context.epoch);
+    const discovery = knownDiscovery ?? (await this.discover(context.epoch));
     this.assertCurrent(context);
     await this.commitDiscovery(discovery, context);
     this.assertCurrent(context);
@@ -365,6 +397,7 @@ export class PlaybackRuntime {
         error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
       this.epoch++;
       this.saved.stopped = true;
+      this.pendingSource = null;
       this.status = code === "LOGIN_REQUIRED" ? "blocked-login" : "failed";
       try {
         await this.release();
@@ -398,6 +431,16 @@ export class PlaybackRuntime {
     if (intent) this.intentGeneration++;
     if (urgent || intent) this.epoch++;
     const context = this.context(intent ? this.intentGeneration : null);
+    if (urgent || intent) this.pendingSource = null;
+    if (command.type === "PLAYBACK_START")
+      this.pendingSource = {
+        tabId: command.sourceTabId,
+        source: {
+          sourceTabId: command.sourceTabId,
+          documentToken: command.documentToken,
+        },
+        context,
+      };
     return this.executeCommand(command, context, urgent);
   }
   private async executeCommand(
@@ -439,6 +482,7 @@ export class PlaybackRuntime {
             await this.disarmWatchdog();
           } else if (command.type === "PLAYBACK_STOP_ALL") {
             this.saved.playlist = [];
+            this.source = null;
             this.status = "stopped";
             await this.disarm();
           } else {
@@ -446,6 +490,7 @@ export class PlaybackRuntime {
             await this.ports.store.erase();
             this.saved = emptyPlayback();
             this.discovery = null;
+            this.source = null;
             this.consented = false;
             this.status = "idle";
             return this.success();
@@ -485,10 +530,14 @@ export class PlaybackRuntime {
       }
 
       if (command.type === "PLAYBACK_START") {
+        const source: PlaybackSource = {
+          sourceTabId: command.sourceTabId,
+          documentToken: command.documentToken,
+        };
         const resolved: ResolvedRecording[] = [];
         for (const handle of command.handles) {
           this.assertCurrent(context);
-          resolved.push(await this.resolve(handle));
+          resolved.push(await this.resolve(handle, source));
           this.assertCurrent(context);
         }
         const latest = resolved.at(-1)!.discovery;
@@ -518,6 +567,7 @@ export class PlaybackRuntime {
             this.assertCurrent(context);
             this.saved = emptyPlayback();
             this.discovery = latest;
+            this.source = null;
             this.consented = false;
             this.status = "idle";
             throw new PlaybackRuntimeError("ACCOUNT_CHANGED");
@@ -525,6 +575,9 @@ export class PlaybackRuntime {
           await this.release();
           this.assertCurrent(context);
           this.discovery = latest;
+          this.source = source;
+          if (this.pendingSource?.context === context)
+            this.pendingSource = null;
           this.saved = {
             ...emptyPlayback(latest.accountKey, latest.origin),
             playlist: items,
@@ -574,11 +627,32 @@ export class PlaybackRuntime {
             await this.persist();
           });
         } else {
+          let rebound: PlaybackDiscovery | undefined;
+          if (!this.source) {
+            const binding = await this.ports.bind((tabId) => {
+              this.assertCurrent(context);
+              this.pendingSource = { tabId, context };
+            });
+            this.assertCurrent(context);
+            if (
+              this.pendingSource?.context !== context ||
+              this.pendingSource.tabId !== binding.source.sourceTabId
+            )
+              throw new PlaybackRuntimeError("RELOAD_TAB");
+            await this.commitDiscovery(binding.discovery, context);
+            await this.serial(async () => {
+              this.assertCurrent(context);
+              this.source = binding.source;
+              if (this.pendingSource?.context === context)
+                this.pendingSource = null;
+            });
+            rebound = binding.discovery;
+          }
           await this.serial(async () => {
             this.assertCurrent(context);
             this.saved.stopped = false;
           });
-          await this.prepareAndStart(context);
+          await this.prepareAndStart(context, rebound);
           await this.serial(async () => {
             this.assertCurrent(context);
             await this.persist();
@@ -600,6 +674,7 @@ export class PlaybackRuntime {
           }
           if (!this.saved.playlist.length) {
             this.saved.stopped = true;
+            this.source = null;
             this.status = "idle";
           }
           await this.persist();
@@ -700,6 +775,7 @@ export class PlaybackRuntime {
           this.assertCurrent(context);
           if (!this.saved.playlist.length) {
             this.saved.stopped = true;
+            this.source = null;
             this.status = "idle";
           }
           await this.persist();
@@ -781,6 +857,25 @@ export class PlaybackRuntime {
       this.saved.player = null;
     });
     await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
+  }
+  sourceLost(tabId: number): Promise<void> {
+    if (
+      this.pendingSource?.tabId !== tabId &&
+      this.source?.sourceTabId !== tabId
+    )
+      return Promise.resolve();
+    // Invalidate before any await so a reply from the replaced document cannot
+    // authorize, lease, persist, or launch using its old capability epoch.
+    this.epoch++;
+    this.source = null;
+    this.pendingSource = null;
+    const context = this.context();
+    return this.blocked(new PlaybackRuntimeError("RELOAD_TAB"), context).then(
+      () => undefined,
+    );
+  }
+  get sourceTabId(): number | null {
+    return this.pendingSource?.tabId ?? this.source?.sourceTabId ?? null;
   }
   get dedicatedTabId(): number | null {
     return this.run?.tabId ?? null;

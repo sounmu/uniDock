@@ -312,7 +312,18 @@ function playbackAdapterFixture({
   changedUrl?: string;
 }) {
   const values: Record<string, unknown> = {};
-  const sendMessage = vi.fn().mockResolvedValue(response);
+  const sendMessage = vi.fn().mockResolvedValue(
+    response !== null &&
+      typeof response === "object" &&
+      "status" in response &&
+      response.status === "success" &&
+      "discovery" in response
+      ? {
+          ...response,
+          documentToken: "00000000-0000-4000-8000-000000000099",
+        }
+      : response,
+  );
   const tabs = tabUrl ? [{ id: 7, url: tabUrl, active: true }] : [];
   vi.stubGlobal("chrome", {
     storage: {
@@ -431,6 +442,8 @@ it("keeps overlapping created-tab ownership isolated through late cleanup", asyn
   const oldStart = runtime.command({
     version: 1,
     type: "PLAYBACK_START",
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000099",
     handles: [firstHandle],
   });
   await creating.promise;
@@ -439,6 +452,8 @@ it("keeps overlapping created-tab ownership isolated through late cleanup", asyn
     await runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [secondHandle],
     }),
   ).toMatchObject({ status: "success" });
@@ -523,6 +538,8 @@ it("closes a pending created tab after local deletion erases its stored ownershi
   const start = runtime.command({
     version: 1,
     type: "PLAYBACK_START",
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000099",
     handles: [handle],
   });
   await registration.promise;
@@ -563,7 +580,7 @@ it("projects only a bounded top-frame discovery without persisting data while OF
   expect(f.values).not.toHaveProperty(PLAYBACK_STORAGE_KEY);
 });
 
-it("revalidates through the pinned LMS source after the dedicated player becomes active", async () => {
+it("does not retain an unverified source across independent refreshes", async () => {
   const f = playbackAdapterFixture({
     response: { status: "success", discovery: validDiscovery },
   });
@@ -573,8 +590,145 @@ it("revalidates through the pinned LMS source after the dedicated player becomes
   expect(
     await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
   ).toMatchObject({ status: "success" });
-  expect(chrome.tabs.query).toHaveBeenCalledOnce();
+  expect(chrome.tabs.query).toHaveBeenCalledTimes(2);
   expect(f.sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it("resolves and revalidates a run only through its document-bound listing tab", async () => {
+  const handle = "00000000-0000-4000-8000-000000000001";
+  const documentToken = "00000000-0000-4000-8000-000000000099";
+  const discovery = {
+    ...validDiscovery,
+    candidates: [{ id: "101:501", courseId: "101", title: "Lecture" }],
+  };
+  const f = playbackAdapterFixture({
+    response: {
+      status: "success",
+      resolved: { discovery, id: "101:501", courseId: "101" },
+    },
+  });
+  chrome.tabs.query = vi
+    .fn()
+    .mockResolvedValue([
+      { id: 9, url: "https://mylms.korea.ac.kr/", active: true },
+    ]);
+  chrome.tabs.get = vi.fn(async (tabId: number) =>
+    tabId === 8
+      ? { id: 8, url: "https://mylms.korea.ac.kr/", active: false }
+      : { id: tabId, url: "about:blank", active: true },
+  ) as unknown as typeof chrome.tabs.get;
+  chrome.tabs.create = vi
+    .fn()
+    .mockResolvedValue({ id: 10, url: "about:blank" });
+  chrome.tabs.update = vi.fn().mockResolvedValue(undefined);
+
+  expect(
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handle],
+      sourceTabId: 8,
+      documentToken,
+    }),
+  ).toMatchObject({ status: "success" });
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+  expect(f.sendMessage).toHaveBeenCalledWith(
+    8,
+    {
+      version: 1,
+      type: "PLAYBACK_RESOLVE",
+      handle,
+      salt: expect.stringMatching(/^[a-f0-9]{64}$/),
+      documentToken,
+    },
+    { frameId: 0 },
+  );
+
+  f.sendMessage.mockResolvedValue({
+    status: "success",
+    discovery,
+    documentToken,
+  });
+  await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+  expect(f.sendMessage).toHaveBeenLastCalledWith(
+    8,
+    {
+      version: 1,
+      type: "PLAYBACK_DISCOVER",
+      salt: expect.stringMatching(/^[a-f0-9]{64}$/),
+      documentToken,
+    },
+    { frameId: 0 },
+  );
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+
+  expect(
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: ["00000000-0000-4000-8000-000000000002"],
+      sourceTabId: 10,
+      documentToken,
+    }),
+  ).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+});
+
+it("invalidates an adapter resolution when the source reloads at the same URL", async () => {
+  const handle = "00000000-0000-4000-8000-000000000001";
+  const documentToken = "00000000-0000-4000-8000-000000000099";
+  const discovery = {
+    ...validDiscovery,
+    candidates: [{ id: "101:501", courseId: "101", title: "Lecture" }],
+  };
+  const f = playbackAdapterFixture({
+    response: {
+      status: "success",
+      resolved: { discovery, id: "101:501", courseId: "101" },
+    },
+  });
+  const postReply = deferred<chrome.tabs.Tab>();
+  let gets = 0;
+  chrome.tabs.get = vi.fn(async () => {
+    gets++;
+    if (gets === 1)
+      return { id: 8, url: "https://mylms.korea.ac.kr/" } as chrome.tabs.Tab;
+    return postReply.promise;
+  }) as unknown as typeof chrome.tabs.get;
+  const start = f.runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [handle],
+    sourceTabId: 8,
+    documentToken,
+  });
+  await vi.waitFor(() => expect(gets).toBe(2));
+  const invalidated = f.runtime.sourceLost(8);
+  postReply.resolve({
+    id: 8,
+    url: "https://mylms.korea.ac.kr/",
+  } as chrome.tabs.Tab);
+  await invalidated;
+  expect(await start).toEqual({ status: "error", code: "BUSY" });
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+});
+
+it("does not search another LMS tab when the listing tab has closed", async () => {
+  const f = playbackAdapterFixture({
+    response: { status: "success", discovery: validDiscovery },
+  });
+  chrome.tabs.get = vi.fn().mockRejectedValue(new Error("closed"));
+  expect(
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: ["00000000-0000-4000-8000-000000000001"],
+      sourceTabId: 8,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    }),
+  ).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(chrome.tabs.query).not.toHaveBeenCalled();
+  expect(f.sendMessage).not.toHaveBeenCalled();
 });
 
 it("rediscovers an inactive LMS tab when the in-memory source pointer is absent", async () => {

@@ -776,7 +776,8 @@ it("opens only a known catalog handle and never accepts a raw URL from the panel
     sender,
     listed.respond,
   );
-  const result = parseResult(await listed.done);
+  const listedValue = await listed.done;
+  const result = parseResult(listedValue);
   if (result.status !== "success" || !("recordings" in result))
     throw new Error("missing recordings");
   const handle = result.recordings[0]?.launchHandle;
@@ -899,7 +900,8 @@ it("rechecks identity before consuming a handle and dispatches nothing after an 
     sender,
     listed.respond,
   );
-  const result = parseResult(await listed.done);
+  const listedValue = await listed.done;
+  const result = parseResult(listedValue);
   if (result.status !== "success" || !("recordings" in result))
     throw new Error("missing recordings");
   const opened = response();
@@ -1063,9 +1065,26 @@ it("binds playback resolution to the capability owner across discovery", async (
     panel,
     listed.respond,
   );
-  const result = parseResult(await listed.done);
+  const listedValue = await listed.done;
+  const result = parseResult(listedValue);
   if (result.status !== "success" || !("recordings" in result))
     throw new Error("missing recordings");
+  const staleDocument = response();
+  listener(
+    {
+      version: 1,
+      type: "PLAYBACK_RESOLVE",
+      handle: result.recordings[0]!.launchHandle,
+      salt,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    },
+    { id: "fixture-extension" },
+    staleDocument.respond,
+  );
+  expect(await staleDocument.done).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
   const resolved = response();
   listener(
     {
@@ -1073,6 +1092,7 @@ it("binds playback resolution to the capability owner across discovery", async (
       type: "PLAYBACK_RESOLVE",
       handle: result.recordings[0]!.launchHandle,
       salt,
+      documentToken: (listedValue as { documentToken: string }).documentToken,
     },
     { id: "fixture-extension" },
     resolved.respond,
@@ -1153,7 +1173,8 @@ it("revokes a concurrent capability staging catalog when playback discovers anot
     );
     return result.done;
   };
-  const initial = parseResult(await sendList());
+  const initialValue = await sendList();
+  const initial = parseResult(initialValue);
   if (initial.status !== "success" || !("recordings" in initial))
     throw new Error("missing recordings");
 
@@ -1164,6 +1185,7 @@ it("revokes a concurrent capability staging catalog when playback discovers anot
       type: "PLAYBACK_RESOLVE",
       handle: initial.recordings[0]!.launchHandle,
       salt,
+      documentToken: (initialValue as { documentToken: string }).documentToken,
     },
     { id: "fixture-extension" },
     resolved.respond,

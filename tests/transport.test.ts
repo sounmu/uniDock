@@ -246,3 +246,35 @@ it("reports the selected source tab before delivering its result", async () => {
   await queryActive({ version: 1, type: "COURSES_LIST" }, { onTarget });
   expect(onTarget).toHaveBeenCalledExactlyOnceWith({ id: 7, url });
 });
+
+it("accepts a recording target only from the closed document-bound response", async () => {
+  const { sendMessage } = setup();
+  const onTarget = vi.fn();
+  const documentToken = crypto.randomUUID();
+  sendMessage.mockResolvedValue({
+    status: "success",
+    recordings: [],
+    documentToken,
+  });
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      { onTarget },
+    ),
+  ).toEqual({ status: "success", recordings: [] });
+  expect(onTarget).toHaveBeenCalledWith({ id: 7, url, documentToken });
+
+  sendMessage.mockResolvedValue({
+    status: "success",
+    recordings: [],
+    documentToken,
+    sourceTabId: 99,
+  });
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      { onTarget },
+    ),
+  ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+  expect(onTarget).toHaveBeenCalledTimes(1);
+});

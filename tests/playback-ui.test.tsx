@@ -114,31 +114,38 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
     "00000000-0000-4000-8000-000000000002",
     "00000000-0000-4000-8000-000000000003",
   ];
-  query.mockResolvedValue({
-    status: "success",
-    recordings: [
-      {
-        title: "첫 영상",
-        module: "1주",
-        lmsHandle: handles[0],
-        launchHandle: handles[0],
-        type: "ExternalTool",
-      },
-      {
-        title: "둘째 영상",
-        module: "1주",
-        lmsHandle: handles[1],
-        launchHandle: handles[1],
-        type: "ExternalTool",
-      },
-      {
-        title: "셋째 영상",
-        module: "2주",
-        lmsHandle: handles[2],
-        launchHandle: handles[2],
-        type: "ExternalTool",
-      },
-    ],
+  query.mockImplementation(async (_request, options) => {
+    options.onTarget({
+      id: 7,
+      url: "https://mylms.korea.ac.kr/",
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    });
+    return {
+      status: "success",
+      recordings: [
+        {
+          title: "첫 영상",
+          module: "1주",
+          lmsHandle: handles[0],
+          launchHandle: handles[0],
+          type: "ExternalTool",
+        },
+        {
+          title: "둘째 영상",
+          module: "1주",
+          lmsHandle: handles[1],
+          launchHandle: handles[1],
+          type: "ExternalTool",
+        },
+        {
+          title: "셋째 영상",
+          module: "2주",
+          lmsHandle: handles[2],
+          launchHandle: handles[2],
+          type: "ExternalTool",
+        },
+      ],
+    };
   });
   ui = await mount(<PlaybackPanel />);
   await click("영상 선택");
@@ -172,6 +179,83 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
     version: 1,
     type: "PLAYBACK_START",
     handles: [handles[0], handles[1]],
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000099",
+  });
+});
+
+it("does not let a late recording list replace a newer course source", async () => {
+  const multiCourse: PlaybackSnapshot = {
+    ...idle,
+    courses: [
+      { id: "12", name: "Course B" },
+      { id: "13", name: "Course C" },
+    ],
+  };
+  setup(multiCourse);
+  const pending = new Map<
+    string,
+    {
+      resolve: (value: unknown) => void;
+      options: { onTarget: (target: unknown) => void };
+    }
+  >();
+  query.mockImplementation(
+    (request, options) =>
+      new Promise((resolve) => {
+        pending.set(request.course, { resolve, options });
+      }),
+  );
+  ui = await mount(<PlaybackPanel />);
+  await click("영상 선택");
+  const select = ui.host.querySelector("select")!;
+  await act(async () => {
+    select.value = "12";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    select.value = "13";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await vi.waitFor(() => expect(pending.size).toBe(2));
+  const recording = (handle: string) => ({
+    title: "영상",
+    module: "1주",
+    lmsHandle: handle,
+    launchHandle: handle,
+    type: "ExternalTool" as const,
+  });
+  const cHandle = "00000000-0000-4000-8000-000000000003";
+  await act(async () => {
+    const c = pending.get("Course C")!;
+    c.options.onTarget({
+      id: 13,
+      url: "https://mylms.korea.ac.kr/?source=C",
+      documentToken: "00000000-0000-4000-8000-000000000013",
+    });
+    c.resolve({ status: "success", recordings: [recording(cHandle)] });
+  });
+  await act(async () => {
+    const b = pending.get("Course B")!;
+    b.options.onTarget({
+      id: 12,
+      url: "https://mylms.korea.ac.kr/?source=B",
+      documentToken: "00000000-0000-4000-8000-000000000012",
+    });
+    b.resolve({
+      status: "success",
+      recordings: [recording("00000000-0000-4000-8000-000000000002")],
+    });
+  });
+  const choice = ui.host.querySelector<HTMLInputElement>(
+    '.playback-choice input[type="checkbox"]',
+  )!;
+  await act(async () => choice.click());
+  await click("자동 재생");
+  expect(command).toHaveBeenCalledWith({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [cHandle],
+    sourceTabId: 13,
+    documentToken: "00000000-0000-4000-8000-000000000013",
   });
 });
 

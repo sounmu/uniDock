@@ -3,6 +3,7 @@ import { isDiscovery, isPlaybackCommand } from "../src/playback/bridge";
 
 const handle = (suffix: string) =>
   `00000000-0000-4000-8000-${suffix.padStart(12, "0")}`;
+const source = { sourceTabId: 7, documentToken: handle("99") };
 
 describe("ordered playlist boundary", () => {
   it("accepts only 1-100 distinct opaque handles in click order", () => {
@@ -10,6 +11,7 @@ describe("ordered playlist boundary", () => {
       isPlaybackCommand({
         version: 1,
         type: "PLAYBACK_START",
+        ...source,
         handles: [handle("1"), handle("2")],
       }),
     ).toBe(true);
@@ -17,17 +19,42 @@ describe("ordered playlist boundary", () => {
       isPlaybackCommand({
         version: 1,
         type: "PLAYBACK_START",
+        ...source,
         handles: [handle("1"), handle("1")],
       }),
-    ).toBe(false);
-    expect(
-      isPlaybackCommand({ version: 1, type: "PLAYBACK_START", handles: [] }),
     ).toBe(false);
     expect(
       isPlaybackCommand({
         version: 1,
         type: "PLAYBACK_START",
+        ...source,
+        handles: [],
+      }),
+    ).toBe(false);
+    expect(
+      isPlaybackCommand({
+        version: 1,
+        type: "PLAYBACK_START",
+        ...source,
         handles: Array.from({ length: 101 }, (_, i) => handle(String(i + 1))),
+      }),
+    ).toBe(false);
+    expect(
+      isPlaybackCommand({
+        version: 1,
+        type: "PLAYBACK_START",
+        ...source,
+        handles: [handle("1")],
+        unexpected: true,
+      }),
+    ).toBe(false);
+    expect(
+      isPlaybackCommand({
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [handle("1")],
+        sourceTabId: -1,
+        documentToken: "invalid",
       }),
     ).toBe(false);
   });

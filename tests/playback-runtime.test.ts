@@ -78,6 +78,16 @@ function fixture() {
       if (failLogin) throw new PlaybackRuntimeError("LOGIN_REQUIRED");
       return discovery;
     },
+    bind: async (onSelected) => {
+      onSelected(7);
+      return {
+        discovery,
+        source: {
+          sourceTabId: 7,
+          documentToken: "00000000-0000-4000-8000-000000000099",
+        },
+      };
+    },
     resolve: async () => {
       if (failSecondResolve && resolveCount === 1)
         throw new PlaybackRuntimeError("STALE_SELECTION");
@@ -134,7 +144,13 @@ function fixture() {
 }
 async function start(f: ReturnType<typeof fixture>) {
   return snapshot(
-    await f.runtime.command({ version: 1, type: "PLAYBACK_START", handles }),
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles,
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    }),
   );
 }
 async function playing(f: ReturnType<typeof fixture>) {
@@ -144,6 +160,173 @@ async function playing(f: ReturnType<typeof fixture>) {
   await f.runtime.signal(address, authorization.binding, "playing");
   return authorization.binding;
 }
+
+it("keeps active-run discovery pinned to the listing source", async () => {
+  const f = fixture();
+  await start(f);
+  const discover = vi.spyOn(f.ports, "discover");
+  await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+  expect(discover).toHaveBeenCalledExactlyOnceWith({
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000099",
+  });
+});
+
+it("invalidates a pending start when its source document is replaced", async () => {
+  const f = fixture();
+  const resolving = deferred<void>();
+  const resolution = deferred<{
+    discovery: PlaybackDiscovery;
+    id: string;
+    courseId: string;
+  }>();
+  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+    resolving.resolve();
+    return resolution.promise;
+  });
+  const start = f.runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [handles[0]],
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000099",
+  });
+  await resolving.promise;
+  await f.runtime.sourceLost(7);
+  resolution.resolve({ discovery, id: "101:501", courseId: "101" });
+  expect(await start).toEqual({ status: "error", code: "BUSY" });
+  expect(f.opened).toEqual([]);
+});
+
+it("invalidates an explicit resume when its selected source reloads before binding", async () => {
+  const f = fixture();
+  f.saved = {
+    ...emptyPlayback(accountKey, origin),
+    playlist: [{ id: "101:501", courseId: "101" }],
+    stopped: true,
+  };
+  const selected = deferred<void>();
+  const rebound = deferred<{
+    discovery: PlaybackDiscovery;
+    source: {
+      sourceTabId: number;
+      documentToken: string;
+    };
+  }>();
+  vi.spyOn(f.ports, "bind").mockImplementationOnce(async (onSelected) => {
+    onSelected(8);
+    selected.resolve();
+    return rebound.promise;
+  });
+  const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
+  await selected.promise;
+  await f.runtime.sourceLost(8);
+  rebound.resolve({
+    discovery,
+    source: {
+      sourceTabId: 8,
+      documentToken: "00000000-0000-4000-8000-000000000098",
+    },
+  });
+  expect(await resume).toEqual({ status: "error", code: "BUSY" });
+  expect(f.opened).toEqual([]);
+});
+
+it("replaces superseded start ownership with the explicit resume source", async () => {
+  const f = fixture();
+  f.saved = {
+    ...emptyPlayback(accountKey, origin),
+    playlist: [{ id: "101:501", courseId: "101" }],
+    stopped: true,
+  };
+  const resolving = deferred<void>();
+  const oldResolution = deferred<{
+    discovery: PlaybackDiscovery;
+    id: string;
+    courseId: string;
+  }>();
+  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+    resolving.resolve();
+    return oldResolution.promise;
+  });
+  vi.spyOn(f.ports, "bind").mockImplementationOnce(async (onSelected) => {
+    onSelected(8);
+    return {
+      discovery,
+      source: {
+        sourceTabId: 8,
+        documentToken: "00000000-0000-4000-8000-000000000098",
+      },
+    };
+  });
+  const oldStart = f.runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [handles[1]],
+    sourceTabId: 7,
+    documentToken: "00000000-0000-4000-8000-000000000097",
+  });
+  await resolving.promise;
+  expect(
+    snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
+      .status,
+  ).toBe("starting");
+  expect(f.runtime.sourceTabId).toBe(8);
+  await f.runtime.sourceLost(7);
+  expect(f.runtime.sourceTabId).toBe(8);
+  oldResolution.resolve({ discovery, id: "101:502", courseId: "101" });
+  expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
+  await f.runtime.sourceLost(8);
+  expect(f.runtime.sourceTabId).toBeNull();
+  expect(f.runtime.dedicatedTabId).toBeNull();
+});
+
+it("invalidates the active source while a replacement start owns another pending source", async () => {
+  const f = fixture();
+  const binding = await playing(f);
+  const replacementResolution = deferred<{
+    discovery: PlaybackDiscovery;
+    id: string;
+    courseId: string;
+  }>();
+  const replacementResolving = deferred<void>();
+  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+    replacementResolving.resolve();
+    return replacementResolution.promise;
+  });
+  const replacement = f.runtime.command({
+    version: 1,
+    type: "PLAYBACK_START",
+    handles: [handles[1]],
+    sourceTabId: 8,
+    documentToken: "00000000-0000-4000-8000-000000000098",
+  });
+  await replacementResolving.promise;
+
+  const renewal = deferred<PlaybackDiscovery>();
+  const renewing = deferred<void>();
+  vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+    renewing.resolve();
+    return renewal.promise;
+  });
+  const lease = f.runtime.lease(address, binding);
+  await renewing.promise;
+
+  const lost = f.runtime.sourceLost(7);
+  renewal.resolve(discovery);
+  replacementResolution.resolve({
+    discovery,
+    id: "101:502",
+    courseId: "101",
+  });
+  await lost;
+  expect(await lease).toBeNull();
+  expect(await replacement).toEqual({ status: "error", code: "BUSY" });
+  expect(f.runtime.sourceTabId).toBeNull();
+  expect(f.runtime.dedicatedTabId).toBeNull();
+  expect(f.closed).toEqual([9]);
+  expect(f.alarms.size).toBe(0);
+});
 function watchdogName(f: ReturnType<typeof fixture>): string {
   const names = [...f.alarms.keys()].filter((name) =>
     name.startsWith(`${PLAYBACK_WATCHDOG}:`),
@@ -262,6 +445,8 @@ describe("immediate ordered playlist runtime", () => {
     const pendingStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0]],
     });
     await saving.promise;
@@ -333,6 +518,8 @@ describe("immediate ordered playlist runtime", () => {
     await f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     const authorization = await f.runtime.authorize(address);
@@ -355,6 +542,8 @@ describe("immediate ordered playlist runtime", () => {
       await f.runtime.command({
         version: 1,
         type: "PLAYBACK_START",
+        sourceTabId: 7,
+        documentToken: "00000000-0000-4000-8000-000000000099",
         handles,
       }),
     ).toEqual({ status: "error", code: "STALE_SELECTION" });
@@ -377,6 +566,8 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0]],
     });
     await resolving.promise;
@@ -384,6 +575,8 @@ describe("immediate ordered playlist runtime", () => {
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     pending.reject(new PlaybackRuntimeError("TIMEOUT"));
@@ -418,12 +611,16 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles,
     });
     await resolving.promise;
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     firstResolution.resolve({ discovery, id: "101:501", courseId: "101" });
@@ -456,11 +653,15 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0]],
     });
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     oldDiscovery.resolve(discovery);
@@ -468,7 +669,10 @@ describe("immediate ordered playlist runtime", () => {
     expect(await status).toEqual({ status: "error", code: "BUSY" });
     expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
     expect(snapshot(await newStart).current?.id).toBe("101:502");
-    expect(resolve).toHaveBeenCalledExactlyOnceWith(handles[1]);
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(handles[1], {
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    });
   });
 
   it("does not let an old discovery error kill a newer stop and start intent", async () => {
@@ -496,6 +700,8 @@ describe("immediate ordered playlist runtime", () => {
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     oldDiscovery.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
@@ -527,6 +733,8 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0]],
     });
     await opening.promise;
@@ -534,6 +742,8 @@ describe("immediate ordered playlist runtime", () => {
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     oldOpen.resolve(9);
@@ -563,6 +773,8 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0]],
     });
     await opening.promise;
@@ -571,6 +783,8 @@ describe("immediate ordered playlist runtime", () => {
     const newStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     oldOpen.resolve(9);
@@ -595,6 +809,8 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles,
     });
     await opening.promise;
@@ -631,6 +847,8 @@ describe("immediate ordered playlist runtime", () => {
     const oldStart = f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles,
     });
     await persisting.promise;
@@ -720,6 +938,8 @@ describe("immediate ordered playlist runtime", () => {
     await f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[0], handles[1], thirdHandle],
     });
     const authorization = await f.runtime.authorize(address);
@@ -769,9 +989,16 @@ describe("immediate ordered playlist runtime", () => {
     };
     const nextDiscovery = deferred<PlaybackDiscovery>();
     const discovering = deferred<void>();
-    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+    vi.spyOn(f.ports, "bind").mockImplementationOnce(async (onSelected) => {
+      onSelected(7);
       discovering.resolve();
-      return nextDiscovery.promise;
+      return {
+        discovery: await nextDiscovery.promise,
+        source: {
+          sourceTabId: 7,
+          documentToken: "00000000-0000-4000-8000-000000000099",
+        },
+      };
     });
 
     const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
@@ -799,6 +1026,8 @@ describe("immediate ordered playlist runtime", () => {
       await f.runtime.command({
         version: 1,
         type: "PLAYBACK_START",
+        sourceTabId: 7,
+        documentToken: "00000000-0000-4000-8000-000000000099",
         handles: [handles[0]],
       }),
     );
@@ -815,6 +1044,7 @@ describe("immediate ordered playlist runtime", () => {
       stopped: true,
       player: null,
     });
+    expect(f.runtime.sourceTabId).toBeNull();
     expect(
       snapshot(
         await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
@@ -932,6 +1162,25 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.alarms.size).toBe(0);
   });
 
+  it("does not grant a pending lease after the source document is replaced", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const renewal = deferred<PlaybackDiscovery>();
+    const renewing = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+      renewing.resolve();
+      return renewal.promise;
+    });
+    const lease = f.runtime.lease(address, binding);
+    await renewing.promise;
+    const lost = f.runtime.sourceLost(7);
+    renewal.resolve(discovery);
+    await lost;
+    expect(await lease).toBeNull();
+    expect(f.runtime.dedicatedTabId).toBeNull();
+    expect(f.alarms.size).toBe(0);
+  });
+
   it.each(["resolve", "reject"] as const)(
     "invalidates a pending lease when a bound native pause arrives, then ignores its late %s",
     async (settlement) => {
@@ -977,6 +1226,8 @@ describe("immediate ordered playlist runtime", () => {
     await f.runtime.command({
       version: 1,
       type: "PLAYBACK_START",
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
     const replacement = await f.runtime.authorize(address);
@@ -1013,6 +1264,46 @@ describe("immediate ordered playlist runtime", () => {
       ).status,
     ).toBe("paused");
     expect(f.opened).toHaveLength(1);
+    const bind = vi.spyOn(f.ports, "bind");
+    expect(
+      snapshot(await restarted.command({ version: 1, type: "PLAYBACK_RESUME" }))
+        .status,
+    ).toBe("starting");
+    expect(bind).toHaveBeenCalledOnce();
+    expect(f.opened).toHaveLength(2);
+    expect(restarted.sourceTabId).toBe(7);
+    const discover = vi.spyOn(f.ports, "discover");
+    expect(await restarted.authorize(address)).not.toBeNull();
+    expect(discover).toHaveBeenCalledExactlyOnceWith({
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    });
+  });
+
+  it("rejects a restarted playlist rebound to another account without launching", async () => {
+    const f = fixture();
+    f.saved = {
+      ...emptyPlayback(accountKey, origin),
+      playlist: [{ id: "101:501", courseId: "101" }],
+      stopped: true,
+    };
+    vi.spyOn(f.ports, "bind").mockImplementation(async (onSelected) => {
+      onSelected(8);
+      return {
+        discovery: { ...discovery, accountKey: "b".repeat(64) },
+        source: {
+          sourceTabId: 8,
+          documentToken: "00000000-0000-4000-8000-000000000098",
+        },
+      };
+    });
+    const restarted = new PlaybackRuntime(f.ports);
+    await restarted.startup();
+    expect(
+      await restarted.command({ version: 1, type: "PLAYBACK_RESUME" }),
+    ).toEqual({ status: "error", code: "ACCOUNT_CHANGED" });
+    expect(f.opened).toEqual([]);
+    expect(f.saved).toBeNull();
   });
 
   it("ignores an old run's alarm after a replacement starts", async () => {
@@ -1024,6 +1315,8 @@ describe("immediate ordered playlist runtime", () => {
       await f.runtime.command({
         version: 1,
         type: "PLAYBACK_START",
+        sourceTabId: 7,
+        documentToken: "00000000-0000-4000-8000-000000000099",
         handles: [handles[1]],
       }),
     );

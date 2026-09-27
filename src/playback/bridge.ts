@@ -18,6 +18,9 @@ export type PlaybackCommand =
       type: "PLAYBACK_START";
       /** Opaque, one-use handles in the exact order selected by the user. */
       handles: readonly string[];
+      /** Routing plus an ephemeral proof of the content document that issued the handles. */
+      sourceTabId: number;
+      documentToken: string;
     }
   | { version: 1; type: "LOCAL_DATA_DELETE_ALL" }
   | { version: 1; type: "PLAYBACK_CANCEL"; id: string };
@@ -133,18 +136,27 @@ export function isPlaybackCommand(value: unknown): value is PlaybackCommand {
       return Object.keys(value).length === 2;
     case "PLAYBACK_START":
       return (
-        Object.keys(value).length === 3 &&
+        Object.keys(value).length === 5 &&
         Array.isArray(value.handles) &&
         value.handles.length > 0 &&
         value.handles.length <= 100 &&
         value.handles.every(validHandle) &&
-        new Set(value.handles).size === value.handles.length
+        new Set(value.handles).size === value.handles.length &&
+        typeof value.sourceTabId === "number" &&
+        Number.isInteger(value.sourceTabId) &&
+        value.sourceTabId >= 0 &&
+        validHandle(value.documentToken)
       );
     case "PLAYBACK_CANCEL":
       return Object.keys(value).length === 3 && itemKey(value.id);
     default:
       return false;
   }
+}
+
+export interface PlaybackSource {
+  readonly sourceTabId: number;
+  readonly documentToken: string;
 }
 export function backgroundSender(
   sender: chrome.runtime.MessageSender,

@@ -72,6 +72,173 @@ function playerHtml(id: string): string {
   </body></html>`;
 }
 
+test("production playback stays bound to the listing document across LMS tabs", async ({
+  playwright,
+}) => {
+  test.setTimeout(120_000);
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-source-binding-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    await context.route(`${origin}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      const json: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
+        "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
+        "/api/v1/courses/101/assignments": [],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 20,
+            name: "1주차",
+            published: true,
+            items_count: 2,
+            items: [
+              {
+                id: 501,
+                type: "ExternalTool",
+                title: "첫 영상",
+                html_url: `${origin}/courses/101/modules/items/501`,
+              },
+              {
+                id: 502,
+                type: "ExternalTool",
+                title: "둘째 영상",
+                html_url: `${origin}/courses/101/modules/items/502`,
+              },
+            ],
+          },
+        ],
+      };
+      if (url.pathname in json) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          json: json[url.pathname],
+        });
+        return;
+      }
+      if (/^\/courses\/101\/modules\/items\/(501|502)$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic item</title><body>item</body></html>",
+        });
+        return;
+      }
+      if (url.pathname === "/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic LMS</title><body>LMS</body></html>",
+        });
+        return;
+      }
+      await route.fulfill({ status: 404, body: "not found" });
+    });
+
+    const a = await context.newPage();
+    await a.goto(`${origin}/?source=A`);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    expect(
+      await panel.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
+      ),
+    ).toMatchObject({ status: "success" });
+
+    const b = await context.newPage();
+    await b.goto(`${origin}/?source=B`);
+    const c = await context.newPage();
+    await c.goto(`${origin}/?source=C`);
+    await c.bringToFront();
+
+    const listFrom = async (page: Page) => {
+      const pageUrl = page.url();
+      return panel.evaluate(async (url) => {
+        const tabs = await chrome.tabs.query({
+          url: [`${new URL(url).origin}/*`],
+        });
+        const tab = tabs.find((candidate) => candidate.url === url);
+        if (tab?.id === undefined) throw new Error("missing listing tab");
+        const result = (await chrome.tabs.sendMessage(
+          tab.id,
+          { version: 1, type: "RECORDINGS_LIST", course: "합성 운영체제" },
+          { frameId: 0 },
+        )) as {
+          status: string;
+          recordings?: { launchHandle: string }[];
+          documentToken?: string;
+        };
+        if (
+          result.status !== "success" ||
+          result.recordings?.length !== 2 ||
+          !result.documentToken
+        )
+          throw new Error("missing bound catalog");
+        return {
+          sourceTabId: tab.id,
+          documentToken: result.documentToken,
+          handles: result.recordings.map(({ launchHandle }) => launchHandle),
+        };
+      }, pageUrl);
+    };
+
+    const listing = await listFrom(b);
+    expect(
+      await panel.evaluate((command) => chrome.runtime.sendMessage(command), {
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [listing.handles[0]!],
+        sourceTabId: listing.sourceTabId,
+        documentToken: listing.documentToken,
+      }),
+    ).toMatchObject({ status: "success" });
+    await panel.evaluate(() =>
+      chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STOP_ALL" }),
+    );
+
+    await b.reload();
+    expect(
+      await panel.evaluate((command) => chrome.runtime.sendMessage(command), {
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [listing.handles[1]!],
+        sourceTabId: listing.sourceTabId,
+        documentToken: listing.documentToken,
+      }),
+    ).toEqual({ status: "error", code: "RELOAD_TAB" });
+
+    const reloadedListing = await listFrom(b);
+    await b.close();
+    await c.bringToFront();
+    expect(
+      await panel.evaluate((command) => chrome.runtime.sendMessage(command), {
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [reloadedListing.handles[0]!],
+        sourceTabId: reloadedListing.sourceTabId,
+        documentToken: reloadedListing.documentToken,
+      }),
+    ).toEqual({ status: "error", code: "RELOAD_TAB" });
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("production extension plays a click-ordered playlist and explicitly recovers login", async ({
   playwright,
 }, testInfo) => {
@@ -534,7 +701,7 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       ),
     ).toMatchObject({ status: "success" });
 
-    const handles = await panel.evaluate(async () => {
+    const listing = await panel.evaluate(async () => {
       const [tab] = await chrome.tabs.query({
         url: ["https://mylms.korea.ac.kr/*"],
       });
@@ -550,6 +717,7 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       )) as {
         status: string;
         recordings?: { launchHandle?: string }[];
+        documentToken?: string;
       };
       const values =
         result.status === "success"
@@ -557,9 +725,15 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
               .map((item) => item.launchHandle)
               .filter((value): value is string => typeof value === "string")
           : [];
-      if (values.length !== 2) throw new Error("missing playback handles");
-      return values;
+      if (values.length !== 2 || !result.documentToken)
+        throw new Error("missing playback handles");
+      return {
+        handles: values,
+        sourceTabId: tab.id,
+        documentToken: result.documentToken,
+      };
     });
+    const handles = listing.handles;
 
     // Fault injection is confined to the service worker's Chrome transport:
     // content discovery/catalog ownership remains untouched. The real 25s
@@ -634,18 +808,23 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       scope.__unidockRace = state;
     });
 
-    await panel.evaluate((handle) => {
-      const scope = globalThis as typeof globalThis & {
-        __unidockRequests?: { old: Promise<unknown> };
-      };
-      scope.__unidockRequests = {
-        old: chrome.runtime.sendMessage({
-          version: 1,
-          type: "PLAYBACK_START",
-          handles: [handle],
-        }),
-      };
-    }, handles[0]);
+    await panel.evaluate(
+      ({ handle, sourceTabId, documentToken }) => {
+        const scope = globalThis as typeof globalThis & {
+          __unidockRequests?: { old: Promise<unknown> };
+        };
+        scope.__unidockRequests = {
+          old: chrome.runtime.sendMessage({
+            version: 1,
+            type: "PLAYBACK_START",
+            handles: [handle],
+            sourceTabId,
+            documentToken,
+          }),
+        };
+      },
+      { handle: handles[0]!, ...listing },
+    );
     await expect
       .poll(() =>
         worker.evaluate(() => {
@@ -662,25 +841,30 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
       )
       .toEqual({ entered: true, timeoutArmed: true });
 
-    await panel.evaluate((handle) => {
-      const scope = globalThis as typeof globalThis & {
-        __unidockRequests?: {
-          old: Promise<unknown>;
-          stop?: Promise<unknown>;
-          next?: Promise<unknown>;
+    await panel.evaluate(
+      ({ handle, sourceTabId, documentToken }) => {
+        const scope = globalThis as typeof globalThis & {
+          __unidockRequests?: {
+            old: Promise<unknown>;
+            stop?: Promise<unknown>;
+            next?: Promise<unknown>;
+          };
         };
-      };
-      if (!scope.__unidockRequests) throw new Error("missing old request");
-      scope.__unidockRequests.stop = chrome.runtime.sendMessage({
-        version: 1,
-        type: "PLAYBACK_STOP_ALL",
-      });
-      scope.__unidockRequests.next = chrome.runtime.sendMessage({
-        version: 1,
-        type: "PLAYBACK_START",
-        handles: [handle],
-      });
-    }, handles[1]);
+        if (!scope.__unidockRequests) throw new Error("missing old request");
+        scope.__unidockRequests.stop = chrome.runtime.sendMessage({
+          version: 1,
+          type: "PLAYBACK_STOP_ALL",
+        });
+        scope.__unidockRequests.next = chrome.runtime.sendMessage({
+          version: 1,
+          type: "PLAYBACK_START",
+          handles: [handle],
+          sourceTabId,
+          documentToken,
+        });
+      },
+      { handle: handles[1]!, ...listing },
+    );
     const prompt = await panel.evaluate(async () => {
       const requests = (
         globalThis as typeof globalThis & {
@@ -836,7 +1020,7 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
         chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
       ),
     ).toMatchObject({ status: "success" });
-    const handles = await panel.evaluate(async () => {
+    const listing = await panel.evaluate(async () => {
       const [tab] = await chrome.tabs.query({
         url: ["https://mylms.korea.ac.kr/*"],
       });
@@ -852,6 +1036,7 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
       )) as {
         status: string;
         recordings?: { launchHandle?: string }[];
+        documentToken?: string;
       };
       const handles =
         result.status === "success"
@@ -859,9 +1044,15 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
               .map(({ launchHandle }) => launchHandle)
               .filter((value): value is string => typeof value === "string")
           : [];
-      if (handles.length !== 2) throw new Error("missing playback handles");
-      return handles;
+      if (handles.length !== 2 || !result.documentToken)
+        throw new Error("missing playback handles");
+      return {
+        handles,
+        sourceTabId: tab.id,
+        documentToken: result.documentToken,
+      };
     });
+    const handles = listing.handles;
 
     // Gate only alarm scheduling. We later deliver the captured old name
     // through Chrome itself, exercising the production onAlarm listener.
@@ -907,13 +1098,15 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
 
     expect(
       await panel.evaluate(
-        (handle) =>
+        ({ handle, sourceTabId, documentToken }) =>
           chrome.runtime.sendMessage({
             version: 1,
             type: "PLAYBACK_START",
             handles: [handle],
+            sourceTabId,
+            documentToken,
           }),
-        handles[0],
+        { handle: handles[0]!, ...listing },
       ),
     ).toMatchObject({ status: "success" });
     const oldName = await worker.evaluate(() => {
@@ -927,13 +1120,15 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
     });
     expect(
       await panel.evaluate(
-        (handle) =>
+        ({ handle, sourceTabId, documentToken }) =>
           chrome.runtime.sendMessage({
             version: 1,
             type: "PLAYBACK_START",
             handles: [handle],
+            sourceTabId,
+            documentToken,
           }),
-        handles[1],
+        { handle: handles[1]!, ...listing },
       ),
     ).toMatchObject({
       status: "success",

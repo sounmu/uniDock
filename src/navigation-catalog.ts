@@ -36,7 +36,9 @@ export class NavigationCatalog {
     return !this.revoked && this.account === account && this.epoch === epoch;
   }
   hasOwner(): boolean {
-    return !this.revoked && this.account !== undefined && this.epoch !== undefined;
+    return (
+      !this.revoked && this.account !== undefined && this.epoch !== undefined
+    );
   }
   revoke(): void {
     this.revoked = true;

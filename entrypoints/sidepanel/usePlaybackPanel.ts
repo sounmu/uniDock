@@ -5,7 +5,7 @@ import {
   type PlaybackSnapshot,
 } from "../../src/playback/bridge";
 import type { Recording } from "../../src/recordings";
-import { queryActive } from "../../src/transport";
+import { queryActive, type QueryTarget } from "../../src/transport";
 
 type RecordingDraft = Recording & { order: number | null };
 
@@ -19,6 +19,7 @@ export function usePlaybackPanel() {
   const [course, setCourseValue] = useState("");
   const [deletePrompt, setDeletePrompt] = useState(false);
   const recordingGeneration = useRef(0);
+  const recordingTarget = useRef<QueryTarget | null>(null);
   const commandGeneration = useRef(0);
   const foregroundCount = useRef(0);
   const statusRequest = useRef<Promise<boolean> | null>(null);
@@ -103,6 +104,7 @@ export function usePlaybackPanel() {
     setPending(false);
     setCourseValue(value);
     setRecordingDrafts([]);
+    recordingTarget.current = null;
     setError("");
     if (value) void loadRecordings(value);
   }
@@ -114,14 +116,19 @@ export function usePlaybackPanel() {
     if (!selectedCourse) return;
     const current = ++recordingGeneration.current;
     setPending(true);
-    const result = await queryActive({
-      version: 1,
-      type: "RECORDINGS_LIST",
-      course: selectedCourse.name,
-    });
+    let target: QueryTarget | null = null;
+    const result = await queryActive(
+      {
+        version: 1,
+        type: "RECORDINGS_LIST",
+        course: selectedCourse.name,
+      },
+      { onTarget: (accepted) => (target = accepted) },
+    );
     if (current !== recordingGeneration.current) return;
     setPending(false);
     if (result.status === "success" && "recordings" in result) {
+      recordingTarget.current = target;
       setRecordingDrafts(
         result.recordings.map((item) => ({ ...item, order: null })),
       );
@@ -159,12 +166,16 @@ export function usePlaybackPanel() {
       .filter((item) => item.order !== null && item.launchHandle)
       .sort((a, b) => a.order! - b.order!)
       .map((item) => item.launchHandle);
-    if (!handles.length || handles.length > 100) return false;
+    const target = recordingTarget.current;
+    if (!handles.length || handles.length > 100 || !target?.documentToken)
+      return false;
     const draftGeneration = recordingGeneration.current;
     const ok = await run({
       version: 1,
       type: "PLAYBACK_START",
       handles,
+      sourceTabId: target.id,
+      documentToken: target.documentToken,
     });
     if (ok && draftGeneration === recordingGeneration.current)
       setRecordingDrafts([]);
