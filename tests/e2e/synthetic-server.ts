@@ -29,7 +29,10 @@ export function textPdf(text: string): Buffer {
   return Buffer.from(pdf);
 }
 
-export async function syntheticServer(directory: string) {
+export async function syntheticServer(
+  directory: string,
+  fixture: { paginatedDocuments?: boolean } = {},
+) {
   const keyPath = path.join(directory, "key.pem"),
     certPath = path.join(directory, "cert.pem");
   await promisify(execFile)("openssl", [
@@ -49,7 +52,12 @@ export async function syntheticServer(directory: string) {
   ]);
   let coursesRequestCount = 0;
   const downloads: string[] = [];
-  const requests: { host: string; method: string; pathname: string }[] = [];
+  const requests: {
+    host: string;
+    method: string;
+    pathname: string;
+    search: string;
+  }[] = [];
   const pdf = textPdf("Operating systems schedule runnable processes.");
   let nextDownloadGate: Promise<void> | undefined;
   const server = createServer(
@@ -60,6 +68,7 @@ export async function syntheticServer(directory: string) {
         host: request.headers.host ?? "",
         method: request.method ?? "",
         pathname: url.pathname,
+        search: url.search,
       });
       const routes: Record<string, unknown> = {
         "/api/v1/users/self": { id: 71 },
@@ -108,31 +117,38 @@ export async function syntheticServer(directory: string) {
             id: 10,
             name: "Week 1",
             published: true,
-            items_count: 4,
-            items: [
-              {
-                id: 900,
-                content_id: 501,
-                type: "File",
-                title: "lecture.pdf",
-                content_details: { display_name: "lecture.pdf" },
-              },
-              { id: 901, content_id: 502, type: "File", title: "reading.pdf" },
-              {
-                id: 902,
-                type: "ExternalTool",
-                title: "Synthetic Lecture A",
-                html_url:
-                  "https://mylms.korea.ac.kr/courses/101/modules/items/902",
-              },
-              {
-                id: 903,
-                type: "ExternalTool",
-                title: "Synthetic Lecture B",
-                html_url:
-                  "https://mylms.korea.ac.kr/courses/101/modules/items/903",
-              },
-            ],
+            items_count: fixture.paginatedDocuments ? 1001 : 4,
+            items: fixture.paginatedDocuments
+              ? undefined
+              : [
+                  {
+                    id: 900,
+                    content_id: 501,
+                    type: "File",
+                    title: "lecture.pdf",
+                    content_details: { display_name: "lecture.pdf" },
+                  },
+                  {
+                    id: 901,
+                    content_id: 502,
+                    type: "File",
+                    title: "reading.pdf",
+                  },
+                  {
+                    id: 902,
+                    type: "ExternalTool",
+                    title: "Synthetic Lecture A",
+                    html_url:
+                      "https://mylms.korea.ac.kr/courses/101/modules/items/902",
+                  },
+                  {
+                    id: 903,
+                    type: "ExternalTool",
+                    title: "Synthetic Lecture B",
+                    html_url:
+                      "https://mylms.korea.ac.kr/courses/101/modules/items/903",
+                  },
+                ],
           },
         ],
       };
@@ -152,6 +168,38 @@ export async function syntheticServer(directory: string) {
         response.end(
           '<!doctype html><html><title>Iframe Caption Fixture</title><body><ul id="cs-script-list"><li class="cs-script-item"><span class="cs-script-item-time">00:00</span><span class="cs-script-item-text">Iframe caption text</span></li></ul></body></html>',
         );
+        return;
+      }
+      if (
+        fixture.paginatedDocuments &&
+        url.pathname === "/api/v1/courses/101/modules/10/items"
+      ) {
+        const page = url.searchParams.get("page");
+        const items =
+          page === "2"
+            ? [
+                {
+                  id: 11000,
+                  content_id: 21000,
+                  type: "File",
+                  title: "1000-last.pdf",
+                },
+              ]
+            : Array.from({ length: 1000 }, (_, index) => ({
+                id: 10000 + index,
+                content_id: 20000 + index,
+                type: "File",
+                title: `${String(index).padStart(4, "0")}.pdf`,
+              }));
+        response.writeHead(200, {
+          "Content-Type": "application/json",
+          ...(page === "2"
+            ? {}
+            : {
+                Link: `<https://mylms.korea.ac.kr${url.pathname}?page=2>; rel="next"`,
+              }),
+        });
+        response.end(JSON.stringify(items));
         return;
       }
       if (

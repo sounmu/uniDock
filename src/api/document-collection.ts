@@ -68,7 +68,7 @@ export async function collectDocuments({
           );
         }
         if (items.length > 10000) throw new Error("LIMIT");
-        for (const item of rows(items)) {
+        for (const item of items.flatMap((item) => rows([item]))) {
           if (!documentCandidate(item, now)) continue;
           const id = internalId(item.id);
           if (!id) continue;

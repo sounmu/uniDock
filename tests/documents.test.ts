@@ -242,6 +242,126 @@ it("enforces a three-worker hydration limit without timing assumptions", async (
   ]);
 });
 
+it("accepts 1001 hydrated items across valid pages and publishes every PDF handle in order", async () => {
+  const c = store();
+  const replace = vi.spyOn(c, "replaceDocuments");
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const u = new URL(String(input));
+    if (u.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "Course" }]);
+    if (u.pathname.endsWith("/modules"))
+      return json([{ id: 10, name: "Week", items_count: 1001 }]);
+    if (u.searchParams.has("page")) return json([pdf(2501, "last.pdf")]);
+    return json(
+      Array.from({ length: 1000 }, (_, index) =>
+        index === 500
+          ? pdf(1000 + index, "filtered.txt")
+          : pdf(1000 + index, `${String(index).padStart(4, "0")}.pdf`),
+      ),
+      `<${origin}${u.pathname}?page=2>; rel="next"`,
+    );
+  });
+
+  const result = await listQuery(origin, query, fetcher, now, c);
+
+  if (result.status !== "success" || !("documents" in result))
+    throw new Error("missing documents");
+  expect(result.documents).toHaveLength(1000);
+  expect(result.documents[0]!.title).toBe("0000.pdf");
+  expect(result.documents.at(-1)!.title).toBe("last.pdf");
+  expect(result.documents.some(({ title }) => title === "filtered.txt")).toBe(
+    false,
+  );
+  expect(
+    new Set(
+      result.documents.flatMap(({ lmsHandle, downloadHandle }) => [
+        lmsHandle,
+        downloadHandle,
+      ]),
+    ).size,
+  ).toBe(2000);
+  expect(
+    result.documents.every(
+      ({ lmsHandle, downloadHandle }) => lmsHandle && downloadHandle,
+    ),
+  ).toBe(true);
+  expect(replace).toHaveBeenCalledTimes(1);
+  expect(fetcher).toHaveBeenCalledTimes(4);
+});
+
+it("rejects a single 1001-row item page without publishing handles", async () => {
+  const c = store();
+  const replace = vi.spyOn(c, "replaceDocuments");
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const u = new URL(String(input));
+    if (u.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "Course" }]);
+    if (u.pathname.endsWith("/modules"))
+      return json([{ id: 10, items_count: 1001 }]);
+    return json(Array.from({ length: 1001 }, (_, index) => pdf(index + 1)));
+  });
+
+  expect(await listQuery(origin, query, fetcher, now, c)).toEqual({
+    status: "error",
+    code: "INVALID_RESPONSE",
+  });
+  expect(replace).not.toHaveBeenCalled();
+});
+
+it("enforces the 10000-document aggregate cap across bounded module responses", async () => {
+  const c = store();
+  const replace = vi.spyOn(c, "replaceDocuments");
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const u = new URL(String(input));
+    if (u.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "Course" }]);
+    if (u.pathname.endsWith("/modules"))
+      return json(
+        Array.from({ length: 11 }, (_, index) => ({
+          id: index + 1,
+          items_count: index === 10 ? 901 : 910,
+        })),
+      );
+    const moduleId = Number(/\/modules\/(\d+)\/items$/.exec(u.pathname)![1]);
+    const count = moduleId === 11 ? 901 : 910;
+    return json(
+      Array.from({ length: count }, (_, index) =>
+        pdf(moduleId * 1000 + index, `${moduleId}-${index}.pdf`),
+      ),
+    );
+  });
+
+  expect(await listQuery(origin, query, fetcher, now, c)).toEqual({
+    status: "error",
+    code: "LIMIT",
+  });
+  expect(fetcher).toHaveBeenCalledTimes(13);
+  expect(replace).not.toHaveBeenCalled();
+});
+
+it("does not publish handles when a later hydrated page fails", async () => {
+  const c = store();
+  const replace = vi.spyOn(c, "replaceDocuments");
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const u = new URL(String(input));
+    if (u.pathname === "/api/v1/courses")
+      return json([{ id: 101, name: "Course" }]);
+    if (u.pathname.endsWith("/modules"))
+      return json([{ id: 10, items_count: 2 }]);
+    if (u.searchParams.has("page")) return new Response(null, { status: 403 });
+    return json(
+      [pdf(501, "first.pdf")],
+      `<${origin}${u.pathname}?page=2>; rel="next"`,
+    );
+  });
+
+  expect(await listQuery(origin, query, fetcher, now, c)).toEqual({
+    status: "error",
+    code: "FORBIDDEN",
+  });
+  expect(replace).not.toHaveBeenCalled();
+});
+
 it("validates closed requests and strips untrusted response fields", () => {
   const handle = crypto.randomUUID();
   expect(isRequest(query)).toBe(true);
