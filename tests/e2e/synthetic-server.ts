@@ -141,6 +141,13 @@ export async function syntheticServer(directory: string) {
         response.end();
         return;
       }
+      if (url.pathname === "/em/caption-fixture") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(
+          '<!doctype html><html><title>Iframe Caption Fixture</title><body><ul id="cs-script-list"><li class="cs-script-item"><span class="cs-script-item-time">00:00</span><span class="cs-script-item-text">Iframe caption text</span></li></ul></body></html>',
+        );
+        return;
+      }
       if (
         /^\/courses\/101\/files\/(501|502)\/download$/.test(url.pathname) &&
         url.search === "?download_frd=1"
