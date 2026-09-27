@@ -166,6 +166,25 @@ it("retains ownership until handoff and rejects an abort after readiness", async
   expect(ready.handoff()).toBe(false);
 });
 
+it("rejects handoff when another ready KU primary appears after readiness", async () => {
+  const f = fixture();
+  const result = initializeKuLecture(f.video, () => true);
+  f.load();
+  const ready = await result;
+  const second = document.createElement("video");
+  second.className = "vc-vplay-video1";
+  second.src = "https://kucom.korea.ac.kr/second.webm";
+  Object.defineProperty(second, "readyState", { value: 4 });
+  const pauseSecond = vi
+    .spyOn(second, "pause")
+    .mockImplementation(() => undefined);
+  document.querySelector(".vc-vplay-container")!.append(second);
+
+  expect(ready.handoff()).toBe(false);
+  expect(f.pause).toHaveBeenCalled();
+  expect(pauseSecond).toHaveBeenCalled();
+});
+
 it("hands off a ready replacement at normal speed and retires the old primary", async () => {
   const f = fixture();
   f.video.playbackRate = 2;

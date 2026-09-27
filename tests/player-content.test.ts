@@ -29,6 +29,7 @@ function setup(
   options: {
     authorization?: unknown;
     lease?: unknown;
+    hello?: Promise<unknown>;
     url?: string;
     hidden?: boolean;
   } = {},
@@ -50,7 +51,7 @@ function setup(
   const subscriptions = new Map<string, (message: Wire) => void>();
   const sendMessage = vi.fn(async (message: Wire) => {
     if (message.type === "PLAYBACK_PLAYER_HELLO")
-      return { ok: true, authorization };
+      return options.hello ?? { ok: true, authorization };
     if (message.type === "PLAYBACK_PLAYER_LEASE")
       return options.lease ?? { ok: true, authorization };
     if (message.type === "PLAYBACK_PLAYER_EVENT") {
@@ -214,6 +215,140 @@ it("does not guess between two loaded videos even if one is CSS hidden", async (
   second.remove();
   await playing;
   expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("fails closed when a second LMS video becomes eligible during HELLO", async () => {
+  const hello = Promise.withResolvers<unknown>();
+  const fixture = setup({
+    hello: hello.promise,
+    url: "https://mylms.korea.ac.kr/courses/1/modules/items/1",
+  });
+  document.body.append(fixture.video);
+  page.main();
+  await vi.waitFor(() =>
+    expect(fixture.sendMessage).toHaveBeenCalledWith({
+      version: 1,
+      type: "PLAYBACK_PLAYER_HELLO",
+    }),
+  );
+  const second = document.createElement("video");
+  second.src = "https://mylms.korea.ac.kr/second.webm";
+  Object.defineProperty(second, "readyState", { value: 4 });
+  const secondPlay = vi.spyOn(second, "play").mockResolvedValue(undefined);
+  document.body.append(second);
+  const failed = fixture.event("failed");
+  hello.resolve({
+    ok: true,
+    authorization: {
+      binding: fixture.activeBinding,
+      leaseUntil: Date.now() + 45000,
+    },
+  });
+
+  await failed;
+  expect(fixture.play).not.toHaveBeenCalled();
+  expect(secondPlay).not.toHaveBeenCalled();
+  expect(fixture.control("resume").accepted).toBe(false);
+});
+
+it("accepts normal currentSrc resolution of an unchanged LMS src during HELLO", async () => {
+  const hello = Promise.withResolvers<unknown>();
+  const fixture = setup({
+    hello: hello.promise,
+    url: "https://mylms.korea.ac.kr/courses/1/modules/items/1",
+  });
+  let currentSrc = "";
+  let readyState = 0;
+  Object.defineProperty(fixture.video, "currentSrc", {
+    configurable: true,
+    get: () => currentSrc,
+  });
+  Object.defineProperty(fixture.video, "readyState", {
+    configurable: true,
+    get: () => readyState,
+  });
+  document.body.append(fixture.video);
+  page.main();
+  await vi.waitFor(() => expect(fixture.sendMessage).toHaveBeenCalledOnce());
+  currentSrc = fixture.video.src;
+  readyState = HTMLMediaElement.HAVE_METADATA;
+  const playing = fixture.event("playing");
+  hello.resolve({
+    ok: true,
+    authorization: {
+      binding: fixture.activeBinding,
+      leaseUntil: Date.now() + 45000,
+    },
+  });
+
+  await playing;
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it.each(["src", "srcObject"] as const)(
+  "fails closed when the selected LMS %s identity changes during HELLO",
+  async (field) => {
+    const hello = Promise.withResolvers<unknown>();
+    const fixture = setup({
+      hello: hello.promise,
+      url: "https://mylms.korea.ac.kr/courses/1/modules/items/1",
+    });
+    document.body.append(fixture.video);
+    page.main();
+    await vi.waitFor(() => expect(fixture.sendMessage).toHaveBeenCalledOnce());
+    if (field === "src")
+      fixture.video.src = "https://mylms.korea.ac.kr/replaced.webm";
+    else
+      Object.defineProperty(fixture.video, "srcObject", {
+        configurable: true,
+        value: {} as MediaStream,
+      });
+    const failed = fixture.event("failed");
+    hello.resolve({
+      ok: true,
+      authorization: {
+        binding: fixture.activeBinding,
+        leaseUntil: Date.now() + 45000,
+      },
+    });
+
+    await failed;
+    expect(fixture.play).not.toHaveBeenCalled();
+  },
+);
+
+it("does not initialize a KU video reclassified during HELLO", async () => {
+  const hello = Promise.withResolvers<unknown>();
+  const fixture = setup({ hello: hello.promise });
+  const button = document.createElement("button");
+  button.className = "vc-front-screen-play-btn";
+  const click = vi.spyOn(button, "click");
+  document.body.append(fixture.video, button);
+  page.main();
+  await vi.waitFor(() => expect(fixture.sendMessage).toHaveBeenCalledOnce());
+
+  fixture.video.className = "vc-sdvideo-video";
+  const replacement = document.createElement("video");
+  replacement.className = "vc-vplay-video1";
+  replacement.src = "https://kucom.korea.ac.kr/replacement.webm";
+  Object.defineProperty(replacement, "readyState", { value: 4 });
+  const replacementPlay = vi
+    .spyOn(replacement, "play")
+    .mockResolvedValue(undefined);
+  document.body.append(replacement);
+  const failed = fixture.event("failed");
+  hello.resolve({
+    ok: true,
+    authorization: {
+      binding: fixture.activeBinding,
+      leaseUntil: Date.now() + 45000,
+    },
+  });
+
+  await failed;
+  expect(click).not.toHaveBeenCalled();
+  expect(fixture.play).not.toHaveBeenCalled();
+  expect(replacementPlay).not.toHaveBeenCalled();
 });
 
 it("discovers media readiness without a DOM mutation", async () => {

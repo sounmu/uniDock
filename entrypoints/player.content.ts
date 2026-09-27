@@ -41,6 +41,57 @@ export default defineContentScript({
     let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let initialization: AbortController | null = null;
     const discoveryUntil = Date.now() + 45000;
+    type VideoIdentity = {
+      video: HTMLVideoElement;
+      currentSrc: string;
+      src: string;
+      srcObject: HTMLVideoElement["srcObject"];
+    };
+    const candidateSelection = () => {
+      const videos = document.querySelectorAll("video");
+      // KU includes auxiliary players which may load and finish before the
+      // lecture. Never fall back to those while the primary player is loading.
+      const eligible = kuPlayer
+        ? Array.from(videos).filter((candidate) =>
+            candidate.matches(".vc-vplay-container > video.vc-vplay-video1"),
+          )
+        : Array.from(videos);
+      const candidates = eligible.filter((candidate) => {
+        if (!kuPlayer && videos.length === 1) return true;
+        // KU keeps empty helper videos and may size the native element only
+        // after play(). Select by media readiness rather than CSS geometry.
+        return (
+          Boolean(
+            candidate.currentSrc || candidate.src || candidate.srcObject,
+          ) && candidate.readyState >= HTMLMediaElement.HAVE_METADATA
+        );
+      });
+      return { videos, eligible, candidates };
+    };
+    const selectCandidate = (): HTMLVideoElement | null => {
+      const { candidates } = candidateSelection();
+      return candidates.length === 1 ? candidates[0]! : null;
+    };
+    const identity = (selected: HTMLVideoElement): VideoIdentity => ({
+      video: selected,
+      currentSrc: selected.currentSrc,
+      src: selected.src,
+      srcObject: selected.srcObject,
+    });
+    const stillSelected = (selected: VideoIdentity): boolean => {
+      const currentCandidate = selectCandidate();
+      const resolvedSourceUnchanged = selected.currentSrc
+        ? currentCandidate?.currentSrc === selected.currentSrc
+        : !currentCandidate?.currentSrc ||
+          (Boolean(selected.src) &&
+            currentCandidate.currentSrc === selected.src);
+      return (
+        currentCandidate === selected.video &&
+        resolvedSourceUnchanged &&
+        currentCandidate.src === selected.src &&
+        currentCandidate.srcObject === selected.srcObject
+      );
+    };
     const current = () =>
       !closed &&
       location.href === originalUrl &&
@@ -204,24 +255,7 @@ export default defineContentScript({
     }
     async function connect() {
       if (closed || connecting || player) return;
-      const videos = document.querySelectorAll("video");
-      // KU includes auxiliary players which may load and finish before the
-      // lecture. Never fall back to those while the primary player is loading.
-      const eligible = kuPlayer
-        ? Array.from(videos).filter((v) =>
-            v.matches(".vc-vplay-container > video.vc-vplay-video1"),
-          )
-        : Array.from(videos);
-      const candidates = eligible.filter((candidate) => {
-        if (!kuPlayer && videos.length === 1) return true;
-        // KU keeps empty helper videos and may size the native element only
-        // after play(). Select by media readiness rather than CSS geometry.
-        return (
-          Boolean(
-            candidate.currentSrc || candidate.src || candidate.srcObject,
-          ) && candidate.readyState >= HTMLMediaElement.HAVE_METADATA
-        );
-      });
+      const { videos, eligible, candidates } = candidateSelection();
       if (candidates.length !== 1) {
         const code = candidates.length
           ? "WAIT_AMBIGUOUS_VIDEO"
@@ -240,6 +274,7 @@ export default defineContentScript({
       }
       const found = candidates[0];
       if (!(found instanceof HTMLVideoElement)) return;
+      const selected = identity(found);
       connecting = true;
       video = found;
       clearTimeout(discoveryTimer);
@@ -257,6 +292,15 @@ export default defineContentScript({
           !authorize(result.authorization)
         ) {
           diagnostic("AUTHORIZATION_REJECTED");
+          stop();
+          return;
+        }
+        // The authorization applies only to the exact, uniquely selected
+        // media observed before HELLO. DOM/media changes while HELLO is in
+        // flight must not transfer that grant to an obsolete candidate.
+        if (!stillSelected(selected)) {
+          diagnostic("VIDEO_SELECTION_CHANGED");
+          void signal({ state: "failed", reason: "play" });
           stop();
           return;
         }
@@ -281,7 +325,9 @@ export default defineContentScript({
           );
           video = ready.video;
           diagnostic("KU_LECTURE_READY");
-          if (!current()) {
+          if (!current() || selectCandidate() !== ready.video) {
+            diagnostic("VIDEO_SELECTION_CHANGED");
+            void signal({ state: "failed", reason: "play" });
             stop();
             return;
           }

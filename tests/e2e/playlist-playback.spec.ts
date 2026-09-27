@@ -72,6 +72,487 @@ function playerHtml(id: string): string {
   </body></html>`;
 }
 
+function ambiguousLmsPlayerHtml(): string {
+  return `<!doctype html><html><title>Ambiguous LMS player</title><body>
+    <script>
+        const mediaUrl = "/selection.webm";
+        const initialize = document.createElement("button");
+        initialize.className = "vc-front-screen-play-btn";
+        initialize.dataset.clickCount = "0";
+        initialize.addEventListener("click", () => {
+          initialize.dataset.clickCount = String(Number(initialize.dataset.clickCount) + 1);
+          console.log("UNIDOCK_SELECTION_INITIALIZE");
+        });
+        document.body.append(initialize);
+        const add = id => {
+          const video = document.createElement("video");
+          video.id = id;
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = id === "original" ? "none" : "auto";
+          video.src = mediaUrl;
+          video.dataset.playCount = "0";
+          video.addEventListener("play", () => {
+            video.dataset.playCount = String(Number(video.dataset.playCount) + 1);
+            console.log("UNIDOCK_SELECTION_PLAY:" + id);
+          });
+          document.body.append(video);
+          if (id !== "original") video.load();
+          return video;
+        };
+        const original = add("original");
+        window.initialMediaState = {
+          readyState: original.readyState,
+          currentSrc: original.currentSrc,
+          src: original.src,
+        };
+        window.prepareOriginalReady = () => new Promise((resolve, reject) => {
+          original.preload = "auto";
+          if (original.readyState >= HTMLMediaElement.HAVE_METADATA) resolve();
+          else original.addEventListener("loadedmetadata", () => resolve(), { once: true });
+          original.addEventListener("error", () => reject(new Error("media:" + original.error?.code)), { once: true });
+          setTimeout(() => reject(new Error("media-timeout:" + original.networkState)), 5000);
+          original.load();
+        });
+        window.addSecondReadyVideo = () => new Promise(resolve => {
+          const video = add("second");
+          if (video.readyState >= HTMLMediaElement.HAVE_METADATA) resolve();
+          else video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+        });
+    </script>
+  </body></html>`;
+}
+
+test("production HELLO rejects an LMS candidate made ambiguous in flight", async ({
+  playwright,
+}) => {
+  test.setTimeout(90_000);
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(
+    path.join(tmpdir(), "unidock-hello-selection-"),
+  );
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    const mediaBuilder = await context.newPage();
+    const mediaBase64 = await mediaBuilder.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 48;
+      const paint = canvas.getContext("2d")!;
+      const stream = canvas.captureStream(24);
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "video/webm;codecs=vp8",
+      });
+      const parts: Blob[] = [];
+      recorder.addEventListener("dataavailable", (event) =>
+        parts.push(event.data),
+      );
+      const stopped = new Promise<void>((resolve) =>
+        recorder.addEventListener("stop", () => resolve(), { once: true }),
+      );
+      recorder.start(200);
+      for (let frame = 0; frame < 120; frame++) {
+        paint.fillStyle = frame % 2 ? "#872038" : "#f8f7f5";
+        paint.fillRect(0, 0, 64, 48);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      recorder.stop();
+      await stopped;
+      stream.getTracks().forEach((track) => track.stop());
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.addEventListener("load", () =>
+          resolve(String(reader.result).split(",")[1]!),
+        );
+        reader.readAsDataURL(new Blob(parts, { type: "video/webm" }));
+      });
+    });
+    await mediaBuilder.close();
+    const mediaBytes = Buffer.from(mediaBase64, "base64");
+    let mediaGate = {
+      started: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    await context.route(`${origin}/**`, async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === "/selection.webm") {
+        const gate = mediaGate;
+        gate.started.resolve();
+        await gate.release.promise;
+        await route.fulfill({
+          status: 200,
+          contentType: "video/webm",
+          body: mediaBytes,
+        });
+        return;
+      }
+      if (pathname === "/courses/101/modules/items/501") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: ambiguousLmsPlayerHtml(),
+        });
+        return;
+      }
+      const values: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
+        "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
+        "/api/v1/courses/101/assignments": [],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 20,
+            name: "1주차",
+            published: true,
+            items_count: 1,
+            items: [
+              {
+                id: 501,
+                type: "ExternalTool",
+                title: "선택 변경 영상",
+                html_url: `${origin}/courses/101/modules/items/501`,
+              },
+            ],
+          },
+        ],
+      };
+      if (pathname in values) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(values[pathname]),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><html><body>Synthetic LMS</body></html>",
+      });
+    });
+
+    const lms = await context.newPage();
+    await lms.goto(origin);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    await worker.evaluate(() => {
+      const root = globalThis as typeof globalThis & {
+        __helloGate?: {
+          entered: boolean;
+          discoverCount: number;
+          arm: (target: number) => void;
+          release: () => void;
+          restore: () => void;
+        };
+      };
+      const original = chrome.tabs.sendMessage.bind(chrome.tabs);
+      let held: Promise<void>;
+      const state = {
+        entered: false,
+        discoverCount: 0,
+        target: 0,
+        release: () => {},
+        arm(target: number) {
+          state.entered = false;
+          state.target = target;
+          held = new Promise<void>((resolve) => (state.release = resolve));
+        },
+        restore: () => {
+          state.release();
+          chrome.tabs.sendMessage = original;
+          delete root.__helloGate;
+        },
+      };
+      chrome.tabs.sendMessage = (async (
+        tabId: number,
+        message: unknown,
+        options?: chrome.tabs.MessageSendOptions,
+      ) => {
+        const result = await original(tabId, message, options);
+        if ((message as { type?: string })?.type === "PLAYBACK_DISCOVER") {
+          state.discoverCount++;
+          // The first discovery resolves the selected playlist and opens the
+          // player tab. The second is authorization requested by player HELLO.
+          if (!state.entered && state.discoverCount === state.target) {
+            state.entered = true;
+            await held;
+          }
+        }
+        return result;
+      }) as typeof chrome.tabs.sendMessage;
+      state.arm(2);
+      root.__helloGate = state;
+    });
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    await lms.bringToFront();
+    await panel.getByRole("button", { name: "자동 재생" }).click();
+    await panel.getByRole("button", { name: "영상 선택" }).click();
+    await panel
+      .getByLabel("과목 선택")
+      .selectOption({ label: "합성 운영체제" });
+    await panel.getByRole("checkbox", { name: "선택 변경 영상" }).check();
+    await panel
+      .locator(".detail-view")
+      .getByRole("button", { name: "자동 재생", exact: true })
+      .click();
+
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          () =>
+            (
+              globalThis as typeof globalThis & {
+                __helloGate?: { entered: boolean };
+              }
+            ).__helloGate?.entered ?? false,
+        ),
+      )
+      .toBe(true);
+    const player = context
+      .pages()
+      .find((page) => page.url().endsWith("/courses/101/modules/items/501"));
+    expect(player).toBeDefined();
+    const mediaActions: string[] = [];
+    player!.on("console", (message) => {
+      if (message.text().startsWith("UNIDOCK_SELECTION_"))
+        mediaActions.push(message.text());
+    });
+    expect(
+      await player!.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              initialMediaState: {
+                readyState: number;
+                currentSrc: string;
+                src: string;
+              };
+            }
+          ).initialMediaState,
+      ),
+    ).toEqual({
+      readyState: 0,
+      currentSrc: "",
+      src: `${origin}/selection.webm`,
+    });
+    expect(
+      await player!.locator("#original").evaluate((element) => {
+        const video = element as HTMLVideoElement;
+        return {
+          readyState: video.readyState,
+          currentSrc: video.currentSrc,
+          hasSrc: Boolean(video.src),
+        };
+      }),
+    ).toEqual({
+      readyState: 0,
+      currentSrc: `${origin}/selection.webm`,
+      hasSrc: true,
+    });
+    await player!.evaluate(() => {
+      const root = window as typeof window & {
+        prepareOriginalReady: () => Promise<void>;
+        originalReady?: Promise<void>;
+      };
+      root.originalReady = root.prepareOriginalReady();
+    });
+    await mediaGate.started.promise;
+    mediaGate.release.resolve();
+    await player!.evaluate(
+      () =>
+        (window as typeof window & { originalReady?: Promise<void> })
+          .originalReady,
+    );
+    await player!.evaluate(() =>
+      (
+        window as typeof window & {
+          addSecondReadyVideo: () => Promise<void>;
+        }
+      ).addSecondReadyVideo(),
+    );
+    expect(
+      await player!.locator("video").evaluateAll((videos) =>
+        videos.map((element) => {
+          const video = element as HTMLVideoElement;
+          return {
+            id: video.id,
+            paused: video.paused,
+            playCount: Number(video.dataset.playCount),
+          };
+        }),
+      ),
+    ).toEqual([
+      { id: "original", paused: true, playCount: 0 },
+      { id: "second", paused: true, playCount: 0 },
+    ]);
+    expect(
+      await player!
+        .locator(".vc-front-screen-play-btn")
+        .getAttribute("data-click-count"),
+    ).toBe("0");
+    await worker.evaluate(() =>
+      (
+        globalThis as typeof globalThis & {
+          __helloGate?: { release: () => void };
+        }
+      ).__helloGate?.release(),
+    );
+    expect(
+      await worker.evaluate(
+        () =>
+          (
+            globalThis as typeof globalThis & {
+              __helloGate?: { discoverCount: number };
+            }
+          ).__helloGate?.discoverCount,
+      ),
+    ).toBe(2);
+    await expect(panel.locator(".playback-panel h1")).toContainText("실패");
+    const failed = await panel.evaluate(() =>
+      chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+    );
+    await panel.waitForTimeout(500);
+    expect(
+      await panel.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toEqual(failed);
+    expect(failed).toMatchObject({
+      status: "success",
+      snapshot: { status: "failed" },
+    });
+    expect(mediaActions).toEqual([]);
+    expect(player!.isClosed()).toBe(true);
+    expect(
+      context
+        .pages()
+        .filter((page) =>
+          page.url().endsWith("/courses/101/modules/items/501"),
+        ),
+    ).toHaveLength(0);
+
+    await worker.evaluate(() =>
+      (
+        globalThis as typeof globalThis & {
+          __helloGate?: { arm: (target: number) => void };
+        }
+      ).__helloGate?.arm(4),
+    );
+    mediaGate = {
+      started: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    await panel.getByRole("button", { name: "자동 재생 재개" }).click();
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          () =>
+            (
+              globalThis as typeof globalThis & {
+                __helloGate?: { entered: boolean; discoverCount: number };
+              }
+            ).__helloGate,
+        ),
+      )
+      .toMatchObject({ entered: true, discoverCount: 4 });
+    const resumed = context
+      .pages()
+      .find((page) => page.url().endsWith("/courses/101/modules/items/501"));
+    expect(resumed).toBeDefined();
+    const resumedActions: string[] = [];
+    resumed!.on("console", (message) => {
+      if (message.text().startsWith("UNIDOCK_SELECTION_"))
+        resumedActions.push(message.text());
+    });
+    expect(
+      await resumed!.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              initialMediaState: {
+                readyState: number;
+                currentSrc: string;
+                src: string;
+              };
+            }
+          ).initialMediaState,
+      ),
+    ).toEqual({
+      readyState: 0,
+      currentSrc: "",
+      src: `${origin}/selection.webm`,
+    });
+    expect(
+      await resumed!.locator("#original").evaluate((element) => {
+        const video = element as HTMLVideoElement;
+        return {
+          readyState: video.readyState,
+          currentSrc: video.currentSrc,
+          hasSrc: Boolean(video.src),
+        };
+      }),
+    ).toEqual({
+      readyState: 0,
+      currentSrc: `${origin}/selection.webm`,
+      hasSrc: true,
+    });
+    await resumed!.evaluate(() => {
+      const root = window as typeof window & {
+        prepareOriginalReady: () => Promise<void>;
+        originalReady?: Promise<void>;
+      };
+      root.originalReady = root.prepareOriginalReady();
+    });
+    await mediaGate.started.promise;
+    mediaGate.release.resolve();
+    await resumed!.evaluate(
+      () =>
+        (window as typeof window & { originalReady?: Promise<void> })
+          .originalReady,
+    );
+    await worker.evaluate(() =>
+      (
+        globalThis as typeof globalThis & {
+          __helloGate?: { release: () => void };
+        }
+      ).__helloGate?.release(),
+    );
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+    await expect
+      .poll(() => resumedActions)
+      .toEqual(["UNIDOCK_SELECTION_PLAY:original"]);
+    expect(
+      await resumed!
+        .locator(".vc-front-screen-play-btn")
+        .getAttribute("data-click-count"),
+    ).toBe("0");
+    await panel.evaluate(() =>
+      chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STOP_ALL" }),
+    );
+    await worker.evaluate(() =>
+      (
+        globalThis as typeof globalThis & {
+          __helloGate?: { restore: () => void };
+        }
+      ).__helloGate?.restore(),
+    );
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("production playback stays bound to the listing document across LMS tabs", async ({
   playwright,
 }) => {

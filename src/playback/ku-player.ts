@@ -26,6 +26,18 @@ export function initializeKuLecture(
     }
   };
   const isHidden = () => document.visibilityState === "hidden";
+  const isUniqueCurrentPrimary = (video: HTMLVideoElement) => {
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLVideoElement>(
+        ".vc-vplay-container > video.vc-vplay-video1",
+      ),
+    ).filter(
+      (candidate) =>
+        Boolean(candidate.currentSrc || candidate.src || candidate.srcObject) &&
+        candidate.readyState >= HTMLMediaElement.HAVE_METADATA,
+    );
+    return candidates.length === 1 && candidates[0] === video;
+  };
   if (signal?.aborted || isHidden() || !isAuthorized())
     return Promise.reject(new Error("PLAYER_LOST"));
   if (
@@ -36,7 +48,15 @@ export function initializeKuLecture(
   )
     return Promise.resolve({
       video: initial,
-      handoff: () => !signal?.aborted && !isHidden() && isAuthorized(),
+      handoff: () => {
+        const valid =
+          !signal?.aborted &&
+          !isHidden() &&
+          isAuthorized() &&
+          isUniqueCurrentPrimary(initial);
+        if (!valid) initial.pause();
+        return valid;
+      },
     });
 
   const source = initial.currentSrc;
@@ -128,12 +148,14 @@ export function initializeKuLecture(
     document.addEventListener("visibilitychange", guardVisibility);
     track(initial);
     function handoff(): boolean {
+      trackPrimaries();
       if (
         state !== "ready" ||
         !selected ||
         signal?.aborted ||
         isHidden() ||
-        !isAuthorized()
+        !isAuthorized() ||
+        !isUniqueCurrentPrimary(selected)
       ) {
         cancel();
         return false;
