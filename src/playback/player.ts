@@ -28,6 +28,8 @@ export interface PlaybackOptions {
   ) => void;
   /** The caller identifies login pages; a video element cannot identify an SSO redirect. */
   isLoginPage?: () => boolean;
+  /** The caller supplies frame visibility so native controls cannot bypass visible-only playback. */
+  isVisible?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
   /** Bounds metadata and play() waits. Clamped to 1..30000 ms. */
   timeoutMs?: number;
@@ -69,6 +71,10 @@ export class PlaybackPlayer {
       this.ownsVideo() &&
       this.document.location.href === this.url
     );
+  }
+
+  private visible(): boolean {
+    return this.options.isVisible?.() !== false;
   }
 
   private set(status: PlaybackStatus): PlaybackStatus {
@@ -113,8 +119,22 @@ export class PlaybackPlayer {
       observedPlaying = false;
       progressSeconds = 0;
     };
+    const rejectUnauthorizedNativePlay = (event: Event): boolean => {
+      if (
+        !event.isTrusted ||
+        !current() ||
+        (this.status.state !== "paused" && this.visible())
+      )
+        return false;
+      // A paused playlist remains stopped until its authorized control path
+      // calls resume(); native controls provide neither consent nor visibility.
+      this.video.pause();
+      if (this.status.state === "playing") this.set({ state: "paused" });
+      return true;
+    };
     const nativePlaying = (event: Event) => {
       if (
+        rejectUnauthorizedNativePlay(event) ||
         !event.isTrusted ||
         !current() ||
         this.video.paused ||
@@ -127,6 +147,9 @@ export class PlaybackPlayer {
       source = this.video.currentSrc;
       sourceObject = this.video.srcObject;
       this.options.onDiagnostic?.("NATIVE_PLAYING");
+    };
+    const nativePlay = (event: Event) => {
+      rejectUnauthorizedNativePlay(event);
     };
     // The KU start control can begin playback before this adapter is attached.
     // Seed only the baseline; completion still requires measured time progress.
@@ -175,8 +198,6 @@ export class PlaybackPlayer {
     };
     const ended = (event: Event) => {
       if (event.isTrusted && current() && this.video.ended) {
-        this.detachEvents?.();
-        this.detachEvents = undefined;
         const duration = this.video.duration;
         if (
           !observedPlaying ||
@@ -193,6 +214,8 @@ export class PlaybackPlayer {
           settle?.(this.set({ state: "paused", reason: "unverified-end" }));
           return;
         }
+        this.detachEvents?.();
+        this.detachEvents = undefined;
         settle?.(this.set({ state: "ended" }));
       }
     };
@@ -222,6 +245,7 @@ export class PlaybackPlayer {
       }
     };
     this.video.addEventListener("ended", ended);
+    this.video.addEventListener("play", nativePlay);
     this.video.addEventListener("playing", nativePlaying);
     this.video.addEventListener("timeupdate", progress);
     this.video.addEventListener("seeking", reset);
@@ -232,6 +256,7 @@ export class PlaybackPlayer {
     this.video.addEventListener("ratechange", rateChanged);
     this.detachEvents = () => {
       this.video.removeEventListener("ended", ended);
+      this.video.removeEventListener("play", nativePlay);
       this.video.removeEventListener("playing", nativePlaying);
       this.video.removeEventListener("timeupdate", progress);
       this.video.removeEventListener("seeking", reset);
@@ -298,6 +323,11 @@ export class PlaybackPlayer {
               this.video.pause();
               return;
             }
+            if (this.status.state === "starting" && !this.visible()) {
+              this.video.pause();
+              finish(this.set({ state: "paused" }));
+              return;
+            }
             if (this.status.state === "starting")
               finish(this.set({ state: "playing" }));
             else finish(this.status);
@@ -330,10 +360,9 @@ export class PlaybackPlayer {
   }
 
   pause(): PlaybackStatus {
-    if (this.status.state === "playing" && this.valid()) {
-      this.video.pause();
-      return this.set({ state: "paused" });
-    }
+    if (!this.valid()) return this.status;
+    this.video.pause();
+    if (this.status.state === "playing") return this.set({ state: "paused" });
     return this.status;
   }
 

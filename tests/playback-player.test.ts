@@ -26,10 +26,12 @@ function fixture(
 // jsdom cannot produce trusted media events. Capture the handler registered on a
 // real <video> and deliver a native-event-shaped signal for that branch only.
 function nativeSignals(video: HTMLVideoElement, names: readonly string[]) {
-  const handlers = new Map(names.map((name) => [name, [] as EventListener[]]));
+  const handlers = new Map(
+    names.map((name) => [name, new Set<EventListener>()]),
+  );
   vi.spyOn(video, "addEventListener").mockImplementation(
     (type, handler, options) => {
-      if (typeof handler === "function") handlers.get(type)?.push(handler);
+      if (typeof handler === "function") handlers.get(type)?.add(handler);
       EventTarget.prototype.addEventListener.call(
         video,
         type,
@@ -38,8 +40,19 @@ function nativeSignals(video: HTMLVideoElement, names: readonly string[]) {
       );
     },
   );
+  vi.spyOn(video, "removeEventListener").mockImplementation(
+    (type, handler, options) => {
+      if (typeof handler === "function") handlers.get(type)?.delete(handler);
+      EventTarget.prototype.removeEventListener.call(
+        video,
+        type,
+        handler,
+        options,
+      );
+    },
+  );
   return (name: string) => {
-    for (const handler of handlers.get(name) ?? [])
+    for (const handler of [...(handlers.get(name) ?? [])])
       handler({ isTrusted: true } as Event);
   };
 }
@@ -74,6 +87,66 @@ it("starts at normal native speed, pauses, resumes and stops without seeking", a
   expect(pause).toHaveBeenCalledTimes(2);
   expect(await player.start()).toEqual({ state: "stopped" });
   expect(seek).not.toHaveBeenCalled();
+});
+
+it("physically rejects trusted native play while paused until explicit resume", async () => {
+  const { video, play, pause, player } = fixture();
+  const notify = nativeSignals(video, ["play", "playing"]);
+  await player.start();
+  player.pause();
+  pause.mockClear();
+
+  // Script-forged media events cannot exercise the trusted native-control path.
+  video.dispatchEvent(new Event("play"));
+  video.dispatchEvent(new Event("playing"));
+  expect(pause).not.toHaveBeenCalled();
+  expect(player.status).toEqual({ state: "paused" });
+
+  notify("play");
+  notify("playing");
+  expect(pause).toHaveBeenCalledTimes(2);
+  expect(player.status).toEqual({ state: "paused" });
+
+  expect(await player.resume()).toEqual({ state: "playing" });
+  expect(play).toHaveBeenCalledTimes(2);
+});
+
+it("physically rejects native play when the document is already hidden", async () => {
+  let visible = true;
+  const { video, pause, player } = fixture({ isVisible: () => visible });
+  const notify = nativeSignal(video, "play");
+  await player.start();
+  pause.mockClear();
+
+  visible = false;
+  notify();
+
+  expect(pause).toHaveBeenCalledOnce();
+  expect(player.status).toEqual({ state: "paused" });
+});
+
+it("does not let a late hidden play acceptance resurrect terminal failure", async () => {
+  let visible = true;
+  const { video, play, player } = fixture({ isVisible: () => visible });
+  const rateChanged = nativeSignal(video, "ratechange");
+  let acceptPlay!: () => void;
+  play.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        acceptPlay = resolve;
+      }),
+  );
+
+  const starting = player.start();
+  video.playbackRate = 1.5;
+  rateChanged();
+  expect(await starting).toEqual({ state: "failed", reason: "rate" });
+
+  visible = false;
+  acceptPlay();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(player.status).toEqual({ state: "failed", reason: "rate" });
 });
 
 it("only a trusted native ended event with ended=true completes playback, never credit", async () => {
@@ -148,6 +221,31 @@ it.each(["no-progress", "seek", "source-change"])(
     expect(onDiagnostic).toHaveBeenCalledWith("END_UNVERIFIED");
   },
 );
+
+it("keeps native play blocked after an unverified end until explicit resume", async () => {
+  const { video, play, pause, player } = fixture();
+  const notify = nativeSignals(video, ["ended", "play", "playing"]);
+  await player.start();
+  Object.defineProperty(video, "ended", { configurable: true, value: true });
+  notify("ended");
+  expect(player.status).toEqual({
+    state: "paused",
+    reason: "unverified-end",
+  });
+  pause.mockClear();
+
+  Object.defineProperty(video, "ended", { configurable: true, value: false });
+  notify("play");
+  notify("playing");
+  expect(pause).toHaveBeenCalledTimes(2);
+  expect(player.status).toEqual({
+    state: "paused",
+    reason: "unverified-end",
+  });
+
+  expect(await player.resume()).toEqual({ state: "playing" });
+  expect(play).toHaveBeenCalledTimes(2);
+});
 
 it("reports login, autoplay denial, play rejection and native media errors", async () => {
   const login = fixture({ isLoginPage: () => true });

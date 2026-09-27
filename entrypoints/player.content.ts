@@ -240,6 +240,7 @@ export default defineContentScript({
           player = new PlaybackPlayer(video, {
             onDiagnostic: diagnostic,
             isLoginPage: () => !playerPage(location.href),
+            isVisible: () => document.visibilityState !== "hidden",
             onStateChange: (status) => {
               diagnostic(
                 `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
@@ -260,6 +261,7 @@ export default defineContentScript({
         player ??= new PlaybackPlayer(video!, {
           onDiagnostic: diagnostic,
           isLoginPage: () => !playerPage(location.href),
+          isVisible: () => document.visibilityState !== "hidden",
           onStateChange: (status) => {
             diagnostic(
               `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,

@@ -85,3 +85,46 @@ test("SPA invalidation physically pauses owned native media", async ({
   expect(evidence.time - stoppedAt).toBeLessThan(0.05);
   expect(page.isClosed()).toBe(false);
 });
+
+test("native play is physically rejected after an adapter pause", async ({
+  page,
+}) => {
+  await page.goto("about:blank");
+  await page.setContent(
+    "<!doctype html><html><body><video muted playsinline></video></body></html>",
+  );
+  await installPlaybackPlayer(page);
+  await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 48;
+    const context = canvas.getContext("2d")!;
+    (window as any).paint = setInterval(() => {
+      context.fillRect(0, 0, 64, 48);
+    }, 40);
+    const video = document.querySelector("video")!;
+    video.srcObject = canvas.captureStream(24);
+    await new Promise<void>((resolve) =>
+      video.addEventListener("loadedmetadata", () => resolve(), { once: true }),
+    );
+    const player = new (window as any).PlaybackPlayer(video);
+    (window as any).player = player;
+    await player.start();
+    player.pause();
+    (window as any).pausedAt = video.currentTime;
+    await video.play().catch(() => undefined);
+  });
+
+  await page.waitForTimeout(500);
+  const evidence = await page.evaluate(() => {
+    const video = document.querySelector("video")!;
+    return {
+      state: (window as any).player.status.state,
+      paused: video.paused,
+      elapsed: video.currentTime - (window as any).pausedAt,
+    };
+  });
+  expect(evidence.state).toBe("paused");
+  expect(evidence.paused).toBe(true);
+  expect(evidence.elapsed).toBeLessThan(0.05);
+});
