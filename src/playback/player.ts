@@ -44,6 +44,13 @@ export class PlaybackPlayer {
   private statusValue: PlaybackStatus = { state: "idle" };
   private cancelPending = new Set<() => void>();
   private detachEvents?: () => void;
+  private completionEvidence?: {
+    progressSeconds: number;
+    source: string;
+    sourceObject: HTMLVideoElement["srcObject"];
+    position: number;
+    pausedPosition?: number;
+  };
 
   constructor(
     private readonly video: HTMLVideoElement,
@@ -90,6 +97,43 @@ export class PlaybackPlayer {
     for (const cancel of [...this.cancelPending]) cancel();
   }
 
+  private clearCompletionEvidence(): void {
+    this.completionEvidence = undefined;
+  }
+
+  private freezeCompletionEvidence(): void {
+    const evidence = this.completionEvidence;
+    if (!evidence) return;
+    if (
+      this.video.seeking ||
+      this.video.ended ||
+      this.video.playbackRate !== 1 ||
+      evidence.source !== this.video.currentSrc ||
+      evidence.sourceObject !== this.video.srcObject
+    ) {
+      this.clearCompletionEvidence();
+      return;
+    }
+    evidence.position = this.video.currentTime;
+    evidence.pausedPosition = this.video.currentTime;
+  }
+
+  private retainEvidenceForResume(): void {
+    const evidence = this.completionEvidence;
+    if (
+      !evidence ||
+      !this.valid() ||
+      this.video.ended ||
+      this.video.seeking ||
+      this.video.playbackRate !== 1 ||
+      evidence.source !== this.video.currentSrc ||
+      evidence.sourceObject !== this.video.srcObject ||
+      evidence.pausedPosition === undefined ||
+      Math.abs(this.video.currentTime - evidence.pausedPosition) > 0.01
+    )
+      this.clearCompletionEvidence();
+  }
+
   /** Starts once from the current native position, at normal speed. */
   start(): Promise<PlaybackStatus> {
     if (this.status.state !== "idle") return Promise.resolve(this.status);
@@ -98,26 +142,26 @@ export class PlaybackPlayer {
 
   resume(): Promise<PlaybackStatus> {
     if (this.status.state !== "paused") return Promise.resolve(this.status);
+    this.retainEvidenceForResume();
     return this.play();
   }
 
   private play(): Promise<PlaybackStatus> {
     if (!this.valid()) return Promise.resolve(this.stop());
-    if (this.options.isLoginPage?.())
+    if (this.options.isLoginPage?.()) {
+      this.clearCompletionEvidence();
       return Promise.resolve(this.set({ state: "blocked-login" }));
+    }
     this.cancel();
     const generation = this.generation;
     const current = () => generation === this.generation && this.valid();
     let settle: ((status: PlaybackStatus) => void) | undefined;
     let observedPlaying = false;
-    let progressSeconds = 0;
     let lastTime = 0;
     let lastWall = 0;
-    let source = "";
-    let sourceObject: HTMLVideoElement["srcObject"] = null;
     const resetEvidence = () => {
       observedPlaying = false;
-      progressSeconds = 0;
+      this.clearCompletionEvidence();
     };
     const rejectUnauthorizedNativePlay = (event: Event): boolean => {
       if (
@@ -144,8 +188,20 @@ export class PlaybackPlayer {
       observedPlaying = true;
       lastTime = this.video.currentTime;
       lastWall = performance.now();
-      source = this.video.currentSrc;
-      sourceObject = this.video.srcObject;
+      const evidence = this.completionEvidence;
+      if (
+        evidence &&
+        (evidence.source !== this.video.currentSrc ||
+          evidence.sourceObject !== this.video.srcObject)
+      )
+        this.clearCompletionEvidence();
+      this.completionEvidence ??= {
+        progressSeconds: 0,
+        source: this.video.currentSrc,
+        sourceObject: this.video.srcObject,
+        position: this.video.currentTime,
+      };
+      this.completionEvidence.pausedPosition = undefined;
       this.options.onDiagnostic?.("NATIVE_PLAYING");
     };
     const nativePlay = (event: Event) => {
@@ -162,35 +218,48 @@ export class PlaybackPlayer {
       observedPlaying = true;
       lastTime = this.video.currentTime;
       lastWall = performance.now();
-      source = this.video.currentSrc;
-      sourceObject = this.video.srcObject;
+      this.completionEvidence ??= {
+        progressSeconds: 0,
+        source: this.video.currentSrc,
+        sourceObject: this.video.srcObject,
+        position: this.video.currentTime,
+      };
+      this.completionEvidence.pausedPosition = undefined;
     }
     const progress = (event: Event) => {
       if (
         !event.isTrusted ||
         !current() ||
         !observedPlaying ||
-        this.video.seeking
+        this.video.seeking ||
+        this.video.paused
       )
         return;
+      if (!this.visible() || this.video.playbackRate !== 1) {
+        resetEvidence();
+        return;
+      }
+      const evidence = this.completionEvidence;
+      if (!evidence) return;
       const time = this.video.currentTime;
       const now = performance.now();
       const delta = time - lastTime;
       const wall = (now - lastWall) / 1000;
       if (
-        source !== this.video.currentSrc ||
-        sourceObject !== this.video.srcObject ||
+        evidence.source !== this.video.currentSrc ||
+        evidence.sourceObject !== this.video.srcObject ||
         delta < 0 ||
         delta > wall + 0.5
       ) {
         resetEvidence();
         return;
       }
-      const before = progressSeconds;
-      progressSeconds += Math.max(0, Math.min(delta, wall));
+      const before = evidence.progressSeconds;
+      evidence.progressSeconds += Math.max(0, Math.min(delta, wall));
+      evidence.position = time;
       lastTime = time;
       lastWall = now;
-      if (before < 1 && progressSeconds >= 1)
+      if (before < 1 && evidence.progressSeconds >= 1)
         this.options.onDiagnostic?.("MEDIA_PROGRESS");
     };
     const reset = (event: Event) => {
@@ -199,28 +268,35 @@ export class PlaybackPlayer {
     const ended = (event: Event) => {
       if (event.isTrusted && current() && this.video.ended) {
         const duration = this.video.duration;
+        const evidence = this.completionEvidence;
         if (
           !observedPlaying ||
-          progressSeconds < 1 ||
+          !evidence ||
+          evidence.progressSeconds < 1 ||
           this.video.seeking ||
-          source !== this.video.currentSrc ||
-          sourceObject !== this.video.srcObject ||
+          !this.visible() ||
+          this.video.playbackRate !== 1 ||
+          evidence.source !== this.video.currentSrc ||
+          evidence.sourceObject !== this.video.srcObject ||
           !Number.isFinite(duration) ||
           duration <= 0 ||
           Math.abs(duration - this.video.currentTime) > 0.5 ||
-          Math.abs(this.video.currentTime - lastTime) > 0.5
+          Math.abs(this.video.currentTime - evidence.position) > 0.5
         ) {
+          this.clearCompletionEvidence();
           this.options.onDiagnostic?.("END_UNVERIFIED");
           settle?.(this.set({ state: "paused", reason: "unverified-end" }));
           return;
         }
         this.detachEvents?.();
         this.detachEvents = undefined;
+        this.clearCompletionEvidence();
         settle?.(this.set({ state: "ended" }));
       }
     };
     const error = (event: Event) => {
       if (event.isTrusted && current() && this.video.error) {
+        this.clearCompletionEvidence();
         this.detachEvents?.();
         this.detachEvents = undefined;
         settle?.(this.set({ state: "failed", reason: "media" }));
@@ -233,11 +309,14 @@ export class PlaybackPlayer {
         this.video.paused &&
         !this.video.ended &&
         this.status.state === "playing"
-      )
+      ) {
+        this.freezeCompletionEvidence();
         this.set({ state: "paused" });
+      }
     };
     const rateChanged = (event: Event) => {
       if (event.isTrusted && current() && this.video.playbackRate !== 1) {
+        this.clearCompletionEvidence();
         this.video.pause();
         this.detachEvents?.();
         this.detachEvents = undefined;
@@ -281,6 +360,7 @@ export class PlaybackPlayer {
         if (generation === this.generation && !this.valid()) this.stop();
         if (current() && this.status.state === "starting") {
           this.video.pause();
+          this.clearCompletionEvidence();
           this.detachEvents?.();
           this.detachEvents = undefined;
           finish(this.set({ state: "failed", reason: "timeout" }));
@@ -336,6 +416,7 @@ export class PlaybackPlayer {
             if (generation === this.generation && !this.valid()) this.stop();
             if (!current()) return;
             this.options.onDiagnostic?.("PLAY_REJECTED");
+            this.clearCompletionEvidence();
             this.detachEvents?.();
             this.detachEvents = undefined;
             const blocked =
@@ -351,6 +432,7 @@ export class PlaybackPlayer {
       } catch {
         if (generation === this.generation && !this.valid()) this.stop();
         if (current()) {
+          this.clearCompletionEvidence();
           this.detachEvents?.();
           this.detachEvents = undefined;
           finish(this.set({ state: "failed", reason: "play" }));
@@ -361,6 +443,7 @@ export class PlaybackPlayer {
 
   pause(): PlaybackStatus {
     if (!this.valid()) return this.status;
+    this.freezeCompletionEvidence();
     this.video.pause();
     if (this.status.state === "playing") return this.set({ state: "paused" });
     return this.status;
@@ -373,6 +456,7 @@ export class PlaybackPlayer {
       this.status.state,
     );
     this.set({ state: "stopped" });
+    this.clearCompletionEvidence();
     this.cancel();
     if (this.ownsVideo() && shouldPause) this.video.pause();
     return this.status;

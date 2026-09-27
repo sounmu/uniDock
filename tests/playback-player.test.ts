@@ -222,6 +222,115 @@ it.each(["no-progress", "seek", "source-change"])(
   },
 );
 
+it("accumulates only measured playback across an explicit pause and resume", async () => {
+  const { video, player } = fixture();
+  const notify = nativeSignals(video, [
+    "playing",
+    "timeupdate",
+    "pause",
+    "ended",
+  ]);
+  const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+  Object.defineProperty(video, "paused", { configurable: true, value: false });
+  Object.defineProperty(video, "duration", { configurable: true, value: 1.2 });
+  await player.start();
+  notify("playing");
+  clock.mockReturnValue(600);
+  video.currentTime = 0.6;
+  notify("timeupdate");
+
+  Object.defineProperty(video, "paused", { configurable: true, value: true });
+  expect(player.pause()).toEqual({ state: "paused" });
+  clock.mockReturnValue(86_400_600);
+  Object.defineProperty(video, "paused", { configurable: true, value: false });
+  await player.resume();
+  clock.mockReturnValue(86_400_720);
+  video.currentTime = 0.72;
+  notify("playing");
+  clock.mockReturnValue(86_401_200);
+  video.currentTime = 1.2;
+  notify("timeupdate");
+  Object.defineProperty(video, "paused", { configurable: true, value: true });
+  Object.defineProperty(video, "ended", { configurable: true, value: true });
+  notify("ended");
+
+  expect(player.status).toEqual({ state: "ended" });
+});
+
+it.each(["seek", "source", "source-object", "hidden"])(
+  "invalidates retained completion evidence after paused %s changes",
+  async (scenario) => {
+    let visible = true;
+    const { video, player } = fixture({ isVisible: () => visible });
+    const notify = nativeSignals(video, [
+      "playing",
+      "timeupdate",
+      "seeking",
+      "loadstart",
+      "ended",
+    ]);
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(video, "duration", { configurable: true, value: 2 });
+    await player.start();
+    notify("playing");
+    clock.mockReturnValue(800);
+    video.currentTime = 0.8;
+    notify("timeupdate");
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: true,
+    });
+    player.pause();
+
+    if (scenario === "seek") {
+      video.currentTime = 1.1;
+      notify("seeking");
+    } else if (scenario === "source") {
+      Object.defineProperty(video, "currentSrc", {
+        configurable: true,
+        value: "https://example.test/reloaded.webm",
+      });
+      notify("loadstart");
+    } else if (scenario === "source-object") {
+      Object.defineProperty(video, "srcObject", {
+        configurable: true,
+        value: {} as MediaStream,
+      });
+    }
+
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: false,
+    });
+    await player.resume();
+    notify("playing");
+    clock.mockReturnValue(1400);
+    video.currentTime = 1.7;
+    if (scenario === "hidden") visible = false;
+    notify("timeupdate");
+    if (scenario === "hidden") visible = true;
+    Object.defineProperty(video, "paused", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(video, "ended", {
+      configurable: true,
+      value: true,
+    });
+    video.currentTime = 2;
+    notify("ended");
+
+    expect(player.status).toEqual({
+      state: "paused",
+      reason: "unverified-end",
+    });
+  },
+);
+
 it("keeps native play blocked after an unverified end until explicit resume", async () => {
   const { video, play, pause, player } = fixture();
   const notify = nativeSignals(video, ["ended", "play", "playing"]);
