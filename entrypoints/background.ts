@@ -520,6 +520,7 @@ export default defineBackground(() => {
     return true;
   });
   if (playback) {
+    const activationVersions = new Map<number, number>();
     // Recreate alarms on every worker boot as well as browser startup: Chrome does not guarantee persistence.
     const recover = () => {
       void playback.startup().then(notifyPlayback);
@@ -534,11 +535,29 @@ export default defineBackground(() => {
         notifyPlayback,
       );
     });
-    chrome.tabs.onActivated.addListener(({ tabId }) => {
-      if (playback.dedicatedTabId !== null && tabId !== playback.dedicatedTabId)
-        void playback
-          .command({ version: 1, type: "PLAYBACK_PAUSE" })
-          .then(notifyPlayback);
+    chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+      const version = (activationVersions.get(windowId) ?? 0) + 1;
+      activationVersions.set(windowId, version);
+      const dedicatedTabId = playback.dedicatedTabId;
+      if (dedicatedTabId === null || tabId === dedicatedTabId) return;
+      void (async () => {
+        let dedicatedTab: chrome.tabs.Tab;
+        try {
+          dedicatedTab = await chrome.tabs.get(dedicatedTabId);
+        } catch {
+          return;
+        }
+        if (
+          activationVersions.get(windowId) !== version ||
+          playback.dedicatedTabId !== dedicatedTabId ||
+          dedicatedTab.id !== dedicatedTabId ||
+          dedicatedTab.windowId !== windowId ||
+          dedicatedTab.active !== false
+        )
+          return;
+        await playback.command({ version: 1, type: "PLAYBACK_PAUSE" });
+        notifyPlayback();
+      })();
     });
     chrome.tabs.onUpdated.addListener((tabId, change) => {
       if (change.status === "loading")

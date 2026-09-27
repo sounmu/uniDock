@@ -7,11 +7,12 @@ vi.mock("wxt/utils/define-background", () => ({
 import background, {
   createChromePlaybackRuntime,
 } from "../entrypoints/background";
+import { PlaybackRuntime } from "../src/playback/runtime";
 import { emptyPlayback, PLAYBACK_STORAGE_KEY } from "../src/playback/storage";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -300,6 +301,138 @@ it("accepts playback commands only from the panel and refuses forged player docu
   );
   expect(forged).toEqual({ ok: false });
   expect(chrome.tabs.get).not.toHaveBeenCalled();
+});
+
+function activationListenerFixture(
+  get: (tabId: number) => Promise<chrome.tabs.Tab>,
+) {
+  let activated!: (activeInfo: { tabId: number; windowId: number }) => void;
+  let dedicatedTabId: number | null = 9;
+  vi.spyOn(PlaybackRuntime.prototype, "startup").mockReturnValue(
+    new Promise(() => {}),
+  );
+  const command = vi
+    .spyOn(PlaybackRuntime.prototype, "command")
+    .mockResolvedValue({ status: "error", code: "PLAYER_LOST" });
+  vi.spyOn(PlaybackRuntime.prototype, "dedicatedTabId", "get").mockImplementation(
+    () => dedicatedTabId,
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test-extension",
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      onMessage: { addListener: vi.fn() },
+      onStartup: { addListener: vi.fn() },
+      onInstalled: { addListener: vi.fn() },
+    },
+    action: actionMocks(),
+    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined) },
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+    tabs: {
+      get: vi.fn(get),
+      onRemoved: { addListener: vi.fn() },
+      onActivated: {
+        addListener: (listener: typeof activated) => {
+          activated = listener;
+        },
+      },
+      onUpdated: { addListener: vi.fn() },
+    },
+    alarms: {
+      clear: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue(undefined),
+      getAll: vi.fn().mockResolvedValue([]),
+      onAlarm: { addListener: vi.fn() },
+    },
+  });
+  background.main();
+  command.mockClear();
+  return {
+    activate(tabId: number, windowId: number) {
+      activated({ tabId, windowId });
+    },
+    command,
+    replaceDedicated(tabId: number | null) {
+      dedicatedTabId = tabId;
+    },
+  };
+}
+
+it("pauses only when another tab makes the dedicated tab inactive in its own window", async () => {
+  let active = true;
+  const get = vi.fn(async () =>
+    ({ id: 9, windowId: 3, active }) as chrome.tabs.Tab,
+  );
+  const fixture = activationListenerFixture(get);
+
+  fixture.activate(20, 4);
+  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  await Promise.resolve();
+  expect(fixture.command).not.toHaveBeenCalled();
+
+  fixture.activate(21, 3);
+  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  await Promise.resolve();
+  expect(fixture.command).not.toHaveBeenCalled();
+
+  active = false;
+  fixture.activate(22, 3);
+  await vi.waitFor(() =>
+    expect(fixture.command).toHaveBeenCalledWith({
+      version: 1,
+      type: "PLAYBACK_PAUSE",
+    }),
+  );
+});
+
+it("ignores a dedicated-tab lookup failure", async () => {
+  const get = vi.fn<(tabId: number) => Promise<chrome.tabs.Tab>>().mockRejectedValue(
+    new Error("removed"),
+  );
+  const fixture = activationListenerFixture(get);
+
+  fixture.activate(20, 3);
+  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  await Promise.resolve();
+  expect(fixture.command).not.toHaveBeenCalled();
+});
+
+it("ignores a lookup response after the dedicated tab is replaced", async () => {
+  const lookup = deferred<chrome.tabs.Tab>();
+  const fixture = activationListenerFixture(() => lookup.promise);
+
+  fixture.activate(20, 3);
+  fixture.replaceDedicated(10);
+  lookup.resolve({ id: 9, windowId: 3, active: false } as chrome.tabs.Tab);
+  await lookup.promise;
+  await Promise.resolve();
+
+  expect(fixture.command).not.toHaveBeenCalled();
+});
+
+it("ignores a stale lookup response after the dedicated tab is reactivated", async () => {
+  const lookup = deferred<chrome.tabs.Tab>();
+  const fixture = activationListenerFixture(() => lookup.promise);
+
+  fixture.activate(20, 3);
+  fixture.activate(9, 3);
+  lookup.resolve({ id: 9, windowId: 3, active: false } as chrome.tabs.Tab);
+  await lookup.promise;
+  await Promise.resolve();
+
+  expect(fixture.command).not.toHaveBeenCalled();
 });
 
 function playbackAdapterFixture({

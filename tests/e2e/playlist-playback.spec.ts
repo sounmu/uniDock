@@ -454,6 +454,67 @@ test("production extension plays a click-ordered playlist and explicitly recover
         .evaluate((video: HTMLVideoElement) => video.playbackRate),
     ).toBe(1);
 
+    const beforeOtherWindow = await secondPage!
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture")
+      .evaluate((video: HTMLVideoElement) => video.currentTime);
+    const crossWindow = await worker.evaluate(
+      async ({ playerUrl, otherUrl }) => {
+        const playerTab = (await chrome.tabs.query({})).find(
+          (tab) => tab.url === playerUrl,
+        );
+        if (playerTab?.id === undefined || playerTab.windowId === undefined)
+          throw new Error("missing dedicated player tab");
+        const created = await chrome.windows.create({
+          url: otherUrl,
+          focused: true,
+          type: "normal",
+        });
+        const otherTab = created?.tabs?.[0];
+        if (!created || created.id === undefined || otherTab?.id === undefined)
+          throw new Error("missing second window tab");
+        await chrome.tabs.update(otherTab.id, { active: true });
+        const [currentPlayer, currentOther] = await Promise.all([
+          chrome.tabs.get(playerTab.id),
+          chrome.tabs.get(otherTab.id),
+        ]);
+        return {
+          playerTabId: currentPlayer.id,
+          playerWindowId: currentPlayer.windowId,
+          playerActive: currentPlayer.active,
+          otherTabId: currentOther.id,
+          otherWindowId: currentOther.windowId,
+          otherActive: currentOther.active,
+          createdWindowId: created.id,
+        };
+      },
+      {
+        playerUrl: secondPage!.url(),
+        otherUrl: `chrome-extension://${extensionId}/sidepanel.html`,
+      },
+    );
+    expect(crossWindow.playerWindowId).not.toBe(crossWindow.otherWindowId);
+    expect(crossWindow.playerActive).toBe(true);
+    expect(crossWindow.otherActive).toBe(true);
+    actions.push(`CROSS_WINDOW_IDS:${JSON.stringify(crossWindow)}`);
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+    await expect
+      .poll(() =>
+        secondPage!
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate(
+            (video: HTMLVideoElement, before) =>
+              !video.paused && video.currentTime > before,
+            beforeOtherWindow,
+          ),
+      )
+      .toBe(true);
+    await worker.evaluate(
+      (windowId) => chrome.windows.remove(windowId),
+      crossWindow.createdWindowId,
+    );
+
     // Switching away is a real inactive-tab pause acknowledgement. Leave the
     // production content heartbeat window elapsed, then explicitly resume the
     // same native adapter with a fresh background authorization.
