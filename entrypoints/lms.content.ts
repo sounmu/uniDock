@@ -269,12 +269,14 @@ export default defineContentScript({
     const catalog = new NavigationCatalog();
     const cache = new QueryResultCache();
     let cacheAccount: string | undefined;
+    let lifecycleEpoch = 0;
     const clearCachedState = () => {
+      lifecycleEpoch++;
       cache.clear();
       cacheAccount = undefined;
       catalog.clear();
     };
-    globalThis.addEventListener?.("pagehide", clearCachedState, { once: true });
+    globalThis.addEventListener?.("pagehide", clearCachedState);
     async function open(
       handle: string,
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
@@ -345,15 +347,22 @@ export default defineContentScript({
         return result;
       }
 
+      let epoch = lifecycleEpoch;
       let account: string;
       try {
         account = await currentAccount(location.origin);
       } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
         clearCachedState();
         return accountError(error);
       }
-      if (cacheAccount !== undefined && cacheAccount !== account)
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (cacheAccount !== account) {
         clearCachedState();
+        epoch = lifecycleEpoch;
+      }
       cacheAccount = account;
       const key = JSON.stringify(message);
       if (!refresh) {
@@ -361,6 +370,8 @@ export default defineContentScript({
         if (hit) return hit;
       }
       const result = await execute();
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
       if (
         result.status === "error" &&
         (result.code === "LOGIN_REQUIRED" || result.code === "FORBIDDEN")
@@ -369,14 +380,20 @@ export default defineContentScript({
         return result;
       }
       if (result.status !== "success") return result;
+      let confirmedAccount: string;
       try {
-        if ((await currentAccount(location.origin)) !== account) {
-          clearCachedState();
-          return { status: "error", code: "LOGIN_REQUIRED" };
-        }
+        confirmedAccount = await currentAccount(location.origin);
       } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
         clearCachedState();
         return accountError(error);
+      }
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (confirmedAccount !== account) {
+        clearCachedState();
+        return { status: "error", code: "LOGIN_REQUIRED" };
       }
       cache.set(key, result, ttl);
       return result;

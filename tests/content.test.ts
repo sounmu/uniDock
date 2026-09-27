@@ -111,6 +111,240 @@ it("clears cached lists when the current LMS account changes", async () => {
   expect(list).toHaveBeenCalledTimes(2);
 });
 
+it("does not commit a cached list whose API response arrives after pagehide", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let release!: (value: unknown) => void;
+  list
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockResolvedValue({ status: "success", courses: [{ name: "current" }] });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const stale = response();
+  listener(request, sender, stale.respond);
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+
+  pagehide();
+  release({ status: "success", courses: [{ name: "stale" }] });
+  expect(await stale.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+
+  for (let index = 0; index < 2; index++) {
+    const current = response();
+    listener(request, sender, current.respond);
+    expect(await current.done).toEqual({
+      status: "success",
+      courses: [{ name: "current" }],
+    });
+  }
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("ignores an initial account rejection from before pagehide without poisoning the new cache owner", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let rejectIdentity!: (reason?: unknown) => void;
+  vi.mocked(fetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectIdentity = reject;
+        }),
+    )
+    .mockImplementation(async () => Response.json({ id: 84 }));
+  list.mockResolvedValue({
+    status: "success",
+    courses: [{ name: "new owner" }],
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async () => {
+    const result = response();
+    listener(request, sender, result.respond);
+    return result.done;
+  };
+  const stale = send();
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+  pagehide();
+  rejectIdentity(new Error("stale identity"));
+  expect(await stale).toEqual({ status: "error", code: "RELOAD_TAB" });
+  for (let index = 0; index < 2; index++) {
+    expect(await send()).toEqual({
+      status: "success",
+      courses: [{ name: "new owner" }],
+    });
+  }
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("ignores a stale rejected post-probe and clears restored-page caches on every pagehide", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  const addEventListener = vi.fn((type: string, listener: EventListener) => {
+    if (type === "pagehide") pagehide = listener as () => void;
+  });
+  vi.stubGlobal("addEventListener", addEventListener);
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let rejectProbe!: (reason?: unknown) => void;
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 2)
+      return new Promise<Response>((_resolve, reject) => {
+        rejectProbe = reject;
+      });
+    return Response.json({ id: 42 });
+  });
+  list
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "stale" }] })
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "first" }] })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "second" }],
+    });
+  (content as unknown as { main: () => void }).main();
+  expect(addEventListener).toHaveBeenCalledWith("pagehide", pagehide);
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async () => {
+    const result = response();
+    listener(request, sender, result.respond);
+    return result.done;
+  };
+  const stale = send();
+  await vi.waitFor(() => expect(identities).toBe(2));
+
+  pagehide();
+  rejectProbe(new Error("stale post-probe"));
+  expect(await stale).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(await send()).toEqual({
+    status: "success",
+    courses: [{ name: "first" }],
+  });
+  expect(await send()).toEqual({
+    status: "success",
+    courses: [{ name: "first" }],
+  });
+  expect(list).toHaveBeenCalledTimes(2);
+
+  pagehide();
+  expect(await send()).toEqual({
+    status: "success",
+    courses: [{ name: "second" }],
+  });
+  expect(list).toHaveBeenCalledTimes(3);
+});
+
+it("rejects a successful post-probe from the prior lifecycle before it can claim cache ownership", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let releaseProbe!: (value: Response) => void;
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 2)
+      return new Promise<Response>((resolve) => {
+        releaseProbe = resolve;
+      });
+    return Response.json({ id: 84 });
+  });
+  list
+    .mockResolvedValueOnce({ status: "success", courses: [{ name: "stale" }] })
+    .mockResolvedValue({
+      status: "success",
+      courses: [{ name: "new owner" }],
+    });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async () => {
+    const result = response();
+    listener(request, sender, result.respond);
+    return result.done;
+  };
+  const stale = send();
+  await vi.waitFor(() => expect(identities).toBe(2));
+
+  pagehide();
+  releaseProbe(Response.json({ id: 42 }));
+  expect(await stale).toEqual({ status: "error", code: "RELOAD_TAB" });
+  for (let index = 0; index < 2; index++) {
+    expect(await send()).toEqual({
+      status: "success",
+      courses: [{ name: "new owner" }],
+    });
+  }
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
 it("clears cached projections after an uncached capability query loses access", async () => {
   const addListener = vi.fn();
   vi.stubGlobal("chrome", {
