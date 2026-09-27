@@ -54,13 +54,14 @@ it("keeps course selection callbacks correct beyond the first page", async () =>
   const onCourse = vi.fn();
   const courses = Array.from({ length: 101 }, (_, i) => ({
     name: `과목 ${i}`,
+    courseSelector: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
   }));
   ui = await mount(
     <ResultList result={{ status: "success", courses }} onCourse={onCourse} />,
   );
   await click("다음");
   await click("과목 100");
-  expect(onCourse).toHaveBeenCalledExactlyOnceWith("과목 100");
+  expect(onCourse).toHaveBeenCalledExactlyOnceWith(courses[100]);
 });
 it("keeps the recording page while an open completes and resets on refresh", async () => {
   const onRecording = vi.fn();

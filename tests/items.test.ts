@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { listQuery } from "../src/api/client";
 import { readUrl } from "../src/security/policy";
 import { isRequest, parseResult, type Request } from "../src/protocol";
+import { NavigationCatalog } from "../src/navigation-catalog";
 import {
   projectAssignments,
   projectCourseTodo,
@@ -16,6 +17,34 @@ const json = (body: unknown, link?: string) =>
       ...(link ? { Link: link } : {}),
     },
   });
+it.each([
+  ["ASSIGNMENTS_LIST", "/api/v1/courses/22/assignments"],
+  ["DEADLINES_LIST", "/api/v1/courses/22/assignments"],
+  ["RECORDINGS_LIST", "/api/v1/courses/22/modules"],
+  ["DOCUMENTS_LIST", "/api/v1/courses/22/modules"],
+] as const)(
+  "executes selector-resolved %s only against its bound course",
+  async (type, path) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json([]));
+    const result = await listQuery(
+      origin,
+      {
+        version: 1,
+        type,
+        courseSelector: "00000000-0000-4000-8000-000000000001",
+      },
+      fetcher,
+      Date.now(),
+      type === "RECORDINGS_LIST" || type === "DOCUMENTS_LIST"
+        ? new NavigationCatalog()
+        : undefined,
+      "22",
+    );
+    expect(result.status).toBe("success");
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(new URL(String(fetcher.mock.calls[0]![0])).pathname).toBe(path);
+  },
+);
 it.each(["ASSIGNMENTS_LIST", "DEADLINES_LIST", "UPCOMING_LIST"] as const)(
   "paginates %s",
   async (type) => {
@@ -146,6 +175,22 @@ it("lists unfinished assignments from every active course in Todo", async () => 
 it.each([
   [{ version: 1, type: "ASSIGNMENTS_LIST", course: "" }],
   [{ version: 1, type: "ASSIGNMENTS_LIST", course: "x", course_id: 101 }],
+  [
+    {
+      version: 1,
+      type: "ASSIGNMENTS_LIST",
+      course: "Course",
+      courseSelector: "00000000-0000-4000-8000-000000000001",
+    },
+  ],
+  [
+    {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD",
+      handle: "00000000-0000-4000-8000-000000000002",
+      courseSelector: "00000000-0000-4000-8000-000000000001",
+    },
+  ],
   [{ version: 1, type: "TODO_LIST", method: "DELETE" }],
   [{ version: 1, type: "UPCOMING_LIST", start_date: "2026-02-30" }],
   [

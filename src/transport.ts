@@ -65,7 +65,9 @@ export async function queryActive(
       if (options.refresh && !query.type.endsWith("_LIST"))
         return { status: "error", code: "POLICY" };
       const capabilityList =
-        query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST";
+        query.type === "COURSES_LIST" ||
+        query.type === "RECORDINGS_LIST" ||
+        query.type === "DOCUMENTS_LIST";
       if (
         (capabilityList && !validScope(options.capabilityScope)) ||
         (!capabilityList && options.capabilityScope !== undefined)
@@ -153,5 +155,5 @@ function validScope(value: unknown): value is string {
 }
 
 export function queryActiveCourses(): Promise<Result> {
-  return queryActive(request);
+  return queryActive(request, { capabilityScope: crypto.randomUUID() });
 }

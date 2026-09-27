@@ -4,6 +4,7 @@ import { ItemResults } from "./ItemResults";
 import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
+import type { Course } from "../../src/domain";
 export { dateLabel } from "./ItemResults";
 export function ResultList({
   result,
@@ -14,7 +15,7 @@ export function ResultList({
   course = "",
 }: {
   readonly result: Extract<Result, { status: "success" }>;
-  readonly onCourse: (name: string) => void;
+  readonly onCourse: (course: Course) => void;
   readonly onRecording?: (handle: string) => void;
   readonly recordingPending?: boolean;
   readonly usedRecordingHandles?: ReadonlySet<string>;
@@ -104,12 +105,12 @@ export function ResultList({
           <div className="notice">현재 조회 가능한 과목이 없습니다.</div>
         ) : (
           <PagedList items={result.courses}>
-            {(row, index) => (
-              <li key={index}>
+            {(row) => (
+              <li key={row.courseSelector}>
                 <ListRow
                   title={row.name}
                   course="과제·녹화·자료"
-                  onClick={() => onCourse(row.name)}
+                  onClick={() => onCourse(row)}
                 />
               </li>
             )}

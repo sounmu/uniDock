@@ -9,8 +9,16 @@ import { QueryGate } from "./query-gate";
 export function useSidepanelQuery(sharedGate?: QueryGate) {
   const localGate = useRef(new QueryGate()).current;
   const gate = sharedGate ?? localGate;
-  const { section, tasksMode, courseTab, course, setCourse, view, setView } =
-    usePanelNavigation();
+  const {
+    section,
+    tasksMode,
+    courseTab,
+    course,
+    selectedCourse,
+    setCourse,
+    view,
+    setView,
+  } = usePanelNavigation();
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [state, setState] = useState<Result | { status: "idle" | "loading" }>({
@@ -18,8 +26,10 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   });
   const generation = useRef(0);
   const capabilityScope = useRef(crypto.randomUUID()).current;
+  const courseScope = useRef(crypto.randomUUID()).current;
   const inFlight = useRef<Promise<Result> | null>(null);
   const recordingTarget = useRef<QueryTarget | null>(null);
+  const courseTarget = useRef<QueryTarget | null>(null);
   const downloads = useDocumentDownloads({
     gate,
     generation,
@@ -52,7 +62,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   function showCourses() {
     downloads.cancel();
     resetRecordingAction();
-    setCourse("");
+    setCourse(null);
     setView("COURSES_LIST");
     void load({ version: 1, type: "COURSES_LIST" });
   }
@@ -61,7 +71,17 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       clear();
       return;
     }
+    if (
+      "courseSelector" in query &&
+      query.courseSelector &&
+      !courseTarget.current
+    ) {
+      generation.current++;
+      setState({ status: "error", code: "STALE_SELECTION" });
+      return;
+    }
     const current = ++generation.current;
+    if (query.type === "COURSES_LIST") courseTarget.current = null;
     downloads.cancel();
     if (query.type === "DOCUMENTS_LIST") downloads.reset();
     resetRecordingAction();
@@ -72,21 +92,52 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       lease.release();
       return;
     }
+    let issuingCourseTarget: QueryTarget | null = null;
     const work =
-      query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
+      query.type === "COURSES_LIST"
         ? queryActive(query, {
             refresh: options.refresh,
-            capabilityScope,
-            onTarget: (target) => {
-              if (current === generation.current)
-                recordingTarget.current = target;
-            },
+            capabilityScope: courseScope,
+            onTarget: (target) => (issuingCourseTarget = target),
           })
-        : queryActive(query, { refresh: options.refresh });
+        : query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
+          ? queryActive(query, {
+              refresh: options.refresh,
+              capabilityScope,
+              ...(courseTarget.current ? { target: courseTarget.current } : {}),
+              onTarget: (target) => {
+                if (current === generation.current)
+                  recordingTarget.current = target;
+              },
+            })
+          : queryActive(query, {
+              refresh: options.refresh,
+              ...(query.type === "ASSIGNMENTS_LIST" ||
+              query.type === "DEADLINES_LIST"
+                ? courseTarget.current
+                  ? { target: courseTarget.current }
+                  : {}
+                : {}),
+            });
     inFlight.current = work;
     const result = await work.finally(lease.release);
     if (inFlight.current === work) inFlight.current = null;
     if (current === generation.current) {
+      if (query.type === "COURSES_LIST") {
+        courseTarget.current =
+          result.status === "success" && "courses" in result
+            ? issuingCourseTarget
+            : null;
+      } else if (
+        "courseSelector" in query &&
+        result.status === "error" &&
+        (result.code === "STALE_SELECTION" || result.code === "RELOAD_TAB")
+      ) {
+        // Selectors are scoped to the exact course-list source document.
+        // Never retry them against another document or fall back to a name.
+        courseTarget.current = null;
+        setCourse(null);
+      }
       setState(result);
     }
   }
@@ -149,7 +200,13 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     view === "RECORDINGS_LIST" ||
     view === "DOCUMENTS_LIST";
   const query: Request = needsCourse
-    ? { version: 1, type: view, course }
+    ? selectedCourse
+      ? {
+          version: 1,
+          type: view,
+          courseSelector: selectedCourse.courseSelector,
+        }
+      : { version: 1, type: view, courseSelector: "" }
     : view === "UPCOMING_LIST"
       ? {
           version: 1,
@@ -170,6 +227,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     view,
     setView,
     course,
+    selectedCourse,
     setCourse,
     start,
     setStart,

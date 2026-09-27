@@ -176,17 +176,35 @@ test("production playback stays bound to the listing document across LMS tabs", 
         });
         const tab = tabs.find((candidate) => candidate.url === url);
         if (tab?.id === undefined) throw new Error("missing listing tab");
+        const scope = crypto.randomUUID();
+        const courseResult = (await chrome.tabs.sendMessage(
+          tab.id,
+          {
+            version: 1,
+            type: "CAPABILITY_LIST",
+            scope,
+            refresh: false,
+            request: { version: 1, type: "COURSES_LIST" },
+          },
+          { frameId: 0 },
+        )) as {
+          status: string;
+          courses?: { courseSelector: string }[];
+        };
+        const courseSelector = courseResult.courses?.[0]?.courseSelector;
+        if (courseResult.status !== "success" || !courseSelector)
+          throw new Error("missing course selector");
         const result = (await chrome.tabs.sendMessage(
           tab.id,
           {
             version: 1,
             type: "CAPABILITY_LIST",
-            scope: crypto.randomUUID(),
+            scope,
             refresh: false,
             request: {
               version: 1,
               type: "RECORDINGS_LIST",
-              course: "합성 운영체제",
+              courseSelector,
             },
           },
           { frameId: 0 },
@@ -991,17 +1009,35 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
         url: ["https://mylms.korea.ac.kr/*"],
       });
       if (tab?.id === undefined) throw new Error("missing synthetic LMS tab");
+      const scope = crypto.randomUUID();
+      const courseResult = (await chrome.tabs.sendMessage(
+        tab.id,
+        {
+          version: 1,
+          type: "CAPABILITY_LIST",
+          scope,
+          refresh: false,
+          request: { version: 1, type: "COURSES_LIST" },
+        },
+        { frameId: 0 },
+      )) as {
+        status: string;
+        courses?: { courseSelector: string }[];
+      };
+      const courseSelector = courseResult.courses?.[0]?.courseSelector;
+      if (courseResult.status !== "success" || !courseSelector)
+        throw new Error("missing course selector");
       const result = (await chrome.tabs.sendMessage(
         tab.id,
         {
           version: 1,
           type: "CAPABILITY_LIST",
-          scope: crypto.randomUUID(),
+          scope,
           refresh: false,
           request: {
             version: 1,
             type: "RECORDINGS_LIST",
-            course: "합성 운영체제",
+            courseSelector,
           },
         },
         { frameId: 0 },
@@ -1316,17 +1352,35 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
         url: ["https://mylms.korea.ac.kr/*"],
       });
       if (tab?.id === undefined) throw new Error("missing synthetic LMS tab");
+      const scope = crypto.randomUUID();
+      const courseResult = (await chrome.tabs.sendMessage(
+        tab.id,
+        {
+          version: 1,
+          type: "CAPABILITY_LIST",
+          scope,
+          refresh: false,
+          request: { version: 1, type: "COURSES_LIST" },
+        },
+        { frameId: 0 },
+      )) as {
+        status: string;
+        courses?: { courseSelector: string }[];
+      };
+      const courseSelector = courseResult.courses?.[0]?.courseSelector;
+      if (courseResult.status !== "success" || !courseSelector)
+        throw new Error("missing course selector");
       const result = (await chrome.tabs.sendMessage(
         tab.id,
         {
           version: 1,
           type: "CAPABILITY_LIST",
-          scope: crypto.randomUUID(),
+          scope,
           refresh: false,
           request: {
             version: 1,
             type: "RECORDINGS_LIST",
-            course: "합성 운영체제",
+            courseSelector,
           },
         },
         { frameId: 0 },

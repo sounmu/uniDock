@@ -135,12 +135,26 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     }, origin);
     const original = await lms.evaluate(() => window.cacheLifecycle?.instance);
     expect(original).toBeTruthy();
+    const scope = "10000000-0000-4000-8000-000000000001";
 
-    await panel.evaluate((id) => {
-      window.cacheInitialResult = chrome.tabs
-        .sendMessage(id, { version: 1, type: "COURSES_LIST" }, { frameId: 0 })
-        .catch(() => ({ channelClosed: true }));
-    }, tabId);
+    await panel.evaluate(
+      ({ id, scope }) => {
+        window.cacheInitialResult = chrome.tabs
+          .sendMessage(
+            id,
+            {
+              version: 1,
+              type: "CAPABILITY_LIST",
+              scope,
+              refresh: false,
+              request: { version: 1, type: "COURSES_LIST" },
+            },
+            { frameId: 0 },
+          )
+          .catch(() => ({ channelClosed: true }));
+      },
+      { id: tabId, scope },
+    );
     await coursesStarted.promise;
     timeline.push({ event: "navigate-away" });
     await lms.goto(`${origin}/other`);
@@ -182,16 +196,29 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     // Reattach to the still-gated operation through real runtime messaging.
     // The different query's BUSY reply is a message-dispatch barrier; it makes
     // late completion observable without sleeps or reading extension internals.
-    const busy = await panel.evaluate(async (id) => {
-      window.cacheLateResult = chrome.tabs
-        .sendMessage(id, { version: 1, type: "COURSES_LIST" }, { frameId: 0 })
-        .catch(() => ({ channelClosed: true }));
-      return chrome.tabs.sendMessage(
-        id,
-        { version: 1, type: "TODO_LIST" },
-        { frameId: 0 },
-      );
-    }, tabId);
+    const busy = await panel.evaluate(
+      async ({ id, scope }) => {
+        window.cacheLateResult = chrome.tabs
+          .sendMessage(
+            id,
+            {
+              version: 1,
+              type: "CAPABILITY_LIST",
+              scope,
+              refresh: false,
+              request: { version: 1, type: "COURSES_LIST" },
+            },
+            { frameId: 0 },
+          )
+          .catch(() => ({ channelClosed: true }));
+        return chrome.tabs.sendMessage(
+          id,
+          { version: 1, type: "TODO_LIST" },
+          { frameId: 0 },
+        );
+      },
+      { id: tabId, scope },
+    );
     expect(busy).toEqual({ status: "error", code: "BUSY" });
     expect(coursesRequests).toBe(1);
     expect(identities).toEqual([1, 1]);
@@ -211,31 +238,38 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
 
     // In the restored lifecycle, hold a fresh A refresh and join it from B.
     // Every admitted caller must independently probe identity before sharing.
-    await panel.evaluate((id) => {
-      const refresh = {
-        version: 1,
-        type: "QUERY_REFRESH",
-        request: { version: 1, type: "COURSES_LIST" },
-      };
-      window.cacheAccountOwner = chrome.tabs.sendMessage(id, refresh, {
-        frameId: 0,
-      });
-    }, tabId);
+    await panel.evaluate(
+      ({ id, scope }) => {
+        const refresh = {
+          version: 1,
+          type: "CAPABILITY_LIST",
+          scope,
+          refresh: true,
+          request: { version: 1, type: "COURSES_LIST" },
+        };
+        window.cacheAccountOwner = chrome.tabs.sendMessage(id, refresh, {
+          frameId: 0,
+        });
+      },
+      { id: tabId, scope },
+    );
     await accountRaceStarted.promise;
     account = 2;
     timeline.push({ event: "switch-fixture-account", account });
     const accountFollower: unknown = await panel.evaluate(
-      (id) =>
+      ({ id, scope }) =>
         chrome.tabs.sendMessage(
           id,
           {
             version: 1,
-            type: "QUERY_REFRESH",
+            type: "CAPABILITY_LIST",
+            scope,
+            refresh: true,
             request: { version: 1, type: "COURSES_LIST" },
           },
           { frameId: 0 },
         ),
-      tabId,
+      { id: tabId, scope },
     );
     evidence.accountFollower = accountFollower;
     expect(accountFollower).toEqual({
@@ -252,16 +286,22 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     expect(accountOwner).toEqual({ status: "error", code: "RELOAD_TAB" });
 
     const resultB: unknown = await panel.evaluate(
-      (id) =>
+      ({ id, scope }) =>
         chrome.tabs.sendMessage(
           id,
-          { version: 1, type: "COURSES_LIST" },
+          {
+            version: 1,
+            type: "CAPABILITY_LIST",
+            scope,
+            refresh: false,
+            request: { version: 1, type: "COURSES_LIST" },
+          },
           { frameId: 0 },
         ),
-      tabId,
+      { id: tabId, scope },
     );
     evidence.resultB = resultB;
-    expect.soft(resultB).toEqual({
+    expect.soft(resultB).toMatchObject({
       status: "success",
       courses: [{ name: "Account B course" }],
     });

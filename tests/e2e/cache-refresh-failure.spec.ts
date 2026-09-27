@@ -69,36 +69,53 @@ test("a failed production refresh cannot resurrect the previously cached courses
           chrome.tabs.sendMessage(id as number, payload, { frameId: 0 }),
         [tabId, message] as const,
       );
+    const scope = "10000000-0000-4000-8000-000000000001";
     const request = { version: 1, type: "COURSES_LIST" };
+    const courses = (refresh: boolean) => ({
+      version: 1,
+      type: "CAPABILITY_LIST",
+      scope,
+      refresh,
+      request,
+    });
 
-    expect(await send(request)).toEqual({
+    const old = await send(courses(false));
+    expect(old).toMatchObject({
       status: "success",
       courses: [{ name: "Old course" }],
     });
-    expect(await send(request)).toEqual({
+    const oldCached = await send(courses(false));
+    expect(oldCached).toMatchObject({
       status: "success",
       courses: [{ name: "Old course" }],
     });
+    expect(
+      (oldCached as { courses: { courseSelector: string }[] }).courses[0]
+        ?.courseSelector,
+    ).not.toBe(
+      (old as { courses: { courseSelector: string }[] }).courses[0]
+        ?.courseSelector,
+    );
     expect(coursesRequests).toBe(1);
 
     courseResponse = "failure";
-    expect(await send({ version: 1, type: "QUERY_REFRESH", request })).toEqual({
+    expect(await send(courses(true))).toEqual({
       status: "error",
       code: "NETWORK",
     });
     expect(coursesRequests).toBe(2);
 
     courseResponse = "new";
-    const fresh = await send(request);
-    expect(fresh).toEqual({
+    const fresh = await send(courses(false));
+    expect(fresh).toMatchObject({
       status: "success",
       courses: [{ name: "New course" }],
     });
-    expect(fresh).not.toEqual({
+    expect(fresh).not.toMatchObject({ courses: [{ name: "Old course" }] });
+    expect(await send(courses(false))).toMatchObject({
       status: "success",
-      courses: [{ name: "Old course" }],
+      courses: [{ name: "New course" }],
     });
-    expect(await send(request)).toEqual(fresh);
     expect(coursesRequests).toBe(3);
   } finally {
     if (context) await context.close();

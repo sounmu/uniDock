@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Course } from "../../src/domain";
 import type { Section } from "./ui/Rail";
 export type SidepanelView =
   | "COURSES_LIST"
@@ -15,7 +16,8 @@ export function usePanelNavigation() {
   const [courseTab, setCourseTab] = useState<
     "assignments" | "recordings" | "materials"
   >("assignments");
-  const [course, setCourse] = useState("");
+  const [selectedCourse, setCourse] = useState<Course | null>(null);
+  const course = selectedCourse?.name ?? "";
   const view: SidepanelView =
     section === "playback"
       ? "PLAYBACK"
@@ -25,7 +27,7 @@ export function usePanelNavigation() {
           ? tasksMode === "todo"
             ? "TODO_LIST"
             : "UPCOMING_LIST"
-          : !course
+          : !selectedCourse
             ? "COURSES_LIST"
             : courseTab === "assignments"
               ? "ASSIGNMENTS_LIST"
@@ -36,7 +38,7 @@ export function usePanelNavigation() {
     switch (next) {
       case "COURSES_LIST":
         setSection("courses");
-        setCourse("");
+        setCourse(null);
         break;
       case "ASSIGNMENTS_LIST":
         setSection("courses");
@@ -70,5 +72,14 @@ export function usePanelNavigation() {
       }
     }
   }
-  return { section, tasksMode, courseTab, course, setCourse, view, setView };
+  return {
+    section,
+    tasksMode,
+    courseTab,
+    course,
+    selectedCourse,
+    setCourse,
+    view,
+    setView,
+  };
 }

@@ -2,7 +2,7 @@ import { itemUrl } from "./security/item-link";
 import { fields, resultKey } from "./protocol-fields";
 import { type Recording } from "./recordings";
 import { type Document } from "./documents";
-import { type Course, projectCourses } from "./domain";
+import { type Course } from "./domain";
 import {
   type Assignment,
   type Deadline,
@@ -40,6 +40,17 @@ export type ListRequest =
         | "RECORDINGS_LIST"
         | "DOCUMENTS_LIST";
       course: string;
+      courseSelector?: never;
+    }
+  | {
+      version: 1;
+      type:
+        | "ASSIGNMENTS_LIST"
+        | "DEADLINES_LIST"
+        | "RECORDINGS_LIST"
+        | "DOCUMENTS_LIST";
+      courseSelector: string;
+      course?: never;
     }
   | {
       version: 1;
@@ -47,11 +58,12 @@ export type ListRequest =
       start_date?: string;
       end_date?: string;
     };
-export type CapabilityListRequest = {
-  version: 1;
-  type: "RECORDINGS_LIST" | "DOCUMENTS_LIST";
-  course: string;
-};
+export type CapabilityListRequest =
+  | {
+      version: 1;
+      type: "COURSES_LIST";
+    }
+  | Extract<ListRequest, { course: string } | { courseSelector: string }>;
 export type Request =
   | ListRequest
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
@@ -129,17 +141,26 @@ export function isRequest(value: unknown): value is Request {
     row.type === "ASSIGNMENTS_LIST" ||
     row.type === "DEADLINES_LIST" ||
     row.type === "RECORDINGS_LIST" ||
-    row.type === "DOCUMENTS_LIST" ||
-    row.type === "DOCUMENT_DOWNLOAD"
+    row.type === "DOCUMENTS_LIST"
   )
     return (
-      (row.type === "DOCUMENT_DOWNLOAD"
-        ? keys.length === 4 && validHandle(row.handle)
-        : keys.length === 3) &&
+      keys.length === 3 &&
+      ((typeof row.course === "string" &&
+        row.course.trim().length > 0 &&
+        row.course.length <= 2000 &&
+        redactText(row.course) === row.course &&
+        row.courseSelector === undefined) ||
+        (validHandle(row.courseSelector) && row.course === undefined))
+    );
+  if (row.type === "DOCUMENT_DOWNLOAD")
+    return (
+      keys.length === 4 &&
+      validHandle(row.handle) &&
       typeof row.course === "string" &&
       row.course.trim().length > 0 &&
       row.course.length <= 2000 &&
-      redactText(row.course) === row.course
+      redactText(row.course) === row.course &&
+      row.courseSelector === undefined
     );
   if (row.type === "UPCOMING_LIST")
     return (
@@ -163,7 +184,8 @@ export function panelQuery(value: unknown): {
   deadline?: number;
 } | null {
   if (isRequest(value))
-    return value.type === "RECORDINGS_LIST" ||
+    return value.type === "COURSES_LIST" ||
+      value.type === "RECORDINGS_LIST" ||
       value.type === "DOCUMENTS_LIST" ||
       value.type === "DOCUMENT_DOWNLOAD"
       ? null
@@ -191,7 +213,8 @@ export function panelQuery(value: unknown): {
       !validHandle(row.scope) ||
       typeof row.refresh !== "boolean" ||
       !isRequest(row.request) ||
-      (row.request.type !== "RECORDINGS_LIST" &&
+      (row.request.type !== "COURSES_LIST" &&
+        row.request.type !== "RECORDINGS_LIST" &&
         row.request.type !== "DOCUMENTS_LIST")
     )
       return null;
@@ -209,6 +232,7 @@ export function panelQuery(value: unknown): {
     return null;
   const request = row.request;
   return request.type.endsWith("_LIST") &&
+    request.type !== "COURSES_LIST" &&
     request.type !== "RECORDINGS_LIST" &&
     request.type !== "DOCUMENTS_LIST"
     ? { request: request as ListRequest, refresh: true }
@@ -248,15 +272,31 @@ export function parseResult(
         row.status !== "success" ||
         keys.length !== 1 ||
         !key ||
+        Object.keys(row).some(
+          (field) =>
+            field !== "status" &&
+            field !== key &&
+            !(key === "recordings" && field === "documentToken"),
+        ) ||
         (expected && resultKey[expected.type] !== key)
       )
         throw new Error();
       const raw = row[key];
       if (!Array.isArray(raw) || raw.length > 10000) throw new Error();
       if (key === "courses") {
-        const courses: Course[] = [];
-        for (let i = 0; i < raw.length; i += 1000)
-          courses.push(...projectCourses(raw.slice(i, i + 1000)));
+        const courses: Course[] = raw.map((item: unknown) => {
+          if (!item || typeof item !== "object") throw new Error();
+          const course = item as Record<string, unknown>;
+          if (
+            Object.keys(course).length !== 2 ||
+            typeof course.name !== "string" ||
+            course.name.length > 2000 ||
+            redactText(course.name) !== course.name ||
+            !validHandle(course.courseSelector)
+          )
+            throw new Error();
+          return { name: course.name, courseSelector: course.courseSelector };
+        });
         return { status: "success", courses };
       }
       const schema = fields[key as keyof typeof fields];

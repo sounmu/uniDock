@@ -24,8 +24,8 @@ export function PlaybackConfirmation({
           onChange={(event) => m.setCourse(event.target.value)}
         >
           <option value="">과목 선택</option>
-          {m.snapshot?.courses.map((item) => (
-            <option key={item.id} value={item.id}>
+          {m.courses.map((item) => (
+            <option key={item.courseSelector} value={item.courseSelector}>
               {item.name}
             </option>
           ))}

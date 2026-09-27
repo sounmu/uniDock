@@ -24,7 +24,12 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
                 aria-pressed={model.view === type}
                 onClick={() => {
                   model.setView(type);
-                  void model.load({ version: 1, type, course: model.course });
+                  if (model.selectedCourse)
+                    void model.load({
+                      version: 1,
+                      type,
+                      courseSelector: model.selectedCourse.courseSelector,
+                    });
                 }}
               >
                 {label}
@@ -35,11 +40,11 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
       )}
       {model.view === "DOCUMENTS_LIST" ? (
         <MaterialsTab
-          key={
+          key={`${model.selectedCourse?.courseSelector ?? "none"}:${
             model.state.status === "success" && "documents" in model.state
               ? (model.state.documents[0]?.lmsHandle ?? "empty")
               : model.state.status
-          }
+          }`}
           model={model}
         />
       ) : (

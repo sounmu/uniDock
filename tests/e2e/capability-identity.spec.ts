@@ -89,17 +89,41 @@ test("production capabilities cannot cross synthetic LMS accounts", async ({
     }, origin);
     const listed: unknown = await panel.evaluate(
       (id) =>
-        chrome.tabs.sendMessage(
-          id,
-          {
-            version: 1,
-            type: "CAPABILITY_LIST",
-            scope: crypto.randomUUID(),
-            refresh: false,
-            request: { version: 1, type: "RECORDINGS_LIST", course: "Course" },
-          },
-          { frameId: 0 },
-        ),
+        (async () => {
+          const scope = crypto.randomUUID();
+          const courses = (await chrome.tabs.sendMessage(
+            id,
+            {
+              version: 1,
+              type: "CAPABILITY_LIST",
+              scope,
+              refresh: false,
+              request: { version: 1, type: "COURSES_LIST" },
+            },
+            { frameId: 0 },
+          )) as {
+            status: string;
+            courses?: { courseSelector: string }[];
+          };
+          const courseSelector = courses.courses?.[0]?.courseSelector;
+          if (courses.status !== "success" || !courseSelector)
+            throw new Error("Missing course selector");
+          return chrome.tabs.sendMessage(
+            id,
+            {
+              version: 1,
+              type: "CAPABILITY_LIST",
+              scope,
+              refresh: false,
+              request: {
+                version: 1,
+                type: "RECORDINGS_LIST",
+                courseSelector,
+              },
+            },
+            { frameId: 0 },
+          );
+        })(),
       tabId,
     );
     expect(listed).toMatchObject({ status: "success" });

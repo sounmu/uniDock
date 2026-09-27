@@ -36,7 +36,8 @@ function PlaybackHarness({ gate }: { gate?: QueryGate }) {
   return (
     <div>
       <output>{model.pending ? "busy" : "idle"}</output>
-      <button onClick={() => void model.loadRecordings("12")}>load</button>
+      <button onClick={() => void model.loadCourses()}>courses</button>
+      <button onClick={() => model.setCourse(courseSelector12)}>load</button>
       <button
         onClick={() => void model.run({ version: 1, type: "PLAYBACK_REFRESH" })}
       >
@@ -54,6 +55,9 @@ function PlaybackHarness({ gate }: { gate?: QueryGate }) {
 }
 
 const draftHandle = "00000000-0000-4000-8000-000000000071";
+const courseSelector12 = "00000000-0000-4000-8000-000000000012";
+const courseSelector13 = "00000000-0000-4000-8000-000000000013";
+const courseTarget = { id: 7, url: "https://mylms.korea.ac.kr/" };
 const draftTarget = {
   id: 7,
   url: "https://mylms.korea.ac.kr/",
@@ -76,7 +80,8 @@ function LifecycleHarness() {
       </output>
       <output data-testid="status">{model.snapshot?.status}</output>
       <output data-testid="error">{model.error}</output>
-      <button onClick={() => void model.loadRecordings("12")}>load</button>
+      <button onClick={() => void model.loadCourses()}>courses</button>
+      <button onClick={() => model.setCourse(courseSelector12)}>load</button>
       <button onClick={() => model.selectRecording(draftHandle, true)}>
         select
       </button>
@@ -99,11 +104,22 @@ function successfulDraftQuery() {
   });
 }
 
+function successfulCourseQuery(
+  courses = [{ name: "역사", courseSelector: courseSelector12 }],
+) {
+  return query.mockImplementationOnce(async (_request, options) => {
+    options.onTarget(courseTarget);
+    return { status: "success", courses };
+  });
+}
+
 it.each(["command", "recordings"] as const)(
   "stays busy until both overlapping operations finish when %s finishes first",
   async (first) => {
     setup();
     ui = await mount(<PlaybackHarness />);
+    successfulCourseQuery();
+    await click("courses");
     const commandWork = deferred<{
       status: "success";
       snapshot: PlaybackSnapshot;
@@ -145,7 +161,7 @@ it("does not refresh or dispatch a gate-delayed recording query after unmount", 
   const lease = await gate.acquire();
   setup();
   ui = await mount(<PlaybackHarness gate={gate} />);
-  await click("load");
+  await click("courses");
   await ui.unmount();
   lease.release();
   await act(async () => {});
@@ -167,8 +183,10 @@ it("does not hold STOP behind the LMS query gate", async () => {
 
 it("invalidates the old target and selected draft as soon as reload starts", async () => {
   setup();
+  successfulCourseQuery();
   successfulDraftQuery();
   ui = await mount(<LifecycleHarness />);
+  await click("courses");
   await click("load");
   await click("select");
   expect(ui.host.querySelector('[data-testid="draft"]')?.textContent).toContain(
@@ -194,8 +212,10 @@ it("invalidates the old target and selected draft as soon as reload starts", asy
 
 it("spends a selected draft synchronously and never resends it after failure", async () => {
   setup();
+  successfulCourseQuery();
   successfulDraftQuery();
   ui = await mount(<LifecycleHarness />);
+  await click("courses");
   await click("load");
   await click("select");
   const failedStart = deferred<{ status: "error"; code: "TIMEOUT" }>();
@@ -222,8 +242,10 @@ it("spends a selected draft synchronously and never resends it after failure", a
 
 it("does not restore an old BUSY start after an urgent stop", async () => {
   setup();
+  successfulCourseQuery();
   successfulDraftQuery();
   ui = await mount(<LifecycleHarness />);
+  await click("courses");
   await click("load");
   await click("select");
   const oldStart = deferred<{ status: "error"; code: "BUSY" }>();
@@ -246,8 +268,10 @@ it("does not restore an old BUSY start after an urgent stop", async () => {
 
 it("preserves a newly loaded draft when an older start fails late", async () => {
   setup();
+  successfulCourseQuery();
   successfulDraftQuery();
   ui = await mount(<LifecycleHarness />);
+  await click("courses");
   await click("load");
   await click("select");
   const oldStart = deferred<{ status: "error"; code: "TIMEOUT" }>();
@@ -294,6 +318,7 @@ it("keeps the selection view open when immediate playback cannot start", async (
         order: 1,
       },
     ],
+    courses: [{ name: "역사", courseSelector: courseSelector12 }],
     course: "12",
     setCourse: vi.fn(),
     deletePrompt: false,
@@ -310,6 +335,16 @@ it("keeps the selection view open when immediate playback cannot start", async (
 
 function setup(snapshot = idle) {
   let current = snapshot;
+  query.mockImplementation(async (request, options) => {
+    if (request.type === "COURSES_LIST") {
+      options.onTarget(courseTarget);
+      return {
+        status: "success",
+        courses: [{ name: "역사", courseSelector: courseSelector12 }],
+      };
+    }
+    return { status: "success", recordings: [] };
+  });
   command.mockImplementation(async (request) => {
     if (request.type === "PLAYBACK_START")
       current = {
@@ -349,6 +384,13 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
     "00000000-0000-4000-8000-000000000003",
   ];
   query.mockImplementation(async (_request, options) => {
+    if (_request.type === "COURSES_LIST") {
+      options.onTarget(courseTarget);
+      return {
+        status: "success",
+        courses: [{ name: "역사", courseSelector: courseSelector12 }],
+      };
+    }
     options.onTarget({
       id: 7,
       url: "https://mylms.korea.ac.kr/",
@@ -385,9 +427,19 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
   await click("영상 선택");
   const select = ui.host.querySelector("select")!;
   await act(async () => {
-    select.value = "12";
+    select.value = courseSelector12;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  expect(
+    query.mock.calls.find(
+      ([request]) => request.type === "RECORDINGS_LIST",
+    )?.[1],
+  ).toEqual(
+    expect.objectContaining({
+      target: courseTarget,
+      capabilityScope: expect.any(String),
+    }),
+  );
   await click("영상 불러오기");
   const choices = [
     ...ui.host.querySelectorAll<HTMLInputElement>(
@@ -419,14 +471,7 @@ it("starts recordings in checkbox click order and moves a rechecked item to the 
 });
 
 it("dispatches only the latest recording list after waiting for the gate", async () => {
-  const multiCourse: PlaybackSnapshot = {
-    ...idle,
-    courses: [
-      { id: "12", name: "Course B" },
-      { id: "13", name: "Course C" },
-    ],
-  };
-  setup(multiCourse);
+  setup();
   const pending = new Map<
     string,
     {
@@ -434,19 +479,28 @@ it("dispatches only the latest recording list after waiting for the gate", async
       options: { onTarget: (target: unknown) => void };
     }
   >();
-  query.mockImplementation(
-    (request, options) =>
-      new Promise((resolve) => {
-        pending.set(request.course, { resolve, options });
-      }),
-  );
+  query.mockImplementation((request, options) => {
+    if (request.type === "COURSES_LIST") {
+      options.onTarget(courseTarget);
+      return Promise.resolve({
+        status: "success",
+        courses: [
+          { name: "Course B", courseSelector: courseSelector12 },
+          { name: "Course C", courseSelector: courseSelector13 },
+        ],
+      });
+    }
+    return new Promise((resolve) => {
+      pending.set(request.courseSelector, { resolve, options });
+    });
+  });
   ui = await mount(<PlaybackPanel />);
   await click("영상 선택");
   const select = ui.host.querySelector("select")!;
   await act(async () => {
-    select.value = "12";
+    select.value = courseSelector12;
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    select.value = "13";
+    select.value = courseSelector13;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await vi.waitFor(() => expect(pending.size).toBe(1));
@@ -458,9 +512,9 @@ it("dispatches only the latest recording list after waiting for the gate", async
     type: "ExternalTool" as const,
   });
   const cHandle = "00000000-0000-4000-8000-000000000003";
-  expect([...pending.keys()]).toEqual(["Course C"]);
+  expect([...pending.keys()]).toEqual([courseSelector13]);
   await act(async () => {
-    const c = pending.get("Course C")!;
+    const c = pending.get(courseSelector13)!;
     c.options.onTarget({
       id: 13,
       url: "https://mylms.korea.ac.kr/?source=C",
@@ -630,6 +684,8 @@ it("refreshes the visible playlist after a background playback transition", asyn
     "PLAYBACK_STATUS",
     "PLAYBACK_REFRESH",
   ]);
+  await click("영상 선택");
+  expect(query).toHaveBeenCalledTimes(1);
   await act(async () => {
     for (const listener of listeners)
       listener(
@@ -645,6 +701,7 @@ it("refreshes the visible playlist after a background playback transition", asyn
     "PLAYBACK_REFRESH",
     "PLAYBACK_STATUS",
   ]);
+  expect(query).toHaveBeenCalledTimes(1);
 });
 
 it("re-reads an invalidation received during STATUS without publishing the stale response", async () => {
@@ -774,23 +831,33 @@ it("cancels an invalidation follow-up after unmount", async () => {
 
 it("disables selection without a canonical item handle", async () => {
   setup();
-  query.mockResolvedValue({
-    status: "success",
-    recordings: [
-      {
-        title: "module-only",
-        module: "1주",
-        lmsHandle: "00000000-0000-4000-8000-000000000001",
-        launchHandle: "",
-        type: "ExternalTool",
-      },
-    ],
+  query.mockImplementation(async (request, options) => {
+    options.onTarget(
+      request.type === "COURSES_LIST" ? courseTarget : draftTarget,
+    );
+    return request.type === "COURSES_LIST"
+      ? {
+          status: "success",
+          courses: [{ name: "역사", courseSelector: courseSelector12 }],
+        }
+      : {
+          status: "success",
+          recordings: [
+            {
+              title: "module-only",
+              module: "1주",
+              lmsHandle: "00000000-0000-4000-8000-000000000001",
+              launchHandle: "",
+              type: "ExternalTool",
+            },
+          ],
+        };
   });
   ui = await mount(<PlaybackPanel />);
   await click("영상 선택");
   const select = ui.host.querySelector("select")!;
   await act(async () => {
-    select.value = "12";
+    select.value = courseSelector12;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await click("영상 불러오기");
@@ -804,15 +871,15 @@ it("disables selection without a canonical item handle", async () => {
 
 it("reports discovery failure without creating a playlist", async () => {
   setup();
-  query.mockResolvedValue({ status: "error", code: "NETWORK" });
+  successfulCourseQuery();
+  query.mockResolvedValueOnce({ status: "error", code: "NETWORK" });
   ui = await mount(<PlaybackPanel />);
   await click("영상 선택");
   const select = ui.host.querySelector("select")!;
   await act(async () => {
-    select.value = "12";
+    select.value = courseSelector12;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  await click("영상 불러오기");
   expect(ui.host.querySelector('[role="alert"]')).not.toBeNull();
   expect(command.mock.calls.map(([request]) => request.type)).not.toContain(
     "PLAYBACK_START",

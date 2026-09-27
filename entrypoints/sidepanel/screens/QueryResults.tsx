@@ -33,7 +33,11 @@ export function QueryResults({ model }: { readonly model: PanelModel }) {
           onCourse={(course) => {
             model.setCourse(course);
             model.setView("ASSIGNMENTS_LIST");
-            void model.load({ version: 1, type: "ASSIGNMENTS_LIST", course });
+            void model.load({
+              version: 1,
+              type: "ASSIGNMENTS_LIST",
+              courseSelector: course.courseSelector,
+            });
           }}
           onRecording={(handle) => void model.openRecording(handle)}
           recordingPending={recordingAction.pending}

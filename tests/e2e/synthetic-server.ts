@@ -31,7 +31,7 @@ export function textPdf(text: string): Buffer {
 
 export async function syntheticServer(
   directory: string,
-  fixture: { paginatedDocuments?: boolean } = {},
+  fixture: { paginatedDocuments?: boolean; selectorCourses?: boolean } = {},
 ) {
   const keyPath = path.join(directory, "key.pem"),
     certPath = path.join(directory, "cert.pem");
@@ -70,88 +70,144 @@ export async function syntheticServer(
         pathname: url.pathname,
         search: url.search,
       });
-      const routes: Record<string, unknown> = {
-        "/api/v1/users/self": { id: 71 },
+      const selectorRoutes: Record<string, unknown> = {
         "/api/v1/courses": [
-          { id: 101, name: "Synthetic Operating Systems" },
-          { id: 202, name: "Synthetic International Law" },
+          { id: 301, name: "Duplicate Course" },
+          { id: 302, name: "Duplicate Course" },
+          { id: 303, name: "token=private-value" },
+          { id: 304, name: "   " },
         ],
-        "/api/v1/courses/101/assignments": [
+        "/api/v1/courses/301/assignments": [
           {
-            name: "Synthetic Final Project",
-            due_at: "2099-09-20T14:00:00+09:00",
+            name: "First duplicate assignment",
+            due_at: "2099-10-01T09:00:00+09:00",
             published: true,
             locked_for_user: false,
-            submission: {
-              workflow_state: "unsubmitted",
-              submitted_at: null,
-              missing: false,
-              late: false,
-            },
-          },
-        ],
-        "/api/v1/courses/202/assignments": [
-          {
-            name: "Synthetic Submitted Essay",
-            due_at: "2026-09-10T14:00:00+09:00",
-            submission: {
-              workflow_state: "submitted",
-              submitted_at: "2026-09-09T14:00:00+09:00",
-            },
-          },
-          {
-            name: "Synthetic Undated Reading",
-            due_at: null,
-            submission: { workflow_state: "unsubmitted" },
-          },
-          {
-            name: "Synthetic Early Deadline",
-            due_at: "2099-08-20T14:00:00+09:00",
             submission: { workflow_state: "unsubmitted" },
           },
         ],
-        "/api/v1/courses/202/modules": [],
-        "/api/v1/planner/items": [],
-        "/api/v1/courses/101/modules": [
+        "/api/v1/courses/302/assignments": [
           {
-            id: 10,
-            name: "Week 1",
+            name: "Second duplicate assignment",
+            due_at: "2099-10-02T09:00:00+09:00",
             published: true,
-            items_count: fixture.paginatedDocuments ? 1001 : 4,
-            items: fixture.paginatedDocuments
-              ? undefined
-              : [
-                  {
-                    id: 900,
-                    content_id: 501,
-                    type: "File",
-                    title: "lecture.pdf",
-                    content_details: { display_name: "lecture.pdf" },
-                  },
-                  {
-                    id: 901,
-                    content_id: 502,
-                    type: "File",
-                    title: "reading.pdf",
-                  },
-                  {
-                    id: 902,
-                    type: "ExternalTool",
-                    title: "Synthetic Lecture A",
-                    html_url:
-                      "https://mylms.korea.ac.kr/courses/101/modules/items/902",
-                  },
-                  {
-                    id: 903,
-                    type: "ExternalTool",
-                    title: "Synthetic Lecture B",
-                    html_url:
-                      "https://mylms.korea.ac.kr/courses/101/modules/items/903",
-                  },
-                ],
+            locked_for_user: false,
+            submission: { workflow_state: "unsubmitted" },
+          },
+        ],
+        "/api/v1/courses/303/assignments": [],
+        "/api/v1/courses/304/assignments": [],
+        "/api/v1/courses/301/modules": [],
+        "/api/v1/courses/303/modules": [],
+        "/api/v1/courses/304/modules": [],
+        "/api/v1/courses/302/modules": [
+          {
+            id: 30,
+            name: "Selector fixture module",
+            published: true,
+            items_count: 2,
+            items: [
+              {
+                id: 700,
+                content_id: 601,
+                type: "File",
+                title: "second-duplicate.pdf",
+              },
+              {
+                id: 701,
+                type: "ExternalTool",
+                title: "Second duplicate recording",
+                html_url:
+                  "https://mylms.korea.ac.kr/courses/302/modules/items/701",
+              },
+            ],
           },
         ],
       };
+      const routes: Record<string, unknown> = fixture.selectorCourses
+        ? { "/api/v1/users/self": { id: 71 }, ...selectorRoutes }
+        : {
+            "/api/v1/users/self": { id: 71 },
+            "/api/v1/courses": [
+              { id: 101, name: "Synthetic Operating Systems" },
+              { id: 202, name: "Synthetic International Law" },
+            ],
+            "/api/v1/courses/101/assignments": [
+              {
+                name: "Synthetic Final Project",
+                due_at: "2099-09-20T14:00:00+09:00",
+                published: true,
+                locked_for_user: false,
+                submission: {
+                  workflow_state: "unsubmitted",
+                  submitted_at: null,
+                  missing: false,
+                  late: false,
+                },
+              },
+            ],
+            "/api/v1/courses/202/assignments": [
+              {
+                name: "Synthetic Submitted Essay",
+                due_at: "2026-09-10T14:00:00+09:00",
+                submission: {
+                  workflow_state: "submitted",
+                  submitted_at: "2026-09-09T14:00:00+09:00",
+                },
+              },
+              {
+                name: "Synthetic Undated Reading",
+                due_at: null,
+                submission: { workflow_state: "unsubmitted" },
+              },
+              {
+                name: "Synthetic Early Deadline",
+                due_at: "2099-08-20T14:00:00+09:00",
+                submission: { workflow_state: "unsubmitted" },
+              },
+            ],
+            "/api/v1/courses/202/modules": [],
+            "/api/v1/planner/items": [],
+            "/api/v1/courses/101/modules": [
+              {
+                id: 10,
+                name: "Week 1",
+                published: true,
+                items_count: fixture.paginatedDocuments ? 1001 : 4,
+                items: fixture.paginatedDocuments
+                  ? undefined
+                  : [
+                      {
+                        id: 900,
+                        content_id: 501,
+                        type: "File",
+                        title: "lecture.pdf",
+                        content_details: { display_name: "lecture.pdf" },
+                      },
+                      {
+                        id: 901,
+                        content_id: 502,
+                        type: "File",
+                        title: "reading.pdf",
+                      },
+                      {
+                        id: 902,
+                        type: "ExternalTool",
+                        title: "Synthetic Lecture A",
+                        html_url:
+                          "https://mylms.korea.ac.kr/courses/101/modules/items/902",
+                      },
+                      {
+                        id: 903,
+                        type: "ExternalTool",
+                        title: "Synthetic Lecture B",
+                        html_url:
+                          "https://mylms.korea.ac.kr/courses/101/modules/items/903",
+                      },
+                    ],
+              },
+            ],
+          };
       if (url.pathname === "/api/v1/courses") coursesRequestCount++;
       if (request.method !== "GET") {
         response.writeHead(405);
@@ -223,7 +279,9 @@ export async function syntheticServer(
       }
       if (
         url.pathname === "/" ||
-        /^\/courses\/101\/modules\/items\/(900|902|903)$/.test(url.pathname)
+        /^\/courses\/101\/modules\/items\/(900|902|903)$/.test(url.pathname) ||
+        (fixture.selectorCourses &&
+          url.pathname === "/courses/302/modules/items/701")
       ) {
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(

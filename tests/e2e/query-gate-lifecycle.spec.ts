@@ -112,6 +112,14 @@ test("production panel drops cross-view query waiters and dispatches only the la
     await panel
       .getByRole("button", { name: "할 일·일정", exact: true })
       .click();
+    await expect
+      .poll(
+        () =>
+          apiRequests.filter((request) =>
+            request.startsWith("/api/v1/courses/101/assignments?"),
+          ).length,
+      )
+      .toBe(1);
     await assignmentStarted.promise;
 
     await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
@@ -120,7 +128,14 @@ test("production panel drops cross-view query waiters and dispatches only the la
       request.startsWith("/api/v1/courses/101/modules?"),
     ).length;
     expect(modulesAfterPlaybackRefresh).toBeGreaterThanOrEqual(modulesBefore);
-    await panel.getByRole("combobox").selectOption("101");
+    const coursesAfterPlaybackRefresh = apiRequests.filter((request) =>
+      request.startsWith("/api/v1/courses?"),
+    ).length;
+    // The selector-bearing picker has its own COURSES_LIST request. It cannot
+    // offer a recording selection until that request acquires the shared gate.
+    // Do not await a missing option here: doing so reaches the transport's
+    // bounded timeout and legitimately releases the original lease.
+    await expect(panel.getByRole("combobox").locator("option")).toHaveCount(1);
     await panel
       .getByRole("button", { name: "할 일·일정", exact: true })
       .click();
@@ -137,6 +152,9 @@ test("production panel drops cross-view query waiters and dispatches only the la
         request.startsWith("/api/v1/courses/101/modules?"),
       ),
     ).toHaveLength(modulesAfterPlaybackRefresh);
+    expect(
+      apiRequests.filter((request) => request.startsWith("/api/v1/courses?")),
+    ).toHaveLength(coursesAfterPlaybackRefresh);
 
     releaseAssignment.resolve();
 
@@ -155,6 +173,9 @@ test("production panel drops cross-view query waiters and dispatches only the la
         request.startsWith("/api/v1/courses/101/modules?"),
       ),
     ).toHaveLength(modulesAfterPlaybackRefresh);
+    expect(
+      apiRequests.filter((request) => request.startsWith("/api/v1/courses?")),
+    ).toHaveLength(coursesAfterPlaybackRefresh);
     await expect(
       panel.getByText(
         "이전 조회를 처리하고 있습니다. 잠시 후 다시 조회하세요.",

@@ -12,6 +12,21 @@ vi.mock("../entrypoints/sidepanel/CaptionsPanel", () => ({
 }));
 import { App } from "../entrypoints/sidepanel/App";
 let ui: Awaited<ReturnType<typeof mount>>;
+const courseSelector = "00000000-0000-4000-8000-000000000012";
+const recordingTarget = {
+  id: 7,
+  url: "https://mylms.korea.ac.kr/courses/1/modules",
+};
+const courseQuery = async (
+  _request: unknown,
+  options: { onTarget: (target: typeof recordingTarget) => void },
+) => {
+  options.onTarget(recordingTarget);
+  return {
+    status: "success" as const,
+    courses: [{ name: "과목", courseSelector }],
+  };
+};
 beforeEach(() => {
   command.mockResolvedValue({
     status: "success",
@@ -39,11 +54,7 @@ it("shares the query gate across main and playback navigation", async () => {
   await click("할 일·일정");
   await click("자동 재생");
   await click("영상 선택");
-  const select = ui.host.querySelector("select")!;
-  await act(async () => {
-    select.value = "12";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  expect(ui.host.querySelectorAll("select option")).toHaveLength(1);
   await click("내 과목");
   expect(query).toHaveBeenCalledTimes(1);
 
@@ -112,9 +123,9 @@ it("reloads courses through the content cache when returning during a pending qu
   // Given
   const pending = deferred<Result>();
   query
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] })
+    .mockImplementationOnce(courseQuery)
     .mockReturnValueOnce(pending.promise)
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] });
+    .mockImplementationOnce(courseQuery);
   ui = await mount(<App />);
   await click("새로고침");
   // When
@@ -145,10 +156,28 @@ it("runs the queued request even after the previous request fails", async () => 
   expect(query).toHaveBeenCalledTimes(2);
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
 });
+it("does not publish an old course list after a newer view is selected", async () => {
+  const oldList = deferred<Result>();
+  query
+    .mockReturnValueOnce(oldList.promise)
+    .mockResolvedValueOnce({ status: "success", todo: [] });
+  ui = await mount(<App />);
+  await click("새로고침");
+  await click("할 일·일정");
+  await act(async () =>
+    oldList.resolve({
+      status: "success",
+      courses: [{ name: "오래된 과목", courseSelector }],
+    }),
+  );
+
+  expect(document.body.textContent).not.toContain("오래된 과목");
+  expect(document.body.textContent).toContain("조회된 항목이 없습니다");
+});
 it("opens the selected course materials view through the four-item rail", async () => {
   // Given
   query
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] })
+    .mockImplementationOnce(courseQuery)
     .mockResolvedValueOnce({ status: "success", assignments: [] })
     .mockResolvedValueOnce({ status: "success", documents: [] });
   ui = await mount(<App />);
@@ -158,7 +187,7 @@ it("opens the selected course materials view through the four-item rail", async 
   await click("수업 자료");
   // Then
   expect(query).toHaveBeenLastCalledWith(
-    { version: 1, type: "DOCUMENTS_LIST", course: "과목" },
+    { version: 1, type: "DOCUMENTS_LIST", courseSelector },
     expect.objectContaining({ onTarget: expect.any(Function) }),
   );
   expect(
@@ -168,10 +197,36 @@ it("opens the selected course materials view through the four-item rail", async 
     "모듈에서 확인 가능한 PDF가 없습니다.",
   );
 });
-const recordingTarget = {
-  id: 7,
-  url: "https://mylms.korea.ac.kr/courses/1/modules",
-};
+it("selects duplicate course names by opaque selector and keeps the listing source", async () => {
+  const secondSelector = "00000000-0000-4000-8000-000000000013";
+  query
+    .mockImplementationOnce(async (_request, options) => {
+      options.onTarget(recordingTarget);
+      return {
+        status: "success",
+        courses: [
+          { name: "같은 과목", courseSelector },
+          { name: "같은 과목", courseSelector: secondSelector },
+        ],
+      };
+    })
+    .mockResolvedValueOnce({ status: "success", assignments: [] });
+  ui = await mount(<App />);
+  await click("새로고침");
+  const duplicateRows = [
+    ...ui.host.querySelectorAll<HTMLButtonElement>(".list-row"),
+  ].filter((button) => button.textContent?.includes("같은 과목"));
+  await act(async () => duplicateRows[1]!.click());
+
+  expect(query).toHaveBeenLastCalledWith(
+    {
+      version: 1,
+      type: "ASSIGNMENTS_LIST",
+      courseSelector: secondSelector,
+    },
+    { refresh: undefined, target: recordingTarget },
+  );
+});
 const recordings = ["첫 강의", "두 번째 강의"].map((title) => ({
   module: "주차",
   title,
@@ -181,7 +236,7 @@ const recordings = ["첫 강의", "두 번째 강의"].map((title) => ({
 }));
 async function showRecordings() {
   query
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "과목" }] })
+    .mockImplementationOnce(courseQuery)
     .mockResolvedValueOnce({ status: "success", assignments: [] })
     .mockImplementationOnce(async (_query, options) => {
       options.onTarget(recordingTarget);

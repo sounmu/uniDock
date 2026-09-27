@@ -5,6 +5,7 @@ import {
   type PlaybackSnapshot,
 } from "../../src/playback/bridge";
 import type { Recording } from "../../src/recordings";
+import type { Course } from "../../src/domain";
 import { queryActive, type QueryTarget } from "../../src/transport";
 import { QueryGate } from "./query-gate";
 
@@ -25,10 +26,14 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const [stopPending, setStopPending] = useState(false);
   const [startPending, setStartPending] = useState(false);
   const [recordings, setRecordingDrafts] = useState<RecordingDraft[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [course, setCourseValue] = useState("");
   const [deletePrompt, setDeletePrompt] = useState(false);
   const recordingGeneration = useRef(0);
   const capabilityScope = useRef(crypto.randomUUID()).current;
+  const courseScope = useRef(crypto.randomUUID()).current;
+  const courseTarget = useRef<QueryTarget | null>(null);
+  const courseLoadInFlight = useRef(false);
   const recordingSelection = useRef<RecordingSelection | null>(null);
   const commandGeneration = useRef(0);
   const foregroundCount = useRef(0);
@@ -165,15 +170,54 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
     if (value) void loadRecordings(value);
   }
 
+  async function loadCourses() {
+    if (courseLoadInFlight.current || (courses.length && courseTarget.current))
+      return;
+    courseLoadInFlight.current = true;
+    courseTarget.current = null;
+    const current = ++recordingGeneration.current;
+    setCourseValue("");
+    setCourses([]);
+    setRecordingDrafts([]);
+    recordingSelection.current = null;
+    setRecordingLoad(true);
+    const lease = await gate.acquire();
+    if (!mounted.current || current !== recordingGeneration.current) {
+      lease.release();
+      courseLoadInFlight.current = false;
+      return;
+    }
+    let target: QueryTarget | null = null;
+    const result = await queryActive(
+      { version: 1, type: "COURSES_LIST" },
+      {
+        capabilityScope: courseScope,
+        onTarget: (accepted) => (target = accepted),
+      },
+    ).finally(lease.release);
+    courseLoadInFlight.current = false;
+    if (!mounted.current || current !== recordingGeneration.current) return;
+    setRecordingLoad(false);
+    if (result.status === "success" && "courses" in result && target) {
+      courseTarget.current = target;
+      setCourses(result.courses);
+      setError("");
+    } else {
+      courseTarget.current = null;
+      setError("과목 목록을 불러오지 못했습니다. LMS 탭에서 확인하세요.");
+    }
+  }
+
   async function loadRecordings(selectedId = course) {
     const current = ++recordingGeneration.current;
     recordingSelection.current = null;
     setRecordingDrafts([]);
-    const selectedCourse = snapshot?.courses.find(
-      (item) => item.id === selectedId,
+    const selectedCourse = courses.find(
+      (item) => item.courseSelector === selectedId,
     );
-    if (!selectedCourse) {
+    if (!selectedCourse || !courseTarget.current) {
       setRecordingLoad(false);
+      setError("과목 목록을 다시 불러온 뒤 과목을 다시 선택하세요.");
       return;
     }
     setRecordingLoad(true);
@@ -187,11 +231,12 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
       {
         version: 1,
         type: "RECORDINGS_LIST",
-        course: selectedCourse.name,
+        courseSelector: selectedCourse.courseSelector,
       },
       {
         refresh: true,
         capabilityScope,
+        target: courseTarget.current,
         onTarget: (accepted) => (target = accepted),
       },
     ).finally(lease.release);
@@ -210,7 +255,20 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
       setRecordingDrafts(drafts);
       setError("");
     } else {
-      setError("녹화 후보를 불러오지 못했습니다. LMS 탭에서 확인하세요.");
+      if (
+        result.status === "error" &&
+        (result.code === "STALE_SELECTION" || result.code === "RELOAD_TAB")
+      ) {
+        courseTarget.current = null;
+        setCourseValue("");
+        setCourses([]);
+      }
+      setError(
+        result.status === "error" &&
+          (result.code === "STALE_SELECTION" || result.code === "RELOAD_TAB")
+          ? "과목 목록을 다시 불러온 뒤 과목을 다시 선택하세요."
+          : "녹화 후보를 불러오지 못했습니다. LMS 탭에서 확인하세요.",
+      );
     }
   }
 
@@ -283,12 +341,14 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
     stopPending,
     startPending,
     recordings,
+    courses,
     course,
     setCourse,
     deletePrompt,
     setDeletePrompt,
     run,
     loadRecordings,
+    loadCourses,
     selectRecording,
     startSelected,
   };

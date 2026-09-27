@@ -2,13 +2,17 @@ import type { NavigationCatalog } from "../src/navigation-catalog";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   parseResult,
-  request,
+  request as courseListRequest,
   type CapabilityListRequest,
   type Request,
+  type Result,
 } from "../src/protocol";
 const list = vi.hoisted(() => vi.fn());
 const query = vi.hoisted(() => vi.fn());
-vi.mock("../src/api/client", () => ({ listCourses: list, listQuery: query }));
+vi.mock("../src/api/client", () => ({
+  listCourseIndex: list,
+  listQuery: query,
+}));
 vi.mock("wxt/utils/define-content-script", () => ({
   defineContentScript: (options: unknown) => options,
 }));
@@ -24,6 +28,7 @@ const capability = (
   refresh = false,
 ) =>
   ({ version: 1, type: "CAPABILITY_LIST", scope, refresh, request }) as const;
+const request = capability(courseListRequest);
 
 function json(value: unknown, headers?: HeadersInit): Response {
   return Response.json(value, { headers });
@@ -63,11 +68,11 @@ it("reuses bounded account-scoped list results and replaces them on explicit ref
   list
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "기존 과목" }],
+      courses: [{ name: "기존 과목", courseSelector: expect.any(String) }],
     })
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "새 과목" }],
+      courses: [{ name: "새 과목", courseSelector: expect.any(String) }],
     });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -79,17 +84,225 @@ it("reuses bounded account-scoped list results and replaces them on explicit ref
   for (const [message, name] of [
     [request, "기존 과목"],
     [request, "기존 과목"],
-    [{ version: 1, type: "QUERY_REFRESH", request }, "새 과목"],
+    [{ ...request, refresh: true }, "새 과목"],
     [request, "새 과목"],
   ] as const) {
     const result = response();
     expect(listener(message, sender, result.respond)).toBe(true);
     expect(await result.done).toEqual({
       status: "success",
-      courses: [{ name }],
+      courses: [{ name, courseSelector: expect.any(String) }],
     });
   }
   expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("keeps duplicate and fallback course identities opaque and resolves each selector independently", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  list.mockResolvedValueOnce({
+    status: "success",
+    courses: [
+      { id: "11", name: "Same" },
+      { id: "22", name: "Same" },
+      { id: "33", name: "이름 없는 과목" },
+    ],
+  });
+  query.mockResolvedValue({ status: "success", assignments: [] });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async (message: unknown) => {
+    const result = response();
+    expect(listener(message, sender, result.respond)).toBe(true);
+    return result.done;
+  };
+
+  const first = (await send(request)) as Extract<
+    Result,
+    { status: "success"; courses: unknown }
+  >;
+  expect(first.courses.map(({ name }) => name)).toEqual([
+    "Same",
+    "Same",
+    "이름 없는 과목",
+  ]);
+  expect(
+    new Set(first.courses.map(({ courseSelector }) => courseSelector)).size,
+  ).toBe(3);
+  for (const [index, course] of first.courses.entries()) {
+    await send({
+      version: 1,
+      type: "ASSIGNMENTS_LIST",
+      courseSelector: course.courseSelector,
+    });
+    expect(query.mock.calls.at(-1)?.[5]).toBe(["11", "22", "33"][index]);
+  }
+
+  const second = (await send(
+    capability(courseListRequest, "00000000-0000-4000-8000-000000000002"),
+  )) as typeof first;
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(second.courses.map(({ name }) => name)).toEqual(
+    first.courses.map(({ name }) => name),
+  );
+  expect(
+    second.courses.map(({ courseSelector }) => courseSelector),
+  ).not.toEqual(first.courses.map(({ courseSelector }) => courseSelector));
+});
+
+it("does not let an older cross-issuer course read overwrite a newer refresh", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let releaseOld!: (value: unknown) => void;
+  let releaseNew!: (value: unknown) => void;
+  list
+    .mockReturnValueOnce(new Promise((resolve) => (releaseOld = resolve)))
+    .mockReturnValueOnce(new Promise((resolve) => (releaseNew = resolve)));
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = (message: unknown) => {
+    const result = response();
+    listener(message, sender, result.respond);
+    return result.done;
+  };
+
+  const old = send(request);
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  const refresh = send(
+    capability(courseListRequest, "00000000-0000-4000-8000-000000000002", true),
+  );
+  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  releaseNew({ status: "success", courses: [{ id: "2", name: "New" }] });
+  await expect(refresh).resolves.toMatchObject({
+    status: "success",
+    courses: [{ name: "New" }],
+  });
+  releaseOld({ status: "success", courses: [{ id: "1", name: "Old" }] });
+  await expect(old).resolves.toMatchObject({
+    status: "success",
+    courses: [{ name: "Old" }],
+  });
+
+  await expect(
+    send(capability(courseListRequest, "00000000-0000-4000-8000-000000000003")),
+  ).resolves.toMatchObject({
+    status: "success",
+    courses: [{ name: "New" }],
+  });
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("rejects an expired selector before warm result-cache lookup without name fallback", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1_000);
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  list.mockResolvedValueOnce({
+    status: "success",
+    courses: [{ id: "11", name: "Same" }],
+  });
+  query.mockResolvedValue({ status: "success", assignments: [] });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async (message: unknown) => {
+    const result = response();
+    listener(message, sender, result.respond);
+    return result.done;
+  };
+  const listed = (await send(request)) as Extract<
+    Result,
+    { status: "success"; courses: unknown }
+  >;
+  vi.setSystemTime(1_000 + 5 * 60_000);
+
+  expect(
+    await send({
+      version: 1,
+      type: "ASSIGNMENTS_LIST",
+      courseSelector: listed.courses[0]!.courseSelector,
+    }),
+  ).toEqual({ status: "error", code: "STALE_SELECTION" });
+  expect(query).not.toHaveBeenCalled();
+  expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("never falls back to a duplicate name after the selector account changes", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const identities = [1, 1, 2];
+  vi.mocked(fetch).mockImplementation(async () =>
+    Response.json({ id: identities.shift() ?? 2 }),
+  );
+  list.mockResolvedValueOnce({
+    status: "success",
+    courses: [
+      { id: "11", name: "Same" },
+      { id: "22", name: "Same" },
+    ],
+  });
+  query.mockResolvedValue({ status: "success", assignments: [] });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async (message: unknown) => {
+    const result = response();
+    listener(message, sender, result.respond);
+    return result.done;
+  };
+  const listed = (await send(request)) as Extract<
+    Result,
+    { status: "success"; courses: unknown }
+  >;
+  const result = await send({
+    version: 1,
+    type: "ASSIGNMENTS_LIST",
+    courseSelector: listed.courses[1]!.courseSelector,
+  });
+  expect(result).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(query).not.toHaveBeenCalled();
 });
 
 it.each(["NETWORK", "TIMEOUT", "LIMIT", "INVALID_RESPONSE"] as const)(
@@ -107,12 +320,12 @@ it.each(["NETWORK", "TIMEOUT", "LIMIT", "INVALID_RESPONSE"] as const)(
     list
       .mockResolvedValueOnce({
         status: "success",
-        courses: [{ name: "old" }],
+        courses: [{ name: "old", courseSelector: expect.any(String) }],
       })
       .mockResolvedValueOnce({ status: "error", code })
       .mockResolvedValueOnce({
         status: "success",
-        courses: [{ name: "new" }],
+        courses: [{ name: "new", courseSelector: expect.any(String) }],
       });
     query.mockResolvedValue({ status: "success", todo: [] });
     (content as unknown as { main: () => void }).main();
@@ -128,15 +341,23 @@ it.each(["NETWORK", "TIMEOUT", "LIMIT", "INVALID_RESPONSE"] as const)(
     };
     const todo = { version: 1, type: "TODO_LIST" } as const;
 
-    expect(await send(request)).toMatchObject({ courses: [{ name: "old" }] });
-    expect(await send(request)).toMatchObject({ courses: [{ name: "old" }] });
+    expect(await send(request)).toMatchObject({
+      courses: [{ name: "old", courseSelector: expect.any(String) }],
+    });
+    expect(await send(request)).toMatchObject({
+      courses: [{ name: "old", courseSelector: expect.any(String) }],
+    });
     expect(await send(todo)).toEqual({ status: "success", todo: [] });
-    expect(await send({ version: 1, type: "QUERY_REFRESH", request })).toEqual({
+    expect(await send({ ...request, refresh: true })).toEqual({
       status: "error",
       code,
     });
-    expect(await send(request)).toMatchObject({ courses: [{ name: "new" }] });
-    expect(await send(request)).toMatchObject({ courses: [{ name: "new" }] });
+    expect(await send(request)).toMatchObject({
+      courses: [{ name: "new", courseSelector: expect.any(String) }],
+    });
+    expect(await send(request)).toMatchObject({
+      courses: [{ name: "new", courseSelector: expect.any(String) }],
+    });
     expect(await send(todo)).toEqual({ status: "success", todo: [] });
     expect(list).toHaveBeenCalledTimes(3);
     expect(query).toHaveBeenCalledTimes(1);
@@ -153,13 +374,19 @@ it("clears cached lists when the current LMS account changes", async () => {
     },
   });
   vi.stubGlobal("location", { href: origin + "/", origin });
-  const identities = [1, 1, 2, 2];
+  const identities = [1, 1, 2, 2, 2];
   vi.mocked(fetch).mockImplementation(async () =>
     Response.json({ id: identities.shift() ?? 2 }),
   );
   list
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "A" }] })
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "B" }] });
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "A", courseSelector: expect.any(String) }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "B", courseSelector: expect.any(String) }],
+    });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
   const sender = {
@@ -170,13 +397,16 @@ it("clears cached lists when the current LMS account changes", async () => {
   listener(request, sender, first.respond);
   expect(await first.done).toEqual({
     status: "success",
-    courses: [{ name: "A" }],
+    courses: [{ name: "A", courseSelector: expect.any(String) }],
   });
   const second = response();
   listener(request, sender, second.respond);
-  expect(await second.done).toEqual({
+  expect(await second.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+  const third = response();
+  listener(request, sender, third.respond);
+  expect(await third.done).toEqual({
     status: "success",
-    courses: [{ name: "B" }],
+    courses: [{ name: "B", courseSelector: expect.any(String) }],
   });
   expect(list).toHaveBeenCalledTimes(2);
 });
@@ -206,7 +436,10 @@ it("does not commit a cached list whose API response arrives after pagehide", as
           release = resolve;
         }),
     )
-    .mockResolvedValue({ status: "success", courses: [{ name: "current" }] });
+    .mockResolvedValue({
+      status: "success",
+      courses: [{ name: "current", courseSelector: expect.any(String) }],
+    });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
   const sender = {
@@ -218,7 +451,10 @@ it("does not commit a cached list whose API response arrives after pagehide", as
   await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(1));
 
   pagehide();
-  release({ status: "success", courses: [{ name: "stale" }] });
+  release({
+    status: "success",
+    courses: [{ name: "stale", courseSelector: expect.any(String) }],
+  });
   expect(await stale.done).toEqual({ status: "error", code: "RELOAD_TAB" });
 
   for (let index = 0; index < 2; index++) {
@@ -226,7 +462,7 @@ it("does not commit a cached list whose API response arrives after pagehide", as
     listener(request, sender, current.respond);
     expect(await current.done).toEqual({
       status: "success",
-      courses: [{ name: "current" }],
+      courses: [{ name: "current", courseSelector: expect.any(String) }],
     });
   }
   expect(list).toHaveBeenCalledTimes(2);
@@ -259,11 +495,11 @@ it("does not let a refresh identity from before pagehide delete the new lifecycl
   list
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "old lifecycle" }],
+      courses: [{ name: "old lifecycle", courseSelector: expect.any(String) }],
     })
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "new lifecycle" }],
+      courses: [{ name: "new lifecycle", courseSelector: expect.any(String) }],
     });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -278,9 +514,9 @@ it("does not let a refresh identity from before pagehide delete the new lifecycl
   };
 
   expect(await send(request)).toMatchObject({
-    courses: [{ name: "old lifecycle" }],
+    courses: [{ name: "old lifecycle", courseSelector: expect.any(String) }],
   });
-  const staleRefresh = send({ version: 1, type: "QUERY_REFRESH", request });
+  const staleRefresh = send({ ...request, refresh: true });
   await vi.waitFor(() => expect(identityCalls).toBe(3));
   pagehide();
   staleIdentity.resolve(Response.json({ id: 42 }));
@@ -288,7 +524,7 @@ it("does not let a refresh identity from before pagehide delete the new lifecycl
 
   for (let index = 0; index < 2; index++)
     expect(await send(request)).toMatchObject({
-      courses: [{ name: "new lifecycle" }],
+      courses: [{ name: "new lifecycle", courseSelector: expect.any(String) }],
     });
   expect(list).toHaveBeenCalledTimes(2);
 });
@@ -321,7 +557,7 @@ it("ignores an initial account rejection from before pagehide without poisoning 
     .mockImplementation(async () => Response.json({ id: 84 }));
   list.mockResolvedValue({
     status: "success",
-    courses: [{ name: "new owner" }],
+    courses: [{ name: "new owner", courseSelector: expect.any(String) }],
   });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -343,7 +579,7 @@ it("ignores an initial account rejection from before pagehide without poisoning 
   for (let index = 0; index < 2; index++) {
     expect(await send()).toEqual({
       status: "success",
-      courses: [{ name: "new owner" }],
+      courses: [{ name: "new owner", courseSelector: expect.any(String) }],
     });
   }
   expect(list).toHaveBeenCalledTimes(1);
@@ -375,11 +611,17 @@ it("ignores a stale rejected post-probe and clears restored-page caches on every
     return Response.json({ id: 42 });
   });
   list
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "stale" }] })
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "first" }] })
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "second" }],
+      courses: [{ name: "stale", courseSelector: expect.any(String) }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "first", courseSelector: expect.any(String) }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "second", courseSelector: expect.any(String) }],
     });
   (content as unknown as { main: () => void }).main();
   expect(addEventListener).toHaveBeenCalledWith("pagehide", pagehide);
@@ -401,18 +643,18 @@ it("ignores a stale rejected post-probe and clears restored-page caches on every
   expect(await stale).toEqual({ status: "error", code: "RELOAD_TAB" });
   expect(await send()).toEqual({
     status: "success",
-    courses: [{ name: "first" }],
+    courses: [{ name: "first", courseSelector: expect.any(String) }],
   });
   expect(await send()).toEqual({
     status: "success",
-    courses: [{ name: "first" }],
+    courses: [{ name: "first", courseSelector: expect.any(String) }],
   });
   expect(list).toHaveBeenCalledTimes(2);
 
   pagehide();
   expect(await send()).toEqual({
     status: "success",
-    courses: [{ name: "second" }],
+    courses: [{ name: "second", courseSelector: expect.any(String) }],
   });
   expect(list).toHaveBeenCalledTimes(3);
 });
@@ -445,10 +687,13 @@ it("rejects a successful post-probe from the prior lifecycle before it can claim
     return Response.json({ id: 84 });
   });
   list
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "stale" }] })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "stale", courseSelector: expect.any(String) }],
+    })
     .mockResolvedValue({
       status: "success",
-      courses: [{ name: "new owner" }],
+      courses: [{ name: "new owner", courseSelector: expect.any(String) }],
     });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -470,7 +715,7 @@ it("rejects a successful post-probe from the prior lifecycle before it can claim
   for (let index = 0; index < 2; index++) {
     expect(await send()).toEqual({
       status: "success",
-      courses: [{ name: "new owner" }],
+      courses: [{ name: "new owner", courseSelector: expect.any(String) }],
     });
   }
   expect(list).toHaveBeenCalledTimes(2);
@@ -487,8 +732,14 @@ it("clears cached projections after an uncached capability query loses access", 
   });
   vi.stubGlobal("location", { href: origin + "/", origin });
   list
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "A" }] })
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "B" }] });
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "A", courseSelector: expect.any(String) }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "B", courseSelector: expect.any(String) }],
+    });
   query.mockResolvedValueOnce({ status: "error", code: "FORBIDDEN" });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -503,7 +754,7 @@ it("clears cached projections after an uncached capability query loses access", 
   };
   expect(await send(request)).toEqual({
     status: "success",
-    courses: [{ name: "A" }],
+    courses: [{ name: "A", courseSelector: expect.any(String) }],
   });
   expect(
     await send(
@@ -512,7 +763,7 @@ it("clears cached projections after an uncached capability query loses access", 
   ).toEqual({ status: "error", code: "FORBIDDEN" });
   expect(await send(request)).toEqual({
     status: "success",
-    courses: [{ name: "B" }],
+    courses: [{ name: "B", courseSelector: expect.any(String) }],
   });
   expect(list).toHaveBeenCalledTimes(2);
 });
@@ -554,7 +805,7 @@ it("rejects forged senders and unsupported actions; coalesces authorized request
   expect(list).toHaveBeenCalledTimes(1);
 });
 
-it("keeps a captured same-account follower when the owner finishes before its probe", async () => {
+it("keeps an empty-list same-account follower when the owner finishes before its probe", async () => {
   const addListener = vi.fn();
   vi.stubGlobal("chrome", {
     runtime: {
@@ -573,7 +824,7 @@ it("keeps a captured same-account follower when the owner finishes before its pr
   });
   list.mockResolvedValue({
     status: "success",
-    courses: [{ name: "shared" }],
+    courses: [],
   });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -588,15 +839,71 @@ it("keeps a captured same-account follower when the owner finishes before its pr
 
   expect(await owner.done).toEqual({
     status: "success",
-    courses: [{ name: "shared" }],
+    courses: [],
   });
   expect(list).toHaveBeenCalledTimes(1);
   followerProbe.resolve(Response.json({ id: 42 }));
   expect(await follower.done).toEqual({
     status: "success",
-    courses: [{ name: "shared" }],
+    courses: [],
   });
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+it("rejects a delayed same-scope follower after a newer course refresh publishes", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const followerProbe = Promise.withResolvers<Response>();
+  let identities = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identities++;
+    if (identities === 2) return followerProbe.promise;
+    return Response.json({ id: 42 });
+  });
+  list
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ id: "1", name: "A" }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ id: "2", name: "B" }],
+    });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const owner = response();
+  const follower = response();
+  listener(request, sender, owner.respond);
+  listener(request, sender, follower.respond);
+  await expect(owner.done).resolves.toMatchObject({
+    status: "success",
+    courses: [{ name: "A" }],
+  });
+
+  const refreshed = response();
+  listener({ ...request, refresh: true }, sender, refreshed.respond);
+  await expect(refreshed.done).resolves.toMatchObject({
+    status: "success",
+    courses: [{ name: "B" }],
+  });
+
+  followerProbe.resolve(Response.json({ id: 42 }));
+  expect(await follower.done).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
+  expect(list).toHaveBeenCalledTimes(2);
 });
 
 it("does not expose an account A refresh to an account B follower while A's final probe is delayed", async () => {
@@ -619,7 +926,7 @@ it("does not expose an account A refresh to an account B follower while A's fina
   });
   list.mockResolvedValue({
     status: "success",
-    courses: [{ name: "Account A" }],
+    courses: [{ name: "Account A", courseSelector: expect.any(String) }],
   });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -627,7 +934,7 @@ it("does not expose an account A refresh to an account B follower while A's fina
     id: "fixture-extension",
     url: "chrome-extension://fixture-extension/sidepanel.html",
   };
-  const refresh = { version: 1, type: "QUERY_REFRESH", request };
+  const refresh = { ...request, refresh: true };
   const owner = response();
   listener(refresh, sender, owner.respond);
   await vi.waitFor(() => expect(identities).toBe(2));
@@ -664,7 +971,7 @@ it("fences a cached success from its owner and same-account follower when anothe
   });
   list.mockResolvedValue({
     status: "success",
-    courses: [{ name: "Account A cached" }],
+    courses: [{ name: "Account A cached", courseSelector: expect.any(String) }],
   });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -680,7 +987,7 @@ it("fences a cached success from its owner and same-account follower when anothe
 
   expect(await send()).toEqual({
     status: "success",
-    courses: [{ name: "Account A cached" }],
+    courses: [{ name: "Account A cached", courseSelector: expect.any(String) }],
   });
   const owner = send();
   const accountAFollower = send();
@@ -747,7 +1054,9 @@ it.each([
     expect(await follower.done).toEqual({ status: "error", code });
     releaseList.resolve({
       status: "success",
-      courses: [{ name: "must not escape" }],
+      courses: [
+        { name: "must not escape", courseSelector: expect.any(String) },
+      ],
     });
     expect(await owner.done).toEqual({ status: "error", code: "RELOAD_TAB" });
     vi.useRealTimers();
@@ -783,7 +1092,7 @@ it("ignores a follower probe that settles after pagehide without clearing the re
     .mockImplementationOnce(() => releaseList.promise)
     .mockResolvedValueOnce({
       status: "success",
-      courses: [{ name: "restored" }],
+      courses: [{ name: "restored", courseSelector: expect.any(String) }],
     });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
@@ -801,14 +1110,17 @@ it("ignores a follower probe that settles after pagehide without clearing the re
   pagehide();
   followerProbe.resolve(Response.json({ id: 42 }));
   expect(await follower.done).toEqual({ status: "error", code: "RELOAD_TAB" });
-  releaseList.resolve({ status: "success", courses: [{ name: "stale" }] });
+  releaseList.resolve({
+    status: "success",
+    courses: [{ name: "stale", courseSelector: expect.any(String) }],
+  });
   expect(await owner.done).toEqual({ status: "error", code: "RELOAD_TAB" });
 
   const restored = response();
   listener(request, sender, restored.respond);
   expect(await restored.done).toEqual({
     status: "success",
-    courses: [{ name: "restored" }],
+    courses: [{ name: "restored", courseSelector: expect.any(String) }],
   });
 });
 
@@ -842,10 +1154,17 @@ it.each<Request>([
     const { respond, done } = response();
     const busy = vi.fn();
     expect(listener(request, sender, respond)).toBe(true);
-    listener({ version: 1, type: "COURSES_LIST" }, sender, busy);
+    listener(
+      capability(courseListRequest, "00000000-0000-4000-8000-000000000099"),
+      sender,
+      busy,
+    );
     expect(busy).toHaveBeenCalledWith({ status: "error", code: "BUSY" });
     expect(await done).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
-    expect(query).toHaveBeenCalledWith("https://mylms.korea.ac.kr", request);
+    expect(query.mock.calls[0]?.slice(0, 2)).toEqual([
+      "https://mylms.korea.ac.kr",
+      request,
+    ]);
   },
 );
 it("opens only a known catalog handle and never accepts a raw URL from the panel", async () => {
@@ -1914,6 +2233,28 @@ it("omits Canvas duration, due dates and module completion from playback discove
   expect(
     calls.every((url) => url.startsWith("https://mylms.korea.ac.kr/api/v1/")),
   ).toBe(true);
+});
+
+it("uses the same fallback labels for blank playback-discovery courses", async () => {
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/v1/users/self") return json({ id: 42 });
+    if (path === "/api/v1/courses")
+      return json([{ id: 11 }, { id: 22, name: "" }]);
+    if (
+      path === "/api/v1/courses/11/modules" ||
+      path === "/api/v1/courses/22/modules"
+    )
+      return json([]);
+    throw new Error("unexpected endpoint");
+  });
+  const result = await discoverPlayback(origin, salt, fetcher);
+  expect(result.status).toBe("success");
+  if (result.status !== "success") return;
+  expect(result.discovery.courses).toEqual([
+    { id: "11", name: "이름 없는 과목" },
+    { id: "22", name: "이름 없는 과목" },
+  ]);
 });
 
 it("rejects an account change across one discovery and never returns partial candidates", async () => {

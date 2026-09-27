@@ -13,6 +13,7 @@ const search = vi.fn();
 const createTab = vi.fn();
 const writeText = vi.fn();
 const target = { id: 7, url: "https://mylms.korea.ac.kr/" };
+const courseSelector = "00000000-0000-4000-8000-000000000001";
 const documents = ["one.pdf", "two.pdf", "no-id.pdf"].map((title, index) => ({
   module: "Week",
   title,
@@ -40,7 +41,13 @@ afterEach(async () => {
 });
 async function materials() {
   query
-    .mockResolvedValueOnce({ status: "success", courses: [{ name: "Course" }] })
+    .mockImplementationOnce(async (_request, options) => {
+      options.onTarget(target);
+      return {
+        status: "success",
+        courses: [{ name: "Course", courseSelector }],
+      };
+    })
     .mockResolvedValueOnce({ status: "success", assignments: [] })
     .mockImplementationOnce(async (_request, options) => {
       options.onTarget(target);
@@ -523,9 +530,17 @@ it("lets a new course handoff proceed without an old completion unlocking it", a
   await click("ChatGPT에서 질문하기 ↗");
 
   query
-    .mockResolvedValueOnce({
-      status: "success",
-      courses: [{ name: "New Course" }],
+    .mockImplementationOnce(async (_request, options) => {
+      options.onTarget(target);
+      return {
+        status: "success",
+        courses: [
+          {
+            name: "New Course",
+            courseSelector: "00000000-0000-4000-8000-000000000002",
+          },
+        ],
+      };
     })
     .mockResolvedValueOnce({ status: "success", assignments: [] })
     .mockImplementationOnce(async (_request, options) => {

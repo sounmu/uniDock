@@ -58,7 +58,10 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
                 <button
                   className="btn-primary"
                   disabled={pending || !snapshot}
-                  onClick={() => open("select")}
+                  onClick={() => {
+                    open("select");
+                    void m.loadCourses();
+                  }}
                 >
                   영상 선택
                 </button>

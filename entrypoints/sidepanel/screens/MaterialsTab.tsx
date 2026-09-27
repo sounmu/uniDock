@@ -28,7 +28,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
       handoffGeneration.current++;
       handoffInFlight.current = false;
     };
-  }, [course]);
+  }, [course, model.selectedCourse?.courseSelector]);
   const available = items.filter(
     (item) =>
       item.downloadHandle &&

@@ -1,10 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { queryActiveCourses, queryActive } from "../src/transport";
 const url = "https://mylms.korea.ac.kr/";
+const selector = "00000000-0000-4000-8000-000000000001";
 function setup(tab = { id: 7, url }) {
   const sendMessage = vi.fn().mockResolvedValue({
     status: "success",
-    courses: [{ name: "샘플 과목", token: "private" }],
+    courses: [{ name: "샘플 과목", courseSelector: selector }],
   });
   const get = vi.fn().mockResolvedValue(tab);
   const query = vi.fn().mockResolvedValue([tab]);
@@ -17,15 +18,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-it("queries only active top frame and strips extra output fields", async () => {
+it("queries only the active top frame through a closed course capability", async () => {
   const { sendMessage } = setup();
   expect(await queryActiveCourses()).toEqual({
     status: "success",
-    courses: [{ name: "샘플 과목" }],
+    courses: [{ name: "샘플 과목", courseSelector: selector }],
   });
   expect(sendMessage).toHaveBeenCalledWith(
     7,
-    { version: 1, type: "COURSES_LIST" },
+    expect.objectContaining({
+      version: 1,
+      type: "CAPABILITY_LIST",
+      refresh: false,
+      request: { version: 1, type: "COURSES_LIST" },
+    }),
     { frameId: 0 },
   );
 });
@@ -158,13 +164,18 @@ it("uses the closed refresh envelope only for explicit list refreshes", async ()
   const { sendMessage } = setup();
   sendMessage.mockResolvedValue({ status: "success", courses: [] });
   expect(
-    await queryActive({ version: 1, type: "COURSES_LIST" }, { refresh: true }),
+    await queryActive(
+      { version: 1, type: "COURSES_LIST" },
+      { refresh: true, capabilityScope: crypto.randomUUID() },
+    ),
   ).toEqual({ status: "success", courses: [] });
   expect(sendMessage).toHaveBeenCalledWith(
     7,
     {
       version: 1,
-      type: "QUERY_REFRESH",
+      type: "CAPABILITY_LIST",
+      scope: expect.any(String),
+      refresh: true,
       request: { version: 1, type: "COURSES_LIST" },
     },
     { frameId: 0 },
@@ -290,7 +301,10 @@ it("rejects a bound tab that navigated before sending an open", async () => {
 it("reports the selected source tab before delivering its result", async () => {
   setup();
   const onTarget = vi.fn();
-  await queryActive({ version: 1, type: "COURSES_LIST" }, { onTarget });
+  await queryActive(
+    { version: 1, type: "COURSES_LIST" },
+    { onTarget, capabilityScope: crypto.randomUUID() },
+  );
   expect(onTarget).toHaveBeenCalledExactlyOnceWith({ id: 7, url });
 });
 
@@ -306,7 +320,7 @@ it("accepts a recording target only from the closed document-bound response", as
   });
   expect(
     await queryActive(
-      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      { version: 1, type: "RECORDINGS_LIST", courseSelector: selector },
       { onTarget, capabilityScope },
     ),
   ).toEqual({ status: "success", recordings: [] });
@@ -320,7 +334,7 @@ it("accepts a recording target only from the closed document-bound response", as
   });
   expect(
     await queryActive(
-      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      { version: 1, type: "RECORDINGS_LIST", courseSelector: selector },
       { onTarget, capabilityScope },
     ),
   ).toEqual({ status: "error", code: "INVALID_RESPONSE" });

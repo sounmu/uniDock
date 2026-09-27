@@ -150,4 +150,10 @@ export class NavigationCatalogRegistry {
       if (current.published === catalog) return true;
     return false;
   }
+
+  current(admission: NavigationCatalogAdmission): boolean {
+    return (
+      this.issuers.get(admission.scope)?.generation === admission.generation
+    );
+  }
 }

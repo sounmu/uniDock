@@ -3,9 +3,13 @@ import {
   NavigationCatalogRegistry,
   type NavigationCatalogAdmission,
 } from "../src/navigation-catalog-registry";
+import {
+  CourseSelectorRegistry,
+  type CourseSelectorAdmission,
+} from "../src/course-selector-registry";
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { listCourses, listQuery } from "../src/api/client";
+import { listCourseIndex, listQuery } from "../src/api/client";
 import {
   panelQuery,
   parseResult,
@@ -25,6 +29,7 @@ import {
 import { readJsonBounded } from "../src/api/body";
 import { nextPage } from "../src/api/pagination";
 import { rows } from "../src/domain-items";
+import { projectCourseIndex } from "../src/domain";
 import {
   accessible,
   internalId,
@@ -205,9 +210,10 @@ export async function discoverPlayback(
       "/api/v1/courses",
       "per_page=100&enrollment_state=active",
     )) {
-      const courseId = internalId(course.id);
-      if (!courseId || typeof course.name !== "string") continue;
-      courses.push({ id: courseId, name: recordingLabel(course.name) });
+      const projectedCourse = projectCourseIndex([course])[0];
+      if (!projectedCourse) continue;
+      const courseId = projectedCourse.id;
+      courses.push({ id: courseId, name: projectedCourse.name });
       if (courses.length > 100) throw new Error("LIMIT");
       const modulesPath = `/api/v1/courses/${courseId}/modules`;
       for (const module of await collect(
@@ -288,14 +294,25 @@ export default defineContentScript({
   main() {
     const documentToken = crypto.randomUUID();
     const catalogs = new NavigationCatalogRegistry();
+    const courseSelectors = new CourseSelectorRegistry();
     const cache = new QueryResultCache();
     let cacheAccount: string | undefined;
     let lifecycleEpoch = 0;
+    let courseIndexGeneration = 0;
+    let courseIndexPending:
+      | {
+          generation: number;
+          result: ReturnType<typeof listCourseIndex>;
+        }
+      | undefined;
     const clearCachedState = () => {
       lifecycleEpoch++;
+      courseIndexGeneration++;
+      courseIndexPending = undefined;
       cache.clear();
       cacheAccount = undefined;
       catalogs.revokeAll();
+      courseSelectors.revokeAll();
     };
     globalThis.addEventListener?.("pagehide", clearCachedState);
     async function open(
@@ -404,8 +421,15 @@ export default defineContentScript({
       owner?: Promise<CachedOwner | undefined>;
       scope?: string;
       admission?: NavigationCatalogAdmission;
+      courseAdmission?: CourseSelectorAdmission;
     }
     const pending = new Map<string, PendingQuery>();
+    const admissionCurrent = (operation: PendingQuery): boolean =>
+      operation.courseAdmission
+        ? courseSelectors.current(operation.courseAdmission)
+        : operation.admission
+          ? catalogs.current(operation.admission)
+          : true;
     const invalidateScope = (epoch: number) => {
       if (epoch !== lifecycleEpoch) return;
       clearCachedState();
@@ -417,11 +441,12 @@ export default defineContentScript({
       initialAccount?: Promise<string>,
       publishOwner?: (owner: CachedOwner | undefined) => void,
       admission?: NavigationCatalogAdmission,
+      courseAdmission?: CourseSelectorAdmission,
     ): Promise<Result> {
       const ttl = cacheTtl(message);
       const capabilityList =
         message.type === "RECORDINGS_LIST" || message.type === "DOCUMENTS_LIST";
-      let epoch = initialEpoch ?? lifecycleEpoch;
+      const epoch = initialEpoch ?? lifecycleEpoch;
       let account: string;
       try {
         account = await (initialAccount ?? currentAccount(location.origin));
@@ -439,12 +464,105 @@ export default defineContentScript({
       if (cacheAccount !== account) {
         if (cacheAccount !== undefined) {
           invalidateScope(epoch);
-          epoch = lifecycleEpoch;
+          return { status: "error", code: "RELOAD_TAB" };
         }
         cacheAccount = account;
       }
       publishOwner?.({ account, epoch });
-      const key = JSON.stringify(message);
+      let resolvedCourseId: string | undefined;
+      if (
+        "courseSelector" in message &&
+        typeof message.courseSelector === "string"
+      ) {
+        resolvedCourseId = courseSelectors.resolve(
+          message.courseSelector,
+          account,
+          epoch,
+        );
+        if (!resolvedCourseId)
+          return { status: "error", code: "STALE_SELECTION" };
+      }
+      const courseIndexKey = "COURSE_INDEX";
+      const key = resolvedCourseId
+        ? JSON.stringify({ type: message.type, courseId: resolvedCourseId })
+        : JSON.stringify(message);
+      if (message.type === "COURSES_LIST") {
+        if (!courseAdmission) return { status: "error", code: "POLICY" };
+        if (refresh) {
+          courseIndexGeneration++;
+          courseIndexPending = undefined;
+          cache.delete(courseIndexKey);
+        }
+        const indexGeneration = courseIndexGeneration;
+        let courses = !refresh
+          ? cache.getCourseIndex(courseIndexKey)
+          : undefined;
+        const fetchedIndex = !courses;
+        if (!courses) {
+          if (
+            !courseIndexPending ||
+            courseIndexPending.generation !== indexGeneration
+          )
+            courseIndexPending = {
+              generation: indexGeneration,
+              result: listCourseIndex(location.origin),
+            };
+          const captured = courseIndexPending;
+          const loaded = await captured.result;
+          if (courseIndexPending === captured) courseIndexPending = undefined;
+          if (epoch !== lifecycleEpoch)
+            return { status: "error", code: "RELOAD_TAB" };
+          if (loaded.status === "error") {
+            if (loaded.code === "LOGIN_REQUIRED" || loaded.code === "FORBIDDEN")
+              invalidateScope(epoch);
+            return loaded;
+          }
+          courses = loaded.courses;
+        }
+        let confirmedAccount: string;
+        try {
+          confirmedAccount = await currentAccount(location.origin);
+        } catch (error) {
+          if (epoch !== lifecycleEpoch)
+            return { status: "error", code: "RELOAD_TAB" };
+          invalidateScope(epoch);
+          return accountError(error);
+        }
+        if (
+          epoch !== lifecycleEpoch ||
+          confirmedAccount !== account ||
+          !courseSelectors.current(courseAdmission)
+        ) {
+          if (epoch === lifecycleEpoch && confirmedAccount !== account)
+            invalidateScope(epoch);
+          return {
+            status: "error",
+            code:
+              epoch === lifecycleEpoch && confirmedAccount !== account
+                ? "LOGIN_REQUIRED"
+                : "RELOAD_TAB",
+          };
+        }
+        try {
+          const projected = courseSelectors.publish(
+            courseAdmission,
+            courses,
+            account,
+            epoch,
+          );
+          if (
+            projected &&
+            fetchedIndex &&
+            indexGeneration === courseIndexGeneration
+          )
+            cache.setCourseIndex(courseIndexKey, courses, 120_000);
+          return projected
+            ? { status: "success", courses: projected }
+            : { status: "error", code: "RELOAD_TAB" };
+        } catch {
+          return { status: "error", code: "LIMIT" };
+        }
+      }
       if (ttl !== undefined && refresh) cache.delete(key);
       if (ttl !== undefined && !refresh) {
         const hit = cache.get(key);
@@ -457,11 +575,23 @@ export default defineContentScript({
           staging = catalogs.begin(admission, account, epoch);
           if (!staging) return { status: "error", code: "RELOAD_TAB" };
         }
-        const result = await (message.type === "COURSES_LIST"
-          ? listCourses(location.origin)
-          : staging
-            ? listQuery(location.origin, message, fetch, Date.now(), staging)
-            : listQuery(location.origin, message));
+        const result = await (staging
+          ? listQuery(
+              location.origin,
+              message,
+              fetch,
+              Date.now(),
+              staging,
+              resolvedCourseId,
+            )
+          : listQuery(
+              location.origin,
+              message,
+              fetch,
+              Date.now(),
+              undefined,
+              resolvedCourseId,
+            ));
         if (epoch !== lifecycleEpoch)
           return { status: "error", code: "RELOAD_TAB" };
         if (
@@ -736,9 +866,12 @@ export default defineContentScript({
         }
         if (!operation) {
           let admission: NavigationCatalogAdmission | undefined;
+          let courseAdmission: CourseSelectorAdmission | undefined;
           if (parsed.scope) {
             try {
-              admission = catalogs.admit(parsed.scope);
+              if (request.type === "COURSES_LIST")
+                courseAdmission = courseSelectors.admit(parsed.scope);
+              else admission = catalogs.admit(parsed.scope);
             } catch {
               respond({ status: "error", code: "LIMIT" });
               return false;
@@ -772,6 +905,7 @@ export default defineContentScript({
             owner,
             scope: parsed.scope,
             admission,
+            courseAdmission,
           };
           const ownedOperation = operation;
           ownedOperation.result = sharedResult.finally(() => {
@@ -791,7 +925,11 @@ export default defineContentScript({
               account,
               resolveOwner,
               admission,
-            ).finally(() => resolveOwner?.(undefined));
+              courseAdmission,
+            ).finally(() => {
+              resolveOwner?.(undefined);
+              if (courseAdmission) courseSelectors.discard(courseAdmission);
+            });
           } else {
             result =
               request.type === "DOCUMENT_DOWNLOAD"
@@ -820,7 +958,9 @@ export default defineContentScript({
             const result = await captured.result;
             if (
               result.status === "success" &&
-              (!owner || owner.epoch !== lifecycleEpoch)
+              (!owner ||
+                owner.epoch !== lifecycleEpoch ||
+                !admissionCurrent(captured))
             )
               return { status: "error", code: "RELOAD_TAB" };
             return result;
@@ -863,7 +1003,9 @@ export default defineContentScript({
           const result = await captured.result;
           if (
             result.status === "success" &&
-            (owner.epoch !== lifecycleEpoch || callerEpoch !== lifecycleEpoch)
+            (owner.epoch !== lifecycleEpoch ||
+              callerEpoch !== lifecycleEpoch ||
+              !admissionCurrent(captured))
           )
             return { status: "error", code: "RELOAD_TAB" };
           return result;
