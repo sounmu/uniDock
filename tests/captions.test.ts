@@ -215,7 +215,9 @@ it("exports exactly the requested JSON fields and readable TXT", () => {
   expect(formatTime("00:00:36.000")).toBe("00:36");
 });
 it("downloads both matching UTF-8 files under output/", async () => {
-  vi.useFakeTimers();
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(
+    "12345678-1234-4234-8234-123456789abc",
+  );
   const download = vi.fn().mockResolvedValue(1);
   vi.stubGlobal("chrome", { downloads: { download } });
   const create = vi
@@ -231,13 +233,13 @@ it("downloads both matching UTF-8 files under output/", async () => {
   expect(download.mock.calls.map((call) => call[0])).toEqual([
     {
       url: "blob:txt",
-      filename: "output/uniDock-20260912T060000Z.txt",
+      filename: "output/uniDock-20260912T060000Z-123456781234.txt",
       conflictAction: "uniquify",
       saveAs: false,
     },
     {
       url: "blob:json",
-      filename: "output/uniDock-20260912T060000Z.json",
+      filename: "output/uniDock-20260912T060000Z-123456781234.json",
       conflictAction: "uniquify",
       saveAs: false,
     },
@@ -246,8 +248,61 @@ it("downloads both matching UTF-8 files under output/", async () => {
     "text/plain;charset=utf-8",
     "application/json;charset=utf-8",
   ]);
-  vi.advanceTimersByTime(60000);
   expect(revoke).toHaveBeenCalledTimes(2);
+});
+it("stops before JSON when its export context is cleared during TXT", async () => {
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(
+    "12345678-1234-4234-8234-123456789abc",
+  );
+  let finish!: (id: number) => void;
+  const held = new Promise<number>((resolve) => {
+    finish = resolve;
+  });
+  const download = vi.fn().mockReturnValue(held);
+  vi.stubGlobal("chrome", { downloads: { download } });
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: vi.fn().mockReturnValue("blob:caption"),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  const controller = new AbortController();
+  const pending = downloadCaption(transcript, { signal: controller.signal });
+  expect(download).toHaveBeenCalledTimes(1);
+
+  controller.abort();
+  finish(1);
+
+  await expect(pending).resolves.toEqual({ status: "partial", accepted: 1 });
+  expect(download).toHaveBeenCalledTimes(1);
+});
+it("uses one matching basename per pair and unique basenames across exports", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-12T06:00:00Z"));
+  vi.spyOn(crypto, "randomUUID")
+    .mockReturnValueOnce("11111111-1111-4111-8111-111111111111")
+    .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
+  const download = vi.fn().mockResolvedValue(1);
+  vi.stubGlobal("chrome", { downloads: { download } });
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: vi.fn().mockReturnValue("blob:caption"),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+
+  await downloadCaption(transcript);
+  await downloadCaption(transcript);
+
+  const filenames = download.mock.calls.map(
+    ([options]) => (options as chrome.downloads.DownloadOptions).filename!,
+  );
+  const bases = filenames.map((name) => name.replace(/\.(txt|json)$/, ""));
+  expect(bases[0]).toBe(bases[1]);
+  expect(bases[2]).toBe(bases[3]);
+  expect(bases[0]).not.toBe(bases[2]);
 });
 function injection(
   items: { time: string; text: string }[] = [],
@@ -534,11 +589,11 @@ it("honors a replaced generation after the active-tab query resolves", async () 
   let finishQuery!: (
     value: { id: number; url: string; title: string }[],
   ) => void;
-  const queryResult = new Promise<
-    { id: number; url: string; title: string }[]
-  >((resolve) => {
-    finishQuery = resolve;
-  });
+  const queryResult = new Promise<{ id: number; url: string; title: string }[]>(
+    (resolve) => {
+      finishQuery = resolve;
+    },
+  );
   const execute = vi.fn();
   const { query } = chromeMock(execute);
   query.mockReturnValue(queryResult);

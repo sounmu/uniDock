@@ -27,6 +27,7 @@ export function CaptionsPanel() {
     status: "idle",
   });
   const [notice, setNotice] = useState("");
+  const [exportPending, setExportPending] = useState(false);
   const { detail, open, back } = useDetail<number>();
   const selected =
     state.status === "success" && detail !== null
@@ -35,6 +36,8 @@ export function CaptionsPanel() {
   const generation = useRef(0);
   const target = useRef<CaptionTarget | null>(null);
   const detection = useRef<AbortController | null>(null);
+  const exportController = useRef<AbortController | null>(null);
+  const exportLocked = useRef(false);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -42,8 +45,12 @@ export function CaptionsPanel() {
       generation.current++;
       detection.current?.abort();
       detection.current = null;
+      exportController.current?.abort();
+      exportController.current = null;
+      exportLocked.current = false;
       target.current = null;
       setState({ status: "idle" });
+      setExportPending(false);
       setNotice("");
     };
     const activated = (info: { tabId: number; windowId: number }) => {
@@ -75,6 +82,9 @@ export function CaptionsPanel() {
       generation.current++;
       detection.current?.abort();
       detection.current = null;
+      exportController.current?.abort();
+      exportController.current = null;
+      exportLocked.current = false;
       target.current = null;
       chrome.tabs.onActivated.removeListener(activated);
       chrome.tabs.onUpdated.removeListener(updated);
@@ -84,7 +94,12 @@ export function CaptionsPanel() {
   useEffect(() => {
     if (state.status !== "success") return;
     const timer = setTimeout(() => {
+      generation.current++;
+      exportController.current?.abort();
+      exportController.current = null;
+      exportLocked.current = false;
       setState({ status: "idle" });
+      setExportPending(false);
       setNotice("자막 보관 시간이 만료되었습니다. 다시 감지하세요.");
     }, 300000);
     return () => clearTimeout(timer);
@@ -92,6 +107,10 @@ export function CaptionsPanel() {
   async function detect() {
     back();
     detection.current?.abort();
+    exportController.current?.abort();
+    exportController.current = null;
+    exportLocked.current = false;
+    setExportPending(false);
     const controller = new AbortController();
     detection.current = controller;
     const current = ++generation.current;
@@ -113,6 +132,47 @@ export function CaptionsPanel() {
     if (isCurrent()) {
       detection.current = null;
       setState(result);
+    }
+  }
+  async function download() {
+    if (!selected || exportLocked.current) return;
+    exportLocked.current = true;
+    const controller = new AbortController();
+    exportController.current = controller;
+    const current = generation.current;
+    setExportPending(true);
+    const isCurrent = () =>
+      mounted.current &&
+      current === generation.current &&
+      exportController.current === controller;
+    try {
+      const result = await downloadCaption(selected, {
+        signal: controller.signal,
+        isCurrent,
+      });
+      if (!isCurrent()) return;
+      if (result.status === "complete") {
+        setNotice(
+          "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
+        );
+      } else if (result.accepted === 1) {
+        setNotice(
+          "TXT 다운로드만 요청되었습니다. JSON은 요청되지 않았습니다. 브라우저 다운로드 목록을 확인하세요.",
+        );
+      } else {
+        setNotice("다운로드를 요청하지 못했습니다. 다시 시도하세요.");
+      }
+    } catch {
+      if (isCurrent())
+        setNotice(
+          "다운로드 요청을 완료하지 못했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
+        );
+    } finally {
+      if (isCurrent()) {
+        exportController.current = null;
+        exportLocked.current = false;
+        setExportPending(false);
+      }
     }
   }
   return (
@@ -197,18 +257,8 @@ export function CaptionsPanel() {
         >
           <button
             className="btn-primary"
-            onClick={() => {
-              void downloadCaption(selected).then(
-                () =>
-                  setNotice(
-                    "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
-                  ),
-                () =>
-                  setNotice(
-                    "다운로드 요청에 실패했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
-                  ),
-              );
-            }}
+            disabled={exportPending}
+            onClick={() => void download()}
           >
             TXT·JSON 다운로드
           </button>
