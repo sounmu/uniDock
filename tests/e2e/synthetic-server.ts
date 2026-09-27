@@ -94,13 +94,14 @@ export async function syntheticServer(directory: string) {
             submission: { workflow_state: "unsubmitted" },
           },
         ],
+        "/api/v1/courses/202/modules": [],
         "/api/v1/planner/items": [],
         "/api/v1/courses/101/modules": [
           {
             id: 10,
             name: "Week 1",
             published: true,
-            items_count: 2,
+            items_count: 4,
             items: [
               {
                 id: 900,
@@ -110,6 +111,20 @@ export async function syntheticServer(directory: string) {
                 content_details: { display_name: "lecture.pdf" },
               },
               { id: 901, content_id: 502, type: "File", title: "reading.pdf" },
+              {
+                id: 902,
+                type: "ExternalTool",
+                title: "Synthetic Lecture A",
+                html_url:
+                  "https://mylms.korea.ac.kr/courses/101/modules/items/902",
+              },
+              {
+                id: 903,
+                type: "ExternalTool",
+                title: "Synthetic Lecture B",
+                html_url:
+                  "https://mylms.korea.ac.kr/courses/101/modules/items/903",
+              },
             ],
           },
         ],
@@ -117,6 +132,11 @@ export async function syntheticServer(directory: string) {
       if (url.pathname === "/api/v1/courses") coursesRequestCount++;
       if (request.method !== "GET") {
         response.writeHead(405);
+        response.end();
+        return;
+      }
+      if (url.pathname === "/favicon.ico") {
+        response.writeHead(204);
         response.end();
         return;
       }
@@ -135,7 +155,7 @@ export async function syntheticServer(directory: string) {
       }
       if (
         url.pathname === "/" ||
-        url.pathname === "/courses/101/modules/items/900"
+        /^\/courses\/101\/modules\/items\/(900|902|903)$/.test(url.pathname)
       ) {
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(

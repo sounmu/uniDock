@@ -251,6 +251,7 @@ it("accepts a recording target only from the closed document-bound response", as
   const { sendMessage } = setup();
   const onTarget = vi.fn();
   const documentToken = crypto.randomUUID();
+  const capabilityScope = crypto.randomUUID();
   sendMessage.mockResolvedValue({
     status: "success",
     recordings: [],
@@ -259,7 +260,7 @@ it("accepts a recording target only from the closed document-bound response", as
   expect(
     await queryActive(
       { version: 1, type: "RECORDINGS_LIST", course: "Course" },
-      { onTarget },
+      { onTarget, capabilityScope },
     ),
   ).toEqual({ status: "success", recordings: [] });
   expect(onTarget).toHaveBeenCalledWith({ id: 7, url, documentToken });
@@ -273,7 +274,7 @@ it("accepts a recording target only from the closed document-bound response", as
   expect(
     await queryActive(
       { version: 1, type: "RECORDINGS_LIST", course: "Course" },
-      { onTarget },
+      { onTarget, capabilityScope },
     ),
   ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
   expect(onTarget).toHaveBeenCalledTimes(1);

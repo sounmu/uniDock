@@ -23,6 +23,10 @@ interface Entry {
   moduleAccess: Metadata;
   itemAccess: Metadata;
 }
+export interface NavigationCatalogCapacity {
+  reserve(count: number): boolean;
+  release(count: number): void;
+}
 // Content-script memory only. UUIDs are one-use capabilities, unrelated to LMS IDs.
 export class NavigationCatalog {
   private entries = new Map<string, Entry>();
@@ -31,6 +35,8 @@ export class NavigationCatalog {
   constructor(
     private readonly account?: string,
     private readonly epoch?: number,
+    private readonly capacity?: NavigationCatalogCapacity,
+    private readonly onPublishedEmpty?: () => void,
   ) {}
   ownedBy(account: string, epoch: number): boolean {
     return !this.revoked && this.account === account && this.epoch === epoch;
@@ -45,8 +51,29 @@ export class NavigationCatalog {
     this.clear();
   }
   clear(): void {
+    const released = this.entries.size;
     this.entries.clear();
+    if (released) this.capacity?.release(released);
     clearTimeout(this.timer);
+  }
+  size(): number {
+    return this.entries.size;
+  }
+  has(handle: string): boolean {
+    return !this.revoked && this.entries.has(handle);
+  }
+  private add(handle: string, entry: Entry): void {
+    if (!this.capacity?.reserve(1) && this.capacity) throw new Error("LIMIT");
+    this.entries.set(handle, entry);
+  }
+  private remove(handle: string): Entry | undefined {
+    const entry = this.entries.get(handle);
+    if (entry && this.entries.delete(handle)) this.capacity?.release(1);
+    return entry;
+  }
+  private expire(): void {
+    this.clear();
+    this.onPublishedEmpty?.();
   }
   replace(
     origin: string,
@@ -60,7 +87,7 @@ export class NavigationCatalog {
       const safe = navigationUrl(url, origin);
       if (!safe) throw new Error("POLICY");
       const handle = crypto.randomUUID();
-      this.entries.set(handle, {
+      this.add(handle, {
         url: safe,
         kind: "recording",
         expires: now + 300000,
@@ -82,7 +109,7 @@ export class NavigationCatalog {
             )
           : "",
       }));
-      this.timer = setTimeout(() => this.clear(), 300000);
+      this.timer = setTimeout(() => this.expire(), 300000);
       return result;
     } catch (error) {
       this.clear();
@@ -105,7 +132,7 @@ export class NavigationCatalog {
         );
         if (!url) throw new Error("POLICY");
         const lmsHandle = crypto.randomUUID();
-        this.entries.set(lmsHandle, {
+        this.add(lmsHandle, {
           url,
           kind: "document",
           expires: now + 300000,
@@ -120,7 +147,7 @@ export class NavigationCatalog {
           );
           if (!downloadUrl) throw new Error("POLICY");
           downloadHandle = crypto.randomUUID();
-          this.entries.set(downloadHandle, {
+          this.add(downloadHandle, {
             url: downloadUrl,
             kind: "download",
             module: target.module,
@@ -138,7 +165,7 @@ export class NavigationCatalog {
           downloadHandle,
         };
       });
-      this.timer = setTimeout(() => this.clear(), 300000);
+      this.timer = setTimeout(() => this.expire(), 300000);
       return result;
     } catch (error) {
       this.clear();
@@ -152,8 +179,7 @@ export class NavigationCatalog {
     kind?: "recording" | "document",
   ): string | null {
     if (this.revoked) return null;
-    const entry = this.entries.get(handle);
-    this.entries.delete(handle);
+    const entry = this.remove(handle);
     if (
       !entry ||
       entry.kind === "download" ||
@@ -202,7 +228,7 @@ export class NavigationCatalog {
       canonicalUrls.add(url);
       urls.push(url);
     }
-    for (const handle of handles) this.entries.delete(handle);
+    for (const handle of handles) this.remove(handle);
     return urls;
   }
   takeDownload(
@@ -211,8 +237,7 @@ export class NavigationCatalog {
     now = Date.now(),
   ): { url: string; module: string; title: string } | null {
     if (this.revoked) return null;
-    const entry = this.entries.get(handle);
-    this.entries.delete(handle);
+    const entry = this.remove(handle);
     if (
       !entry ||
       entry.kind !== "download" ||

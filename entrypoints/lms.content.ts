@@ -1,4 +1,8 @@
 import { NavigationCatalog } from "../src/navigation-catalog";
+import {
+  NavigationCatalogRegistry,
+  type NavigationCatalogAdmission,
+} from "../src/navigation-catalog-registry";
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { listCourses, listQuery } from "../src/api/client";
@@ -282,8 +286,7 @@ export default defineContentScript({
   allFrames: false,
   main() {
     const documentToken = crypto.randomUUID();
-    let activeCatalog = new NavigationCatalog();
-    const stagingCatalogs = new Set<NavigationCatalog>();
+    const catalogs = new NavigationCatalogRegistry();
     const cache = new QueryResultCache();
     let cacheAccount: string | undefined;
     let lifecycleEpoch = 0;
@@ -291,10 +294,7 @@ export default defineContentScript({
       lifecycleEpoch++;
       cache.clear();
       cacheAccount = undefined;
-      activeCatalog.revoke();
-      activeCatalog = new NavigationCatalog();
-      stagingCatalogs.forEach((catalog) => catalog.revoke());
-      stagingCatalogs.clear();
+      catalogs.revokeAll();
     };
     globalThis.addEventListener?.("pagehide", clearCachedState);
     async function open(
@@ -302,7 +302,7 @@ export default defineContentScript({
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
     ): Promise<Result> {
       const epoch = lifecycleEpoch;
-      const catalog = activeCatalog;
+      const catalog = catalogs.findPublished(handle);
       let account: string;
       try {
         account = await currentAccount(location.origin);
@@ -312,9 +312,9 @@ export default defineContentScript({
         invalidateScope(epoch);
         return accountError(error);
       }
-      if (epoch !== lifecycleEpoch || catalog !== activeCatalog)
+      if (epoch !== lifecycleEpoch)
         return { status: "error", code: "RELOAD_TAB" };
-      if (!catalog.hasOwner())
+      if (!catalog || !catalogs.isPublished(catalog) || !catalog.hasOwner())
         return { status: "error", code: "STALE_SELECTION" };
       if (!catalog.ownedBy(account, epoch)) {
         invalidateScope(epoch);
@@ -347,7 +347,7 @@ export default defineContentScript({
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
     ): Promise<Result> {
       const epoch = lifecycleEpoch;
-      const catalog = activeCatalog;
+      const catalog = catalogs.findPublished(message.handle);
       let account: string;
       try {
         account = await currentAccount(location.origin);
@@ -357,9 +357,9 @@ export default defineContentScript({
         invalidateScope(epoch);
         return accountError(error);
       }
-      if (epoch !== lifecycleEpoch || catalog !== activeCatalog)
+      if (epoch !== lifecycleEpoch)
         return { status: "error", code: "RELOAD_TAB" };
-      if (!catalog.hasOwner())
+      if (!catalog || !catalogs.isPublished(catalog) || !catalog.hasOwner())
         return { status: "error", code: "STALE_SELECTION" };
       if (!catalog.ownedBy(account, epoch)) {
         invalidateScope(epoch);
@@ -395,8 +395,10 @@ export default defineContentScript({
       key: string;
       result: Promise<Result>;
       owner?: Promise<CachedOwner | undefined>;
+      scope?: string;
+      admission?: NavigationCatalogAdmission;
     }
-    let pending: PendingQuery | undefined;
+    const pending = new Map<string, PendingQuery>();
     const invalidateScope = (epoch: number) => {
       if (epoch !== lifecycleEpoch) return;
       clearCachedState();
@@ -407,6 +409,7 @@ export default defineContentScript({
       initialEpoch?: number,
       initialAccount?: Promise<string>,
       publishOwner?: (owner: CachedOwner | undefined) => void,
+      admission?: NavigationCatalogAdmission,
     ): Promise<Result> {
       const ttl = cacheTtl(message);
       const capabilityList =
@@ -439,11 +442,13 @@ export default defineContentScript({
         const hit = cache.get(key);
         if (hit) return hit;
       }
-      const staging = capabilityList
-        ? new NavigationCatalog(account, epoch)
-        : undefined;
-      if (staging) stagingCatalogs.add(staging);
+      let staging: NavigationCatalog | undefined;
       try {
+        if (capabilityList) {
+          if (!admission) return { status: "error", code: "POLICY" };
+          staging = catalogs.begin(admission, account, epoch);
+          if (!staging) return { status: "error", code: "RELOAD_TAB" };
+        }
         const result = await (message.type === "COURSES_LIST"
           ? listCourses(location.origin)
           : staging
@@ -477,14 +482,13 @@ export default defineContentScript({
         if (staging) {
           if (!staging.ownedBy(account, epoch))
             return { status: "error", code: "RELOAD_TAB" };
-          activeCatalog.revoke();
-          activeCatalog = staging;
-          stagingCatalogs.delete(staging);
+          if (!catalogs.publish(admission!, staging))
+            return { status: "error", code: "RELOAD_TAB" };
         }
         if (ttl !== undefined) cache.set(key, result, ttl);
         return result;
       } finally {
-        if (stagingCatalogs.delete(staging!)) staging?.revoke();
+        if (admission) catalogs.discard(admission, staging);
       }
     }
     async function scopedPlaybackDiscovery(
@@ -574,8 +578,8 @@ export default defineContentScript({
           ) {
             const href = location.href;
             const epoch = lifecycleEpoch;
-            const catalog = activeCatalog;
             const handles = message.handles;
+            const catalog = catalogs.findPublished(handles[0]!);
             const salt = message.salt;
             void (async () => {
               let account: string;
@@ -592,7 +596,8 @@ export default defineContentScript({
               }
               if (
                 epoch !== lifecycleEpoch ||
-                catalog !== activeCatalog ||
+                !catalog ||
+                !catalogs.isPublished(catalog) ||
                 location.href !== href
               ) {
                 respond({ status: "error", code: "RELOAD_TAB" });
@@ -607,63 +612,71 @@ export default defineContentScript({
                 respond({ status: "error", code: "LOGIN_REQUIRED" });
                 return;
               }
-              const urls = catalog.takeRecordingBatch(
+              const reservation = catalogs.takeRecordingBatch(
                 handles,
                 location.origin,
                 Date.now(),
               );
-              const ids = urls?.map((url) =>
-                /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
-                  new URL(url).pathname,
-                ),
-              );
-              if (!ids || ids.some((value) => !value)) {
+              if (!reservation) {
                 respond({ status: "error", code: "STALE_SELECTION" });
                 return;
               }
-              const discovery = discoverPlayback(
-                location.origin,
-                salt,
-                fetch,
-                account,
-              );
-              const result = await discovery;
-              if (epoch !== lifecycleEpoch || location.href !== href) {
-                respond({ status: "error", code: "RELOAD_TAB" });
-                return;
+              try {
+                const ids = reservation.urls.map((url) =>
+                  /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
+                    new URL(url).pathname,
+                  ),
+                );
+                if (ids.some((value) => !value)) {
+                  respond({ status: "error", code: "STALE_SELECTION" });
+                  return;
+                }
+                const discovery = discoverPlayback(
+                  location.origin,
+                  salt,
+                  fetch,
+                  account,
+                );
+                const result = await discovery;
+                if (epoch !== lifecycleEpoch || location.href !== href) {
+                  respond({ status: "error", code: "RELOAD_TAB" });
+                  return;
+                }
+                if (result.status === "error") {
+                  invalidateScope(epoch);
+                  respond(result);
+                  return;
+                }
+                if (
+                  !catalogs.isPublished(catalog) ||
+                  !catalog.ownedBy(account, epoch)
+                ) {
+                  respond({ status: "error", code: "RELOAD_TAB" });
+                  return;
+                }
+                const items = ids.map((value) =>
+                  result.discovery.candidates.find(
+                    (item) =>
+                      item.courseId === value![1] &&
+                      item.id === `${value![1]}:${value![2]}`,
+                  ),
+                );
+                respond(
+                  items.every(Boolean) &&
+                    new Set(items.map((item) => item!.id)).size === items.length
+                    ? {
+                        status: "success",
+                        discovery: result.discovery,
+                        items: items.map((item) => ({
+                          id: item!.id,
+                          courseId: item!.courseId,
+                        })),
+                      }
+                    : { status: "error", code: "STALE_SELECTION" },
+                );
+              } finally {
+                reservation.release();
               }
-              if (result.status === "error") {
-                invalidateScope(epoch);
-                respond(result);
-                return;
-              }
-              if (
-                catalog !== activeCatalog ||
-                !catalog.ownedBy(account, epoch)
-              ) {
-                respond({ status: "error", code: "RELOAD_TAB" });
-                return;
-              }
-              const items = ids.map((value) =>
-                result.discovery.candidates.find(
-                  (item) =>
-                    item.courseId === value![1] &&
-                    item.id === `${value![1]}:${value![2]}`,
-                ),
-              );
-              respond(
-                items.every(Boolean) &&
-                  new Set(items.map((item) => item!.id)).size === items.length
-                  ? {
-                      status: "success",
-                      discovery: result.discovery,
-                      items: items.map((item) => ({
-                        id: item!.id,
-                        courseId: item!.courseId,
-                      })),
-                    }
-                  : { status: "error", code: "STALE_SELECTION" },
-              );
             })();
             return true;
           }
@@ -686,22 +699,26 @@ export default defineContentScript({
           return false;
         const request = parsed.request;
         const key = JSON.stringify(message);
-        if (pending && pending.key !== key) {
+        const joined = pending.has(key);
+        let operation = pending.get(key);
+        if (
+          !operation &&
+          pending.size > 0 &&
+          (!parsed.scope ||
+            [...pending.values()].some((item) => item.scope === undefined))
+        ) {
           respond({ status: "error", code: "BUSY" });
           return false;
         }
-        const joined = pending !== undefined;
-        let operation = pending;
         if (!operation) {
-          if (
-            request.type !== "RECORDING_OPEN" &&
-            request.type !== "DOCUMENT_OPEN" &&
-            request.type !== "DOCUMENT_DOWNLOAD"
-          ) {
-            const superseded = activeCatalog;
-            superseded.revoke();
-            if (activeCatalog === superseded)
-              activeCatalog = new NavigationCatalog();
+          let admission: NavigationCatalogAdmission | undefined;
+          if (parsed.scope) {
+            try {
+              admission = catalogs.admit(parsed.scope);
+            } catch {
+              respond({ status: "error", code: "LIMIT" });
+              return false;
+            }
           }
           const identityScoped = request.type.endsWith("_LIST");
           let resolveOwner:
@@ -725,14 +742,20 @@ export default defineContentScript({
             resolveResult = resolve;
             rejectResult = reject;
           });
-          operation = { key, result: sharedResult, owner };
+          operation = {
+            key,
+            result: sharedResult,
+            owner,
+            scope: parsed.scope,
+            admission,
+          };
           const ownedOperation = operation;
           ownedOperation.result = sharedResult.finally(() => {
-            if (pending === ownedOperation) pending = undefined;
+            if (pending.get(key) === ownedOperation) pending.delete(key);
           });
           // Publish the stable operation slot before starting any identity or
           // query work, so every synchronously admitted follower captures it.
-          pending = ownedOperation;
+          pending.set(key, ownedOperation);
           let result: Promise<Result>;
           if (identityScoped) {
             const epoch = lifecycleEpoch;
@@ -743,6 +766,7 @@ export default defineContentScript({
               epoch,
               account,
               resolveOwner,
+              admission,
             ).finally(() => resolveOwner?.(undefined));
           } else {
             result =

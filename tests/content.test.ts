@@ -1,6 +1,11 @@
 import type { NavigationCatalog } from "../src/navigation-catalog";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { parseResult, request, type Request } from "../src/protocol";
+import {
+  parseResult,
+  request,
+  type CapabilityListRequest,
+  type Request,
+} from "../src/protocol";
 const list = vi.hoisted(() => vi.fn());
 const query = vi.hoisted(() => vi.fn());
 vi.mock("../src/api/client", () => ({ listCourses: list, listQuery: query }));
@@ -12,6 +17,13 @@ import content, { discoverPlayback } from "../entrypoints/lms.content";
 const origin = "https://mylms.korea.ac.kr";
 const salt = "a".repeat(64);
 const api = `${origin}/api/v1`;
+const defaultCapabilityScope = "00000000-0000-4000-8000-000000000001";
+const capability = (
+  request: CapabilityListRequest,
+  scope = defaultCapabilityScope,
+  refresh = false,
+) =>
+  ({ version: 1, type: "CAPABILITY_LIST", scope, refresh, request }) as const;
 
 function json(value: unknown, headers?: HeadersInit): Response {
   return Response.json(value, { headers });
@@ -376,7 +388,9 @@ it("clears cached projections after an uncached capability query loses access", 
     courses: [{ name: "A" }],
   });
   expect(
-    await send({ version: 1, type: "RECORDINGS_LIST", course: "A" }),
+    await send(
+      capability({ version: 1, type: "RECORDINGS_LIST", course: "A" }),
+    ),
   ).toEqual({ status: "error", code: "FORBIDDEN" });
   expect(await send(request)).toEqual({
     status: "success",
@@ -772,7 +786,7 @@ it("opens only a known catalog handle and never accepts a raw URL from the panel
   });
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "과목" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "과목" }),
     sender,
     listed.respond,
   );
@@ -794,6 +808,217 @@ it("opens only a known catalog handle and never accepts a raw URL from the panel
     url: "https://mylms.korea.ac.kr/courses/101/modules/items/501",
   });
   store?.clear();
+});
+
+it("isolates identical capability lists while general queries and another issuer reload leave them valid", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValue({ status: "success", opened: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  list.mockResolvedValue({ status: "success", courses: [] });
+  query.mockImplementation(
+    async (_origin, request: Request, _fetch, _now, catalog) =>
+      request.type === "DOCUMENTS_LIST"
+        ? {
+            status: "success",
+            documents: catalog.replaceDocuments(origin, [
+              {
+                module: "Week",
+                title: "Notes",
+                courseId: "101",
+                itemId: "900",
+                fileId: "501",
+                moduleAccess: {},
+                itemAccess: {},
+              },
+            ]),
+          }
+        : {
+            status: "success",
+            recordings: catalog.replace(origin, [
+              {
+                module: "Week",
+                title: "Lecture",
+                courseId: "101",
+                itemId: "501",
+                moduleAccess: {},
+                itemAccess: {},
+              },
+            ]),
+          },
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = async (message: unknown) => {
+    const result = response();
+    expect(listener(message, sender, result.respond)).toBe(true);
+    return result.done;
+  };
+  const scopeA = crypto.randomUUID();
+  const scopeB = crypto.randomUUID();
+  const listedA = parseResult(
+    await send(
+      capability(
+        { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+        scopeA,
+      ),
+    ),
+  );
+  const listedB = parseResult(
+    await send(
+      capability(
+        { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+        scopeB,
+      ),
+    ),
+  );
+  if (
+    listedA.status !== "success" ||
+    !("recordings" in listedA) ||
+    listedB.status !== "success" ||
+    !("recordings" in listedB)
+  )
+    throw new Error("missing scoped recordings");
+  const a = listedA.recordings[0]!;
+  const b = listedB.recordings[0]!;
+  expect(a.launchHandle).not.toBe(b.launchHandle);
+
+  expect(await send(request)).toEqual({ status: "success", courses: [] });
+  const documents = parseResult(
+    await send(
+      capability(
+        { version: 1, type: "DOCUMENTS_LIST", course: "Course" },
+        scopeB,
+      ),
+    ),
+  );
+  if (documents.status !== "success" || !("documents" in documents))
+    throw new Error("missing scoped documents");
+
+  expect(
+    await send({ version: 1, type: "RECORDING_OPEN", handle: a.launchHandle }),
+  ).toEqual({ status: "success", opened: true });
+  expect(
+    await send({ version: 1, type: "RECORDING_OPEN", handle: b.launchHandle }),
+  ).toEqual({ status: "error", code: "STALE_SELECTION" });
+  expect(
+    await send({
+      version: 1,
+      type: "DOCUMENT_OPEN",
+      handle: documents.documents[0]!.lmsHandle,
+    }),
+  ).toEqual({ status: "success", opened: true });
+
+  query.mockResolvedValueOnce({ status: "error", code: "NETWORK" });
+  expect(
+    await send(
+      capability(
+        { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+        scopeA,
+        true,
+      ),
+    ),
+  ).toEqual({ status: "error", code: "NETWORK" });
+  expect(
+    await send({ version: 1, type: "RECORDING_OPEN", handle: a.lmsHandle }),
+  ).toEqual({ status: "error", code: "STALE_SELECTION" });
+});
+
+it("prevents a delayed same-scope admission from revoking its newer replacement", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage: vi
+        .fn()
+        .mockResolvedValue({ status: "success", opened: true }),
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const delayedIdentity = Promise.withResolvers<Response>();
+  let identityCalls = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identityCalls++;
+    if (identityCalls === 1) return delayedIdentity.promise;
+    return json({ id: 42 });
+  });
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      recordings: catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Current lecture",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const scope = crypto.randomUUID();
+  const stale = response();
+  listener(
+    capability(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      scope,
+    ),
+    sender,
+    stale.respond,
+  );
+  await vi.waitFor(() => expect(identityCalls).toBe(1));
+
+  const current = response();
+  listener(
+    capability(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      scope,
+      true,
+    ),
+    sender,
+    current.respond,
+  );
+  const currentValue = await current.done;
+  const currentResult = parseResult(currentValue);
+  if (currentResult.status !== "success" || !("recordings" in currentResult))
+    throw new Error("missing replacement catalog");
+
+  delayedIdentity.resolve(json({ id: 42 }));
+  expect(await stale.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+  const opened = response();
+  listener(
+    {
+      version: 1,
+      type: "RECORDING_OPEN",
+      handle: currentResult.recordings[0]!.launchHandle,
+    },
+    sender,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({ status: "success", opened: true });
+  expect(query).toHaveBeenCalledTimes(1);
 });
 
 it("never publishes capability handles when the account changes during a list", async () => {
@@ -836,7 +1061,7 @@ it("never publishes capability handles when the account changes during a list", 
   };
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     sender,
     listed.respond,
   );
@@ -896,7 +1121,7 @@ it("rechecks identity before consuming a handle and dispatches nothing after an 
   };
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     sender,
     listed.respond,
   );
@@ -974,7 +1199,7 @@ it("keeps a restored lifecycle catalog authoritative against late hydration", as
   };
   const stale = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     sender,
     stale.respond,
   );
@@ -985,7 +1210,7 @@ it("keeps a restored lifecycle catalog authoritative against late hydration", as
 
   const restored = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     sender,
     restored.respond,
   );
@@ -1061,7 +1286,7 @@ it("binds playback resolution to the capability owner across discovery", async (
   };
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     panel,
     listed.respond,
   );
@@ -1138,7 +1363,7 @@ it("reserves 100 ordered handles before expiry and resolves them with one discov
     if (path === "/api/v1/courses") {
       // The whole batch was accepted at 299s. Discovery may cross the original
       // five-minute handle TTL without invalidating that reservation.
-      vi.setSystemTime(issuedAt + 319_000);
+      await vi.advanceTimersByTimeAsync(2_000);
       return json([{ id: 101, name: "Course" }]);
     }
     if (path === "/api/v1/courses/101/modules")
@@ -1165,7 +1390,7 @@ it("reserves 100 ordered handles before expiry and resolves them with one discov
   };
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     panel,
     listed.respond,
   );
@@ -1173,7 +1398,7 @@ it("reserves 100 ordered handles before expiry and resolves them with one discov
   const result = parseResult(listedValue);
   if (result.status !== "success" || !("recordings" in result))
     throw new Error("missing recordings");
-  vi.setSystemTime(issuedAt + 299_000);
+  await vi.advanceTimersByTimeAsync(299_000);
   const handles = result.recordings
     .map((recording) => recording.launchHandle)
     .reverse();
@@ -1263,7 +1488,7 @@ it("revokes a concurrent staging catalog when reserved-batch discovery changes a
   const sendList = () => {
     const result = response();
     listener(
-      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
       panel,
       result.respond,
     );
@@ -1350,7 +1575,7 @@ it("invalidates existing capabilities when playback discovery establishes a new 
   };
   const listed = response();
   listener(
-    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }),
     panel,
     listed.respond,
   );
@@ -1421,7 +1646,7 @@ it("routes document handles through the background LMS boundary and consumes the
   );
   const listed = response();
   listener(
-    { version: 1, type: "DOCUMENTS_LIST", course: "Course" },
+    capability({ version: 1, type: "DOCUMENTS_LIST", course: "Course" }),
     sender,
     listed.respond,
   );

@@ -178,7 +178,17 @@ test("production playback stays bound to the listing document across LMS tabs", 
         if (tab?.id === undefined) throw new Error("missing listing tab");
         const result = (await chrome.tabs.sendMessage(
           tab.id,
-          { version: 1, type: "RECORDINGS_LIST", course: "합성 운영체제" },
+          {
+            version: 1,
+            type: "CAPABILITY_LIST",
+            scope: crypto.randomUUID(),
+            refresh: false,
+            request: {
+              version: 1,
+              type: "RECORDINGS_LIST",
+              course: "합성 운영체제",
+            },
+          },
           { frameId: 0 },
         )) as {
           status: string;
@@ -985,8 +995,14 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
         tab.id,
         {
           version: 1,
-          type: "RECORDINGS_LIST",
-          course: "합성 운영체제",
+          type: "CAPABILITY_LIST",
+          scope: crypto.randomUUID(),
+          refresh: false,
+          request: {
+            version: 1,
+            type: "RECORDINGS_LIST",
+            course: "합성 운영체제",
+          },
         },
         { frameId: 0 },
       )) as {
@@ -1304,8 +1320,14 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
         tab.id,
         {
           version: 1,
-          type: "RECORDINGS_LIST",
-          course: "합성 운영체제",
+          type: "CAPABILITY_LIST",
+          scope: crypto.randomUUID(),
+          refresh: false,
+          request: {
+            version: 1,
+            type: "RECORDINGS_LIST",
+            course: "합성 운영체제",
+          },
         },
         { frameId: 0 },
       )) as {

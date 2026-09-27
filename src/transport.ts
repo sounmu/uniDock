@@ -6,6 +6,7 @@ import {
   type Result,
   type PanelQueryMessage,
   type ListRequest,
+  type CapabilityListRequest,
 } from "./protocol";
 import { allowedPage } from "./security/policy";
 export interface QueryTarget {
@@ -19,6 +20,8 @@ export interface QueryOptions {
   onTarget?: (target: QueryTarget) => void;
   /** Explicit user refresh: bypass a short-lived content-script cache. */
   refresh?: boolean;
+  /** Stable identity of one mounted capability-list consumer. */
+  capabilityScope?: string;
 }
 export async function queryActive(
   query: Request,
@@ -60,13 +63,28 @@ export async function queryActive(
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
       if (options.refresh && !query.type.endsWith("_LIST"))
         return { status: "error", code: "POLICY" };
-      const message: PanelQueryMessage = options.refresh
+      const capabilityList =
+        query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST";
+      if (
+        (capabilityList && !validScope(options.capabilityScope)) ||
+        (!capabilityList && options.capabilityScope !== undefined)
+      )
+        return { status: "error", code: "POLICY" };
+      const message: PanelQueryMessage = capabilityList
         ? {
             version: 1,
-            type: "QUERY_REFRESH",
-            request: query as ListRequest,
+            type: "CAPABILITY_LIST",
+            scope: options.capabilityScope!,
+            refresh: options.refresh === true,
+            request: query as CapabilityListRequest,
           }
-        : query;
+        : options.refresh
+          ? {
+              version: 1,
+              type: "QUERY_REFRESH",
+              request: query as ListRequest,
+            }
+          : query;
       const result: unknown = await chrome.tabs.sendMessage(tab.id, message, {
         frameId: 0,
       });
@@ -114,6 +132,15 @@ export async function queryActive(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function validScope(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+      value,
+    )
+  );
 }
 
 export function queryActiveCourses(): Promise<Result> {

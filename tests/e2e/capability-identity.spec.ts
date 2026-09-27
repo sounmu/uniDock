@@ -91,7 +91,13 @@ test("production capabilities cannot cross synthetic LMS accounts", async ({
       (id) =>
         chrome.tabs.sendMessage(
           id,
-          { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+          {
+            version: 1,
+            type: "CAPABILITY_LIST",
+            scope: crypto.randomUUID(),
+            refresh: false,
+            request: { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+          },
           { frameId: 0 },
         ),
       tabId,

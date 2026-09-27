@@ -17,6 +17,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     status: "idle",
   });
   const generation = useRef(0);
+  const capabilityScope = useRef(crypto.randomUUID()).current;
   const inFlight = useRef<Promise<Result> | null>(null);
   const recordingTarget = useRef<QueryTarget | null>(null);
   const downloads = useDocumentDownloads({
@@ -75,6 +76,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
         ? queryActive(query, {
             refresh: options.refresh,
+            capabilityScope,
             onTarget: (target) => {
               if (current === generation.current)
                 recordingTarget.current = target;

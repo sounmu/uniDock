@@ -28,6 +28,7 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const [course, setCourseValue] = useState("");
   const [deletePrompt, setDeletePrompt] = useState(false);
   const recordingGeneration = useRef(0);
+  const capabilityScope = useRef(crypto.randomUUID()).current;
   const recordingSelection = useRef<RecordingSelection | null>(null);
   const commandGeneration = useRef(0);
   const foregroundCount = useRef(0);
@@ -172,7 +173,11 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
         type: "RECORDINGS_LIST",
         course: selectedCourse.name,
       },
-      { refresh: true, onTarget: (accepted) => (target = accepted) },
+      {
+        refresh: true,
+        capabilityScope,
+        onTarget: (accepted) => (target = accepted),
+      },
     ).finally(lease.release);
     if (!mounted.current || current !== recordingGeneration.current) return;
     setRecordingLoad(false);

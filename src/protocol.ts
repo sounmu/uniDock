@@ -47,6 +47,11 @@ export type ListRequest =
       start_date?: string;
       end_date?: string;
     };
+export type CapabilityListRequest = {
+  version: 1;
+  type: "RECORDINGS_LIST" | "DOCUMENTS_LIST";
+  course: string;
+};
 export type Request =
   | ListRequest
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
@@ -57,6 +62,13 @@ export type PanelQueryMessage =
       version: 1;
       type: "QUERY_REFRESH";
       request: ListRequest;
+    }
+  | {
+      version: 1;
+      type: "CAPABILITY_LIST";
+      scope: string;
+      refresh: boolean;
+      request: CapabilityListRequest;
     };
 export function validHandle(value: unknown): value is string {
   return (
@@ -127,19 +139,40 @@ export function isRequest(value: unknown): value is Request {
 }
 export function panelQuery(
   value: unknown,
-): { request: Request; refresh: boolean } | null {
-  if (isRequest(value)) return { request: value, refresh: false };
+): { request: Request; refresh: boolean; scope?: string } | null {
+  if (isRequest(value))
+    return value.type === "RECORDINGS_LIST" || value.type === "DOCUMENTS_LIST"
+      ? null
+      : { request: value, refresh: false };
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
+  if (row.version !== 1) return null;
+  if (row.type === "CAPABILITY_LIST") {
+    if (
+      Object.keys(row).length !== 5 ||
+      !validHandle(row.scope) ||
+      typeof row.refresh !== "boolean" ||
+      !isRequest(row.request) ||
+      (row.request.type !== "RECORDINGS_LIST" &&
+        row.request.type !== "DOCUMENTS_LIST")
+    )
+      return null;
+    return {
+      request: row.request as CapabilityListRequest,
+      refresh: row.refresh,
+      scope: row.scope,
+    };
+  }
   if (
-    row.version !== 1 ||
     row.type !== "QUERY_REFRESH" ||
     Object.keys(row).length !== 3 ||
     !isRequest(row.request)
   )
     return null;
   const request = row.request;
-  return request.type.endsWith("_LIST")
+  return request.type.endsWith("_LIST") &&
+    request.type !== "RECORDINGS_LIST" &&
+    request.type !== "DOCUMENTS_LIST"
     ? { request: request as ListRequest, refresh: true }
     : null;
 }
