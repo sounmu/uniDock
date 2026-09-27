@@ -795,6 +795,476 @@ it("opens only a known catalog handle and never accepts a raw URL from the panel
   store?.clear();
 });
 
+it("never publishes capability handles when the account changes during a list", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const identities = [1, 2, 2];
+  vi.mocked(fetch).mockImplementation(async () =>
+    json({ id: identities.shift() ?? 2 }),
+  );
+  let stagedHandle = "";
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => {
+      stagedHandle = catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Account A lecture",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ])[0]!.launchHandle;
+      return { status: "success", recordings: [] };
+    },
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const listed = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    sender,
+    listed.respond,
+  );
+  expect(await listed.done).toEqual({
+    status: "error",
+    code: "LOGIN_REQUIRED",
+  });
+  const opened = response();
+  listener(
+    { version: 1, type: "RECORDING_OPEN", handle: stagedHandle },
+    sender,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
+it("rechecks identity before consuming a handle and dispatches nothing after an account swap", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const identities = [1, 1, 2];
+  vi.mocked(fetch).mockImplementation(async () =>
+    json({ id: identities.shift() ?? 2 }),
+  );
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      recordings: catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Lecture",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const listed = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    sender,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("missing recordings");
+  const opened = response();
+  listener(
+    {
+      version: 1,
+      type: "RECORDING_OPEN",
+      handle: result.recordings[0]!.launchHandle,
+    },
+    sender,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({
+    status: "error",
+    code: "LOGIN_REQUIRED",
+  });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
+it("keeps a restored lifecycle catalog authoritative against late hydration", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValue({ status: "success", opened: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const oldResult = Promise.withResolvers<unknown>();
+  let oldCatalog!: NavigationCatalog;
+  query
+    .mockImplementationOnce(
+      async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => {
+        oldCatalog = catalog;
+        return oldResult.promise;
+      },
+    )
+    .mockImplementationOnce(
+      async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+        status: "success",
+        recordings: catalog.replace(origin, [
+          {
+            module: "Week",
+            title: "Restored",
+            courseId: "101",
+            itemId: "502",
+            moduleAccess: {},
+            itemAccess: {},
+          },
+        ]),
+      }),
+    );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const stale = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    sender,
+    stale.respond,
+  );
+  await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+  pagehide();
+  oldResult.resolve({ status: "success", recordings: [] });
+  expect(await stale.done).toEqual({ status: "error", code: "RELOAD_TAB" });
+
+  const restored = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    sender,
+    restored.respond,
+  );
+  const result = parseResult(await restored.done);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("missing recordings");
+  expect(() =>
+    oldCatalog.replace(origin, [
+      {
+        module: "Week",
+        title: "Late stale hydration",
+        courseId: "101",
+        itemId: "501",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ]),
+  ).toThrow("STALE_SELECTION");
+  const opened = response();
+  listener(
+    {
+      version: 1,
+      type: "RECORDING_OPEN",
+      handle: result.recordings[0]!.launchHandle,
+    },
+    sender,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({ status: "success", opened: true });
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith({
+    version: 1,
+    type: "OPEN_LMS_TARGET",
+    url: `${origin}/courses/101/modules/items/502`,
+  });
+});
+
+it("binds playback resolution to the capability owner across discovery", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path: string) => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const identities = [1, 1, 1, 2];
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    if (String(input).endsWith("/users/self"))
+      return json({ id: identities.shift() ?? 2 });
+    return json([]);
+  });
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      recordings: catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Same IDs",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const panel = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const listed = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    panel,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("missing recordings");
+  const resolved = response();
+  listener(
+    {
+      version: 1,
+      type: "PLAYBACK_RESOLVE",
+      handle: result.recordings[0]!.launchHandle,
+      salt,
+    },
+    { id: "fixture-extension" },
+    resolved.respond,
+  );
+  expect(await resolved.done).toEqual({
+    status: "error",
+    code: "ACCOUNT_CHANGED",
+  });
+});
+
+it("revokes a concurrent capability staging catalog when playback discovers another account", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path: string) => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const discoveryIdentity = Promise.withResolvers<Response>();
+  const listPostIdentity = Promise.withResolvers<Response>();
+  let identityCall = 0;
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    if (!String(input).endsWith("/users/self")) return json([]);
+    identityCall++;
+    if (identityCall === 4) return discoveryIdentity.promise;
+    if (identityCall === 6) return listPostIdentity.promise;
+    return json({ id: 1 });
+  });
+  let concurrentCatalog!: NavigationCatalog;
+  query
+    .mockImplementationOnce(
+      async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+        status: "success",
+        recordings: catalog.replace(origin, [
+          {
+            module: "Week",
+            title: "Account A",
+            courseId: "101",
+            itemId: "501",
+            moduleAccess: {},
+            itemAccess: {},
+          },
+        ]),
+      }),
+    )
+    .mockImplementationOnce(
+      async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => {
+        concurrentCatalog = catalog;
+        return {
+          status: "success",
+          recordings: catalog.replace(origin, [
+            {
+              module: "Week",
+              title: "Must not publish",
+              courseId: "101",
+              itemId: "501",
+              moduleAccess: {},
+              itemAccess: {},
+            },
+          ]),
+        };
+      },
+    );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const panel = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const sendList = () => {
+    const result = response();
+    listener(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      panel,
+      result.respond,
+    );
+    return result.done;
+  };
+  const initial = parseResult(await sendList());
+  if (initial.status !== "success" || !("recordings" in initial))
+    throw new Error("missing recordings");
+
+  const resolved = response();
+  listener(
+    {
+      version: 1,
+      type: "PLAYBACK_RESOLVE",
+      handle: initial.recordings[0]!.launchHandle,
+      salt,
+    },
+    { id: "fixture-extension" },
+    resolved.respond,
+  );
+  await vi.waitFor(() => expect(identityCall).toBe(4));
+  const concurrent = sendList();
+  await vi.waitFor(() => expect(identityCall).toBe(6));
+
+  discoveryIdentity.resolve(json({ id: 2 }));
+  expect(await resolved.done).toEqual({
+    status: "error",
+    code: "ACCOUNT_CHANGED",
+  });
+  listPostIdentity.resolve(json({ id: 1 }));
+  expect(await concurrent).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(() =>
+    concurrentCatalog.replace(origin, [
+      {
+        module: "Week",
+        title: "Late hydration",
+        courseId: "101",
+        itemId: "502",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ]),
+  ).toThrow("STALE_SELECTION");
+});
+
+it("invalidates existing capabilities when playback discovery establishes a new account", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path: string) => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  let account = 1;
+  vi.mocked(fetch).mockImplementation(async (input) =>
+    String(input).endsWith("/users/self") ? json({ id: account }) : json([]),
+  );
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      recordings: catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Account A",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const panel = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const listed = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    panel,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("missing recordings");
+
+  account = 2;
+  const discovered = response();
+  listener(
+    { version: 1, type: "PLAYBACK_DISCOVER", salt },
+    { id: "fixture-extension" },
+    discovered.respond,
+  );
+  expect(await discovered.done).toMatchObject({ status: "success" });
+  const opened = response();
+  listener(
+    {
+      version: 1,
+      type: "RECORDING_OPEN",
+      handle: result.recordings[0]!.launchHandle,
+    },
+    panel,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
 it("routes document handles through the background LMS boundary and consumes them once", async () => {
   const addListener = vi.fn();
   const sendMessage = vi

@@ -27,6 +27,21 @@ interface Entry {
 export class NavigationCatalog {
   private entries = new Map<string, Entry>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private revoked = false;
+  constructor(
+    private readonly account?: string,
+    private readonly epoch?: number,
+  ) {}
+  ownedBy(account: string, epoch: number): boolean {
+    return !this.revoked && this.account === account && this.epoch === epoch;
+  }
+  hasOwner(): boolean {
+    return !this.revoked && this.account !== undefined && this.epoch !== undefined;
+  }
+  revoke(): void {
+    this.revoked = true;
+    this.clear();
+  }
   clear(): void {
     this.entries.clear();
     clearTimeout(this.timer);
@@ -36,6 +51,7 @@ export class NavigationCatalog {
     targets: RecordingTarget[],
     now = Date.now(),
   ): Recording[] {
+    if (this.revoked) throw new Error("STALE_SELECTION");
     this.clear();
     if (targets.length > 10000) throw new Error("LIMIT");
     const add = (url: string, target: RecordingTarget): string => {
@@ -76,6 +92,7 @@ export class NavigationCatalog {
     targets: DocumentTarget[],
     now = Date.now(),
   ): Document[] {
+    if (this.revoked) throw new Error("STALE_SELECTION");
     this.clear();
     if (targets.length > 10000) throw new Error("LIMIT");
     try {
@@ -132,6 +149,7 @@ export class NavigationCatalog {
     now = Date.now(),
     kind?: "recording" | "document",
   ): string | null {
+    if (this.revoked) return null;
     const entry = this.entries.get(handle);
     this.entries.delete(handle);
     if (
@@ -150,6 +168,7 @@ export class NavigationCatalog {
     origin: string,
     now = Date.now(),
   ): { url: string; module: string; title: string } | null {
+    if (this.revoked) return null;
     const entry = this.entries.get(handle);
     this.entries.delete(handle);
     if (

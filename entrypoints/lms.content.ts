@@ -86,7 +86,9 @@ async function currentAccount(
   }
 }
 
-function accountError(error: unknown): Result {
+function accountError(
+  error: unknown,
+): Extract<Result, { status: "error" }> {
   const known = [
     "LOGIN_REQUIRED",
     "FORBIDDEN",
@@ -106,6 +108,7 @@ export async function discoverPlayback(
   origin: string,
   salt: string,
   fetcher: typeof fetch = fetch,
+  expectedAccount?: string,
 ): Promise<DiscoveryResult> {
   const controller = new AbortController();
   let timedOut = false;
@@ -140,7 +143,7 @@ export async function discoverPlayback(
       throw new Error("INVALID_RESPONSE");
     return response;
   }
-  async function identity(): Promise<string> {
+  async function identity(): Promise<{ account: string; key: string }> {
     const value = await readJsonBounded(
       await read(
         readUrl("/api/v1/users/self", origin, "/api/v1/users/self").href,
@@ -154,9 +157,12 @@ export async function discoverPlayback(
         `unidock-playback-v1\0${salt}\0${origin}\0${id}`,
       ),
     );
-    return Array.from(new Uint8Array(bytes), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
+    return {
+      account: id,
+      key: Array.from(new Uint8Array(bytes), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join(""),
+    };
   }
   async function collect(
     path: string,
@@ -182,7 +188,13 @@ export async function discoverPlayback(
       !/^[a-f0-9]{64}$/.test(salt)
     )
       throw new Error("POLICY");
-    const accountKey = await identity();
+    const identityBefore = await identity();
+    if (
+      expectedAccount !== undefined &&
+      identityBefore.account !== expectedAccount
+    )
+      throw new Error("ACCOUNT_CHANGED");
+    const accountKey = identityBefore.key;
     const courses: { id: string; name: string }[] = [];
     const candidates: PlaybackCandidate[] = [];
     const now = Date.now();
@@ -232,7 +244,12 @@ export async function discoverPlayback(
         }
       }
     }
-    if ((await identity()) !== accountKey) throw new Error("ACCOUNT_CHANGED");
+    const identityAfter = await identity();
+    if (
+      identityAfter.account !== identityBefore.account ||
+      identityAfter.key !== accountKey
+    )
+      throw new Error("ACCOUNT_CHANGED");
     const discovery: PlaybackDiscovery = {
       accountKey,
       origin,
@@ -266,7 +283,8 @@ export default defineContentScript({
   runAt: "document_idle",
   allFrames: false,
   main() {
-    const catalog = new NavigationCatalog();
+    let activeCatalog = new NavigationCatalog();
+    const stagingCatalogs = new Set<NavigationCatalog>();
     const cache = new QueryResultCache();
     let cacheAccount: string | undefined;
     let lifecycleEpoch = 0;
@@ -274,13 +292,35 @@ export default defineContentScript({
       lifecycleEpoch++;
       cache.clear();
       cacheAccount = undefined;
-      catalog.clear();
+      activeCatalog.revoke();
+      activeCatalog = new NavigationCatalog();
+      stagingCatalogs.forEach((catalog) => catalog.revoke());
+      stagingCatalogs.clear();
     };
     globalThis.addEventListener?.("pagehide", clearCachedState);
     async function open(
       handle: string,
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
     ): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const catalog = activeCatalog;
+      let account: string;
+      try {
+        account = await currentAccount(location.origin);
+      } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        invalidateScope(epoch);
+        return accountError(error);
+      }
+      if (epoch !== lifecycleEpoch || catalog !== activeCatalog)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (!catalog.hasOwner())
+        return { status: "error", code: "STALE_SELECTION" };
+      if (!catalog.ownedBy(account, epoch)) {
+        invalidateScope(epoch);
+        return { status: "error", code: "LOGIN_REQUIRED" };
+      }
       const url = catalog.take(
         handle,
         location.origin,
@@ -289,11 +329,12 @@ export default defineContentScript({
       );
       if (!url) return { status: "error", code: "STALE_SELECTION" };
       try {
-        const result: unknown = await chrome.runtime.sendMessage({
+        const dispatched = chrome.runtime.sendMessage({
           version: 1,
           type: "OPEN_LMS_TARGET",
           url,
         });
+        const result: unknown = await dispatched;
         return parseResult(result, {
           version: 1,
           type,
@@ -306,6 +347,25 @@ export default defineContentScript({
     async function download(
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
     ): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const catalog = activeCatalog;
+      let account: string;
+      try {
+        account = await currentAccount(location.origin);
+      } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        invalidateScope(epoch);
+        return accountError(error);
+      }
+      if (epoch !== lifecycleEpoch || catalog !== activeCatalog)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (!catalog.hasOwner())
+        return { status: "error", code: "STALE_SELECTION" };
+      if (!catalog.ownedBy(account, epoch)) {
+        invalidateScope(epoch);
+        return { status: "error", code: "LOGIN_REQUIRED" };
+      }
       const entry = catalog.takeDownload(message.handle, location.origin);
       if (!entry) return { status: "error", code: "STALE_SELECTION" };
       const filename = safeDownloadPath(
@@ -315,12 +375,13 @@ export default defineContentScript({
       );
       if (!filename) return { status: "error", code: "POLICY" };
       try {
-        const result: unknown = await chrome.runtime.sendMessage({
+        const dispatched = chrome.runtime.sendMessage({
           version: 1,
           type: "DOWNLOAD_LMS_FILE",
           url: entry.url,
           filename,
         });
+        const result: unknown = await dispatched;
         return parseResult(result, message);
       } catch {
         return { status: "error", code: "DOWNLOAD_FAILED" };
@@ -349,23 +410,9 @@ export default defineContentScript({
       publishOwner?: (owner: CachedOwner | undefined) => void,
     ): Promise<Result> {
       const ttl = cacheTtl(message);
-      const execute = () =>
-        message.type === "COURSES_LIST"
-          ? listCourses(location.origin)
-          : message.type === "RECORDINGS_LIST" ||
-              message.type === "DOCUMENTS_LIST"
-            ? listQuery(location.origin, message, fetch, Date.now(), catalog)
-            : listQuery(location.origin, message);
-      if (ttl === undefined) {
-        const result = await execute();
-        if (
-          result.status === "error" &&
-          (result.code === "LOGIN_REQUIRED" || result.code === "FORBIDDEN")
-        )
-          clearCachedState();
-        return result;
-      }
-
+      const capabilityList =
+        message.type === "RECORDINGS_LIST" ||
+        message.type === "DOCUMENTS_LIST";
       let epoch = initialEpoch ?? lifecycleEpoch;
       let account: string;
       try {
@@ -390,24 +437,66 @@ export default defineContentScript({
       }
       publishOwner?.({ account, epoch });
       const key = JSON.stringify(message);
-      if (!refresh) {
+      if (ttl !== undefined && !refresh) {
         const hit = cache.get(key);
         if (hit) return hit;
       }
-      const result = await execute();
-      if (epoch !== lifecycleEpoch)
-        return { status: "error", code: "RELOAD_TAB" };
-      if (
-        result.status === "error" &&
-        (result.code === "LOGIN_REQUIRED" || result.code === "FORBIDDEN")
-      ) {
-        clearCachedState();
-        return result;
-      }
-      if (result.status !== "success") return result;
-      let confirmedAccount: string;
+      const staging = capabilityList
+        ? new NavigationCatalog(account, epoch)
+        : undefined;
+      if (staging) stagingCatalogs.add(staging);
       try {
-        confirmedAccount = await currentAccount(location.origin);
+        const result = await (message.type === "COURSES_LIST"
+          ? listCourses(location.origin)
+          : staging
+            ? listQuery(location.origin, message, fetch, Date.now(), staging)
+            : listQuery(location.origin, message));
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        if (
+          result.status === "error" &&
+          (result.code === "LOGIN_REQUIRED" || result.code === "FORBIDDEN")
+        ) {
+          invalidateScope(epoch);
+          return result;
+        }
+        if (result.status !== "success") return result;
+        let confirmedAccount: string;
+        try {
+          confirmedAccount = await currentAccount(location.origin);
+        } catch (error) {
+          if (epoch !== lifecycleEpoch)
+            return { status: "error", code: "RELOAD_TAB" };
+          invalidateScope(epoch);
+          return accountError(error);
+        }
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        if (confirmedAccount !== account) {
+          invalidateScope(epoch);
+          return { status: "error", code: "LOGIN_REQUIRED" };
+        }
+        if (staging) {
+          if (!staging.ownedBy(account, epoch))
+            return { status: "error", code: "RELOAD_TAB" };
+          activeCatalog.revoke();
+          activeCatalog = staging;
+          stagingCatalogs.delete(staging);
+        }
+        if (ttl !== undefined) cache.set(key, result, ttl);
+        return result;
+      } finally {
+        if (stagingCatalogs.delete(staging!)) staging?.revoke();
+      }
+    }
+    async function scopedPlaybackDiscovery(
+      salt: string,
+      initialEpoch: number,
+    ): Promise<DiscoveryResult> {
+      let epoch = initialEpoch;
+      let account: string;
+      try {
+        account = await currentAccount(location.origin);
       } catch (error) {
         if (epoch !== lifecycleEpoch)
           return { status: "error", code: "RELOAD_TAB" };
@@ -416,11 +505,22 @@ export default defineContentScript({
       }
       if (epoch !== lifecycleEpoch)
         return { status: "error", code: "RELOAD_TAB" };
-      if (confirmedAccount !== account) {
-        invalidateScope(epoch);
-        return { status: "error", code: "LOGIN_REQUIRED" };
+      if (cacheAccount !== account) {
+        if (cacheAccount !== undefined) {
+          invalidateScope(epoch);
+          epoch = lifecycleEpoch;
+        }
+        cacheAccount = account;
       }
-      cache.set(key, result, ttl);
+      const result = await discoverPlayback(
+        location.origin,
+        salt,
+        fetch,
+        account,
+      );
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (result.status === "error") invalidateScope(epoch);
       return result;
     }
     chrome.runtime.onMessage.addListener(
@@ -438,9 +538,9 @@ export default defineContentScript({
             Object.keys(message).length === 3
           ) {
             const href = location.href;
-            playbackPending ??= discoverPlayback(
-              location.origin,
+            playbackPending ??= scopedPlaybackDiscovery(
               message.salt,
+              lifecycleEpoch,
             ).finally(() => {
               playbackPending = undefined;
             });
@@ -458,46 +558,85 @@ export default defineContentScript({
             Object.keys(message).length === 4 &&
             validHandle(message.handle)
           ) {
-            const url = catalog.take(message.handle, location.origin);
-            const ids = url
-              ? /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
-                  new URL(url).pathname,
-                )
-              : null;
-            if (!ids) {
-              respond({ status: "error", code: "STALE_SELECTION" });
-              return false;
-            }
             const href = location.href;
-            void discoverPlayback(location.origin, message.salt).then(
-              (result) => {
-                if (location.href !== href) {
+            const epoch = lifecycleEpoch;
+            const catalog = activeCatalog;
+            const handle = message.handle;
+            const salt = message.salt;
+            void (async () => {
+              let account: string;
+              try {
+                account = await currentAccount(location.origin);
+              } catch (error) {
+                if (epoch !== lifecycleEpoch)
                   respond({ status: "error", code: "RELOAD_TAB" });
-                  return;
+                else {
+                  invalidateScope(epoch);
+                  respond(accountError(error));
                 }
-                if (result.status === "error") {
-                  respond(result);
-                  return;
-                }
-                const candidate = result.discovery.candidates.find(
-                  (item) =>
-                    item.courseId === ids[1] &&
-                    item.id === `${ids[1]}:${ids[2]}`,
-                );
-                respond(
-                  candidate
-                    ? {
-                        status: "success",
-                        resolved: {
-                          discovery: result.discovery,
-                          id: candidate.id,
-                          courseId: candidate.courseId,
-                        },
-                      }
-                    : { status: "error", code: "STALE_SELECTION" },
-                );
-              },
-            );
+                return;
+              }
+              if (
+                epoch !== lifecycleEpoch ||
+                catalog !== activeCatalog ||
+                location.href !== href
+              ) {
+                respond({ status: "error", code: "RELOAD_TAB" });
+                return;
+              }
+              if (!catalog.hasOwner()) {
+                respond({ status: "error", code: "STALE_SELECTION" });
+                return;
+              }
+              if (!catalog.ownedBy(account, epoch)) {
+                invalidateScope(epoch);
+                respond({ status: "error", code: "LOGIN_REQUIRED" });
+                return;
+              }
+              const url = catalog.take(handle, location.origin);
+              const ids = url
+                ? /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
+                    new URL(url).pathname,
+                  )
+                : null;
+              if (!ids) {
+                respond({ status: "error", code: "STALE_SELECTION" });
+                return;
+              }
+              const discovery = discoverPlayback(
+                location.origin,
+                salt,
+                fetch,
+                account,
+              );
+              const result = await discovery;
+              if (epoch !== lifecycleEpoch || location.href !== href) {
+                respond({ status: "error", code: "RELOAD_TAB" });
+                return;
+              }
+              if (result.status === "error") {
+                invalidateScope(epoch);
+                respond(result);
+                return;
+              }
+              const candidate = result.discovery.candidates.find(
+                (item) =>
+                  item.courseId === ids[1] &&
+                  item.id === `${ids[1]}:${ids[2]}`,
+              );
+              respond(
+                candidate
+                  ? {
+                      status: "success",
+                      resolved: {
+                        discovery: result.discovery,
+                        id: candidate.id,
+                        courseId: candidate.courseId,
+                      },
+                    }
+                  : { status: "error", code: "STALE_SELECTION" },
+              );
+            })();
             return true;
           }
         }
@@ -522,13 +661,17 @@ export default defineContentScript({
             request.type !== "RECORDING_OPEN" &&
             request.type !== "DOCUMENT_OPEN" &&
             request.type !== "DOCUMENT_DOWNLOAD"
-          )
-            catalog.clear();
-          const cacheable = cacheTtl(request) !== undefined;
+          ) {
+            const superseded = activeCatalog;
+            superseded.revoke();
+            if (activeCatalog === superseded)
+              activeCatalog = new NavigationCatalog();
+          }
+          const identityScoped = request.type.endsWith("_LIST");
           let resolveOwner:
             ((owner: CachedOwner | undefined) => void) | undefined;
           let owner: Promise<CachedOwner | undefined> | undefined;
-          if (cacheable) {
+          if (identityScoped) {
             let publishOwner!: (owner: CachedOwner | undefined) => void;
             owner = new Promise<CachedOwner | undefined>((resolve) => {
               publishOwner = resolve;
@@ -555,7 +698,7 @@ export default defineContentScript({
           // query work, so every synchronously admitted follower captures it.
           pending = ownedOperation;
           let result: Promise<Result>;
-          if (cacheable) {
+          if (identityScoped) {
             const epoch = lifecycleEpoch;
             const account = currentAccount(location.origin);
             result = list(

@@ -31,6 +31,18 @@ it("makes download handles one-use without consuming the document open handle", 
     `${origin}/courses/101/modules/items/501`,
   );
 });
+it("terminally revokes a catalog so late hydration cannot mint capabilities", () => {
+  const staging = new NavigationCatalog("account-a", 1);
+  const item = staging.replaceDocuments(origin, [target], now)[0]!;
+  staging.revoke();
+
+  expect(staging.take(item.lmsHandle, origin, now, "document")).toBeNull();
+  expect(staging.takeDownload(item.downloadHandle, origin, now)).toBeNull();
+  expect(() => staging.replaceDocuments(origin, [target], now)).toThrow(
+    "STALE_SELECTION",
+  );
+  expect(staging.ownedBy("account-a", 1)).toBe(false);
+});
 it.each([
   "expired",
   "locked",
