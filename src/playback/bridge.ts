@@ -68,9 +68,12 @@ export const PLAYBACK_DISCOVER = {
   type: "PLAYBACK_DISCOVER",
 } as const;
 export interface ResolvedRecording {
-  readonly discovery: PlaybackDiscovery;
   readonly id: string;
   readonly courseId: string;
+}
+export interface ResolvedRecordingBatch {
+  readonly discovery: PlaybackDiscovery;
+  readonly items: readonly ResolvedRecording[];
 }
 export type DiscoveryResult =
   | { status: "success"; discovery: PlaybackDiscovery }

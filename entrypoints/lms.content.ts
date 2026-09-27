@@ -563,15 +563,19 @@ export default defineContentScript({
             return true;
           }
           if (
-            message.type === "PLAYBACK_RESOLVE" &&
+            message.type === "PLAYBACK_RESOLVE_BATCH" &&
             Object.keys(message).length === 5 &&
             message.documentToken === documentToken &&
-            validHandle(message.handle)
+            Array.isArray(message.handles) &&
+            message.handles.length > 0 &&
+            message.handles.length <= 100 &&
+            message.handles.every(validHandle) &&
+            new Set(message.handles).size === message.handles.length
           ) {
             const href = location.href;
             const epoch = lifecycleEpoch;
             const catalog = activeCatalog;
-            const handle = message.handle;
+            const handles = message.handles;
             const salt = message.salt;
             void (async () => {
               let account: string;
@@ -603,13 +607,17 @@ export default defineContentScript({
                 respond({ status: "error", code: "LOGIN_REQUIRED" });
                 return;
               }
-              const url = catalog.take(handle, location.origin);
-              const ids = url
-                ? /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
-                    new URL(url).pathname,
-                  )
-                : null;
-              if (!ids) {
+              const urls = catalog.takeRecordingBatch(
+                handles,
+                location.origin,
+                Date.now(),
+              );
+              const ids = urls?.map((url) =>
+                /^\/courses\/([1-9]\d{0,19})\/modules\/items\/([1-9]\d{0,19})$/.exec(
+                  new URL(url).pathname,
+                ),
+              );
+              if (!ids || ids.some((value) => !value)) {
                 respond({ status: "error", code: "STALE_SELECTION" });
                 return;
               }
@@ -629,19 +637,30 @@ export default defineContentScript({
                 respond(result);
                 return;
               }
-              const candidate = result.discovery.candidates.find(
-                (item) =>
-                  item.courseId === ids[1] && item.id === `${ids[1]}:${ids[2]}`,
+              if (
+                catalog !== activeCatalog ||
+                !catalog.ownedBy(account, epoch)
+              ) {
+                respond({ status: "error", code: "RELOAD_TAB" });
+                return;
+              }
+              const items = ids.map((value) =>
+                result.discovery.candidates.find(
+                  (item) =>
+                    item.courseId === value![1] &&
+                    item.id === `${value![1]}:${value![2]}`,
+                ),
               );
               respond(
-                candidate
+                items.every(Boolean) &&
+                  new Set(items.map((item) => item!.id)).size === items.length
                   ? {
                       status: "success",
-                      resolved: {
-                        discovery: result.discovery,
-                        id: candidate.id,
-                        courseId: candidate.courseId,
-                      },
+                      discovery: result.discovery,
+                      items: items.map((item) => ({
+                        id: item!.id,
+                        courseId: item!.courseId,
+                      })),
                     }
                   : { status: "error", code: "STALE_SELECTION" },
               );
@@ -650,6 +669,7 @@ export default defineContentScript({
           }
           if (
             message.type === "PLAYBACK_RESOLVE" ||
+            message.type === "PLAYBACK_RESOLVE_BATCH" ||
             message.type === "PLAYBACK_DISCOVER"
           ) {
             respond({ status: "error", code: "RELOAD_TAB" });

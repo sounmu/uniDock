@@ -165,6 +165,46 @@ export class NavigationCatalog {
       return null;
     return navigationUrl(entry.url, origin);
   }
+  /** Validate and spend a playback selection as one operation. */
+  takeRecordingBatch(
+    handles: readonly string[],
+    origin: string,
+    now = Date.now(),
+  ): string[] | null {
+    if (
+      this.revoked ||
+      handles.length < 1 ||
+      handles.length > 100 ||
+      new Set(handles).size !== handles.length
+    )
+      return null;
+    const urls: string[] = [];
+    const canonicalUrls = new Set<string>();
+    for (const handle of handles) {
+      const entry = this.entries.get(handle);
+      if (
+        !entry ||
+        entry.kind !== "recording" ||
+        entry.expires <= now ||
+        !accessible(entry.moduleAccess, now) ||
+        !accessible(entry.itemAccess, now)
+      )
+        return null;
+      const url = navigationUrl(entry.url, origin);
+      if (
+        !url ||
+        !/^\/courses\/[1-9]\d{0,19}\/modules\/items\/[1-9]\d{0,19}$/.test(
+          new URL(url).pathname,
+        )
+      )
+        return null;
+      if (canonicalUrls.has(url)) return null;
+      canonicalUrls.add(url);
+      urls.push(url);
+    }
+    for (const handle of handles) this.entries.delete(handle);
+    return urls;
+  }
   takeDownload(
     handle: string,
     origin: string,

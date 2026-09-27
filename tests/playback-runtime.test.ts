@@ -88,11 +88,14 @@ function fixture() {
         },
       };
     },
-    resolve: async () => {
-      if (failSecondResolve && resolveCount === 1)
+    resolveBatch: async (requested) => {
+      if (failSecondResolve && requested.length > 1)
         throw new PlaybackRuntimeError("STALE_SELECTION");
-      const id = resolveCount++ === 0 ? "101:501" : "101:502";
-      return { discovery, id, courseId: "101" };
+      const items = requested.map(() => ({
+        id: resolveCount++ === 0 ? "101:501" : "101:502",
+        courseId: "101",
+      }));
+      return { discovery, items };
     },
     open: async (url) => {
       opened.push(url);
@@ -177,10 +180,9 @@ it("invalidates a pending start when its source document is replaced", async () 
   const resolving = deferred<void>();
   const resolution = deferred<{
     discovery: PlaybackDiscovery;
-    id: string;
-    courseId: string;
+    items: { id: string; courseId: string }[];
   }>();
-  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+  vi.spyOn(f.ports, "resolveBatch").mockImplementationOnce(async () => {
     resolving.resolve();
     return resolution.promise;
   });
@@ -193,7 +195,10 @@ it("invalidates a pending start when its source document is replaced", async () 
   });
   await resolving.promise;
   await f.runtime.sourceLost(7);
-  resolution.resolve({ discovery, id: "101:501", courseId: "101" });
+  resolution.resolve({
+    discovery,
+    items: [{ id: "101:501", courseId: "101" }],
+  });
   expect(await start).toEqual({ status: "error", code: "BUSY" });
   expect(f.opened).toEqual([]);
 });
@@ -242,10 +247,9 @@ it("replaces superseded start ownership with the explicit resume source", async 
   const resolving = deferred<void>();
   const oldResolution = deferred<{
     discovery: PlaybackDiscovery;
-    id: string;
-    courseId: string;
+    items: { id: string; courseId: string }[];
   }>();
-  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+  vi.spyOn(f.ports, "resolveBatch").mockImplementationOnce(async () => {
     resolving.resolve();
     return oldResolution.promise;
   });
@@ -274,7 +278,10 @@ it("replaces superseded start ownership with the explicit resume source", async 
   expect(f.runtime.sourceTabId).toBe(8);
   await f.runtime.sourceLost(7);
   expect(f.runtime.sourceTabId).toBe(8);
-  oldResolution.resolve({ discovery, id: "101:502", courseId: "101" });
+  oldResolution.resolve({
+    discovery,
+    items: [{ id: "101:502", courseId: "101" }],
+  });
   expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
   await f.runtime.sourceLost(8);
   expect(f.runtime.sourceTabId).toBeNull();
@@ -286,11 +293,10 @@ it("invalidates the active source while a replacement start owns another pending
   const binding = await playing(f);
   const replacementResolution = deferred<{
     discovery: PlaybackDiscovery;
-    id: string;
-    courseId: string;
+    items: { id: string; courseId: string }[];
   }>();
   const replacementResolving = deferred<void>();
-  vi.spyOn(f.ports, "resolve").mockImplementationOnce(async () => {
+  vi.spyOn(f.ports, "resolveBatch").mockImplementationOnce(async () => {
     replacementResolving.resolve();
     return replacementResolution.promise;
   });
@@ -316,8 +322,7 @@ it("invalidates the active source while a replacement start owns another pending
   renewal.resolve(discovery);
   replacementResolution.resolve({
     discovery,
-    id: "101:502",
-    courseId: "101",
+    items: [{ id: "101:502", courseId: "101" }],
   });
   await lost;
   expect(await lease).toBeNull();
@@ -338,6 +343,7 @@ function watchdogName(f: ReturnType<typeof fixture>): string {
 describe("immediate ordered playlist runtime", () => {
   it("atomically resolves click order, persists only minimal IDs, and starts first immediately", async () => {
     const f = fixture();
+    const resolve = vi.spyOn(f.ports, "resolveBatch");
     const result = await start(f);
     expect(result.current?.id).toBe("101:501");
     expect(result.queue.map((item) => item.id)).toEqual(["101:502"]);
@@ -348,6 +354,101 @@ describe("immediate ordered playlist runtime", () => {
     ]);
     expect(JSON.stringify(f.saved)).not.toContain(handles[0]);
     expect(JSON.stringify(f.saved)).not.toContain("First");
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(handles, {
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    });
+  });
+
+  it("rejects duplicate resolved item IDs without launching a partial playlist", async () => {
+    const f = fixture();
+    vi.spyOn(f.ports, "resolveBatch").mockResolvedValue({
+      discovery,
+      items: [
+        { id: "101:501", courseId: "101" },
+        { id: "101:501", courseId: "101" },
+      ],
+    });
+    expect(
+      await f.runtime.command({
+        version: 1,
+        type: "PLAYBACK_START",
+        handles,
+        sourceTabId: 7,
+        documentToken: "00000000-0000-4000-8000-000000000099",
+      }),
+    ).toEqual({ status: "error", code: "STALE_SELECTION" });
+    expect(f.saved).toBeNull();
+    expect(f.opened).toEqual([]);
+  });
+
+  it("coalesces an identical concurrent start while only the latest intent commits", async () => {
+    const f = fixture();
+    const pending = deferred<{
+      discovery: PlaybackDiscovery;
+      items: { id: string; courseId: string }[];
+    }>();
+    const resolving = deferred<void>();
+    const resolve = vi
+      .spyOn(f.ports, "resolveBatch")
+      .mockImplementation(async () => {
+        resolving.resolve();
+        return pending.promise;
+      });
+    const command = {
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    } as const;
+    const old = f.runtime.command(command);
+    await resolving.promise;
+    const latest = f.runtime.command(command);
+    pending.resolve({
+      discovery,
+      items: [{ id: "101:501", courseId: "101" }],
+    });
+    expect(await old).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await latest).current?.id).toBe("101:501");
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hand a pre-cancel batch resolution to a later start", async () => {
+    const f = fixture();
+    const oldResolution = deferred<{
+      discovery: PlaybackDiscovery;
+      items: { id: string; courseId: string }[];
+    }>();
+    const resolving = deferred<void>();
+    const resolve = vi
+      .spyOn(f.ports, "resolveBatch")
+      .mockImplementationOnce(async () => {
+        resolving.resolve();
+        return oldResolution.promise;
+      })
+      .mockResolvedValueOnce({
+        discovery,
+        items: [{ id: "101:501", courseId: "101" }],
+      });
+    const command = {
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[0]],
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    } as const;
+    const old = f.runtime.command(command);
+    await resolving.promise;
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    const latest = f.runtime.command(command);
+    oldResolution.resolve({
+      discovery,
+      items: [{ id: "101:501", courseId: "101" }],
+    });
+    expect(await old).toEqual({ status: "error", code: "BUSY" });
+    expect(snapshot(await latest).current?.id).toBe("101:501");
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it("keeps status in memory and coalesces only concurrent discovery reads", async () => {
@@ -503,10 +604,9 @@ describe("immediate ordered playlist runtime", () => {
         return oldDiscovery.promise;
       })
       .mockResolvedValue(discovery);
-    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+    vi.spyOn(f.ports, "resolveBatch").mockResolvedValue({
       discovery,
-      id: "101:502",
-      courseId: "101",
+      items: [{ id: "101:502", courseId: "101" }],
     });
 
     const oldRefresh = f.runtime.command({
@@ -555,12 +655,15 @@ describe("immediate ordered playlist runtime", () => {
     const f = fixture();
     const pending = deferred<never>();
     const resolving = deferred<void>();
-    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => {
-      if (handle === handles[0]) {
+    vi.spyOn(f.ports, "resolveBatch").mockImplementation(async (requested) => {
+      if (requested[0] === handles[0]) {
         resolving.resolve();
         return pending.promise;
       }
-      return { discovery, id: "101:502", courseId: "101" };
+      return {
+        discovery,
+        items: [{ id: "101:502", courseId: "101" }],
+      };
     });
 
     const oldStart = f.runtime.command({
@@ -595,18 +698,20 @@ describe("immediate ordered playlist runtime", () => {
     const f = fixture();
     const firstResolution = deferred<{
       discovery: PlaybackDiscovery;
-      id: string;
-      courseId: string;
+      items: { id: string; courseId: string }[];
     }>();
     const resolving = deferred<void>();
     const resolve = vi
-      .spyOn(f.ports, "resolve")
-      .mockImplementation(async (handle) => {
-        if (handle === handles[0]) {
+      .spyOn(f.ports, "resolveBatch")
+      .mockImplementation(async (requested) => {
+        if (requested.length === 2) {
           resolving.resolve();
           return firstResolution.promise;
         }
-        return { discovery, id: "101:502", courseId: "101" };
+        return {
+          discovery,
+          items: [{ id: "101:502", courseId: "101" }],
+        };
       });
     const oldStart = f.runtime.command({
       version: 1,
@@ -623,13 +728,19 @@ describe("immediate ordered playlist runtime", () => {
       documentToken: "00000000-0000-4000-8000-000000000099",
       handles: [handles[1]],
     });
-    firstResolution.resolve({ discovery, id: "101:501", courseId: "101" });
+    firstResolution.resolve({
+      discovery,
+      items: [
+        { id: "101:501", courseId: "101" },
+        { id: "101:502", courseId: "101" },
+      ],
+    });
 
     expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
     expect(snapshot(await newStart).current?.id).toBe("101:502");
-    expect(resolve.mock.calls.map(([handle]) => handle)).toEqual([
-      handles[0],
-      handles[1],
+    expect(resolve.mock.calls.map(([requested]) => requested)).toEqual([
+      handles,
+      [handles[1]],
     ]);
   });
 
@@ -643,10 +754,9 @@ describe("immediate ordered playlist runtime", () => {
         return oldDiscovery.promise;
       })
       .mockResolvedValue(discovery);
-    const resolve = vi.spyOn(f.ports, "resolve").mockResolvedValue({
+    const resolve = vi.spyOn(f.ports, "resolveBatch").mockResolvedValue({
       discovery,
-      id: "101:502",
-      courseId: "101",
+      items: [{ id: "101:502", courseId: "101" }],
     });
     const status = f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
     await discovering.promise;
@@ -669,7 +779,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(await status).toEqual({ status: "error", code: "BUSY" });
     expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
     expect(snapshot(await newStart).current?.id).toBe("101:502");
-    expect(resolve).toHaveBeenCalledExactlyOnceWith(handles[1], {
+    expect(resolve).toHaveBeenCalledExactlyOnceWith([handles[1]], {
       sourceTabId: 7,
       documentToken: "00000000-0000-4000-8000-000000000099",
     });
@@ -686,10 +796,9 @@ describe("immediate ordered playlist runtime", () => {
         return oldDiscovery.promise;
       })
       .mockResolvedValue(discovery);
-    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+    vi.spyOn(f.ports, "resolveBatch").mockResolvedValue({
       discovery,
-      id: "101:502",
-      courseId: "101",
+      items: [{ id: "101:502", courseId: "101" }],
     });
     const oldStatus = f.runtime.command({
       version: 1,
@@ -719,10 +828,12 @@ describe("immediate ordered playlist runtime", () => {
     const f = fixture();
     const oldOpen = deferred<number>();
     const opening = deferred<void>();
-    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+    vi.spyOn(f.ports, "resolveBatch").mockImplementation(async (requested) => ({
       discovery,
-      id: handle === handles[0] ? "101:501" : "101:502",
-      courseId: "101",
+      items: requested.map((handle) => ({
+        id: handle === handles[0] ? "101:501" : "101:502",
+        courseId: "101",
+      })),
     }));
     vi.spyOn(f.ports, "open")
       .mockImplementationOnce(async () => {
@@ -759,10 +870,12 @@ describe("immediate ordered playlist runtime", () => {
     const f = fixture();
     const oldOpen = deferred<number>();
     const opening = deferred<void>();
-    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+    vi.spyOn(f.ports, "resolveBatch").mockImplementation(async (requested) => ({
       discovery,
-      id: handle === handles[0] ? "101:501" : "101:502",
-      courseId: "101",
+      items: requested.map((handle) => ({
+        id: handle === handles[0] ? "101:501" : "101:502",
+        courseId: "101",
+      })),
     }));
     vi.spyOn(f.ports, "open")
       .mockImplementationOnce(async () => {
@@ -930,10 +1043,12 @@ describe("immediate ordered playlist runtime", () => {
       [handles[1], "101:502"],
       [thirdHandle, "101:503"],
     ]);
-    vi.spyOn(f.ports, "resolve").mockImplementation(async (handle) => ({
+    vi.spyOn(f.ports, "resolveBatch").mockImplementation(async (requested) => ({
       discovery: initial,
-      id: ids.get(handle)!,
-      courseId: "101",
+      items: requested.map((handle) => ({
+        id: ids.get(handle)!,
+        courseId: "101",
+      })),
     }));
     await f.runtime.command({
       version: 1,
@@ -1218,10 +1333,9 @@ describe("immediate ordered playlist runtime", () => {
     const f = fixture();
     const oldBinding = await playing(f);
     await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
-    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+    vi.spyOn(f.ports, "resolveBatch").mockResolvedValue({
       discovery,
-      id: "101:502",
-      courseId: "101",
+      items: [{ id: "101:502", courseId: "101" }],
     });
     await f.runtime.command({
       version: 1,

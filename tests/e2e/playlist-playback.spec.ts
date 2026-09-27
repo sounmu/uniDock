@@ -79,6 +79,7 @@ test("production playback stays bound to the listing document across LMS tabs", 
   await stat(path.join(extensionPath, "manifest.json"));
   const profile = await mkdtemp(path.join(tmpdir(), "unidock-source-binding-"));
   let context: BrowserContext | undefined;
+  const apiRequests = new Map<string, number>();
   try {
     context = await playwright.chromium.launchPersistentContext(profile, {
       channel: "chromium",
@@ -90,6 +91,8 @@ test("production playback stays bound to the listing document across LMS tabs", 
     });
     await context.route(`${origin}/**`, async (route) => {
       const url = new URL(route.request().url());
+      if (url.pathname.startsWith("/api/v1/"))
+        apiRequests.set(url.pathname, (apiRequests.get(url.pathname) ?? 0) + 1);
       const json: Record<string, unknown> = {
         "/api/v1/users/self": { id: 71 },
         "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
@@ -197,15 +200,19 @@ test("production playback stays bound to the listing document across LMS tabs", 
     };
 
     const listing = await listFrom(b);
+    apiRequests.clear();
     expect(
       await panel.evaluate((command) => chrome.runtime.sendMessage(command), {
         version: 1,
         type: "PLAYBACK_START",
-        handles: [listing.handles[0]!],
+        handles: listing.handles,
         sourceTabId: listing.sourceTabId,
         documentToken: listing.documentToken,
       }),
     ).toMatchObject({ status: "success" });
+    expect(apiRequests.get("/api/v1/users/self")).toBe(3);
+    expect(apiRequests.get("/api/v1/courses")).toBe(1);
+    expect(apiRequests.get("/api/v1/courses/101/modules")).toBe(1);
     await panel.evaluate(() =>
       chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STOP_ALL" }),
     );
@@ -773,15 +780,15 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
         },
       };
       chrome.tabs.sendMessage = ((tabId, message, options) => {
-        const value = message as { type?: string; handle?: string };
-        if (value.type === "PLAYBACK_RESOLVE") {
+        const value = message as { type?: string; handles?: string[] };
+        if (value.type === "PLAYBACK_RESOLVE_BATCH") {
           if (firstResolve) {
             firstResolve = false;
             state.entered = true;
             return new Promise(() => {});
           }
-          if (typeof value.handle === "string")
-            state.forwarded.push(value.handle);
+          if (Array.isArray(value.handles))
+            state.forwarded.push(...value.handles);
         }
         return send(
           tabId as number,

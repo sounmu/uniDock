@@ -1073,8 +1073,8 @@ it("binds playback resolution to the capability owner across discovery", async (
   listener(
     {
       version: 1,
-      type: "PLAYBACK_RESOLVE",
-      handle: result.recordings[0]!.launchHandle,
+      type: "PLAYBACK_RESOLVE_BATCH",
+      handles: [result.recordings[0]!.launchHandle],
       salt,
       documentToken: "00000000-0000-4000-8000-000000000099",
     },
@@ -1089,8 +1089,8 @@ it("binds playback resolution to the capability owner across discovery", async (
   listener(
     {
       version: 1,
-      type: "PLAYBACK_RESOLVE",
-      handle: result.recordings[0]!.launchHandle,
+      type: "PLAYBACK_RESOLVE_BATCH",
+      handles: [result.recordings[0]!.launchHandle],
       salt,
       documentToken: (listedValue as { documentToken: string }).documentToken,
     },
@@ -1103,7 +1103,103 @@ it("binds playback resolution to the capability owner across discovery", async (
   });
 });
 
-it("revokes a concurrent capability staging catalog when playback discovers another account", async () => {
+it("reserves 100 ordered handles before expiry and resolves them with one discovery", async () => {
+  vi.useFakeTimers();
+  const issuedAt = Date.parse("2026-09-28T00:00:00Z");
+  vi.setSystemTime(issuedAt);
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path: string) => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const targets = Array.from({ length: 100 }, (_, index) => ({
+    module: "Week",
+    title: `Lecture ${index + 1}`,
+    courseId: "101",
+    itemId: String(501 + index),
+    moduleAccess: {},
+    itemAccess: {},
+  }));
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      recordings: catalog.replace(origin, targets, issuedAt),
+    }),
+  );
+  const fetchCounts = new Map<string, number>();
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const path = new URL(String(input)).pathname;
+    fetchCounts.set(path, (fetchCounts.get(path) ?? 0) + 1);
+    if (path.endsWith("/users/self")) return json({ id: 1 });
+    if (path === "/api/v1/courses") {
+      // The whole batch was accepted at 299s. Discovery may cross the original
+      // five-minute handle TTL without invalidating that reservation.
+      vi.setSystemTime(issuedAt + 319_000);
+      return json([{ id: 101, name: "Course" }]);
+    }
+    if (path === "/api/v1/courses/101/modules")
+      return json([
+        {
+          id: 10,
+          name: "Week",
+          items_count: 100,
+          items: targets.map((target) => ({
+            id: Number(target.itemId),
+            type: "ExternalTool",
+            title: target.title,
+            html_url: "https://player.example.invalid/launch",
+          })),
+        },
+      ]);
+    return json([]);
+  });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const panel = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const listed = response();
+  listener(
+    { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+    panel,
+    listed.respond,
+  );
+  const listedValue = await listed.done;
+  const result = parseResult(listedValue);
+  if (result.status !== "success" || !("recordings" in result))
+    throw new Error("missing recordings");
+  vi.setSystemTime(issuedAt + 299_000);
+  const handles = result.recordings
+    .map((recording) => recording.launchHandle)
+    .reverse();
+  const resolved = response();
+  listener(
+    {
+      version: 1,
+      type: "PLAYBACK_RESOLVE_BATCH",
+      handles,
+      salt,
+      documentToken: (listedValue as { documentToken: string }).documentToken,
+    },
+    { id: "fixture-extension" },
+    resolved.respond,
+  );
+  const value = await resolved.done;
+  expect(value).toMatchObject({ status: "success" });
+  expect(
+    (value as { items: { id: string }[] }).items.map((item) => item.id),
+  ).toEqual(targets.map((target) => `101:${target.itemId}`).reverse());
+  expect(fetchCounts.get("/api/v1/courses")).toBe(1);
+  expect(fetchCounts.get("/api/v1/courses/101/modules")).toBe(1);
+  expect(fetchCounts.get("/api/v1/users/self")).toBe(5);
+});
+
+it("revokes a concurrent staging catalog when reserved-batch discovery changes account", async () => {
   const addListener = vi.fn();
   vi.stubGlobal("chrome", {
     runtime: {
@@ -1182,8 +1278,8 @@ it("revokes a concurrent capability staging catalog when playback discovers anot
   listener(
     {
       version: 1,
-      type: "PLAYBACK_RESOLVE",
-      handle: initial.recordings[0]!.launchHandle,
+      type: "PLAYBACK_RESOLVE_BATCH",
+      handles: [initial.recordings[0]!.launchHandle],
       salt,
       documentToken: (initialValue as { documentToken: string }).documentToken,
     },

@@ -130,7 +130,7 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     });
   }
   async function query(
-    handle?: string,
+    handles?: readonly string[],
     source?: PlaybackSource,
     onSelected?: (tabId: number) => void,
   ): Promise<{
@@ -163,7 +163,7 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       : (
           await chrome.tabs.query({
             url: LMS_MATCHES,
-            ...(handle ? { active: true, lastFocusedWindow: true } : {}),
+            ...(handles ? { active: true, lastFocusedWindow: true } : {}),
           })
         ).filter(
           (tab) =>
@@ -179,11 +179,11 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     const salt = await store.accountSalt();
     const result = await boundedMessage(
       tab.id,
-      handle
+      handles
         ? {
             version: 1,
-            type: "PLAYBACK_RESOLVE",
-            handle,
+            type: "PLAYBACK_RESOLVE_BATCH",
+            handles,
             salt,
             documentToken: source?.documentToken,
           }
@@ -239,24 +239,32 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
         source: { sourceTabId: tabId, documentToken: result.documentToken },
       };
     },
-    async resolve(handle, source) {
-      const { result, origin } = await query(handle, source);
-      const value = result.resolved;
+    async resolveBatch(handles, source) {
+      const { result, origin } = await query(handles, source);
+      const items = result.items;
       if (
-        Object.keys(result).length !== 2 ||
-        !object(value) ||
-        Object.keys(value).length !== 3 ||
-        !isDiscovery(value.discovery) ||
-        value.discovery.origin !== origin ||
-        !itemKey(value.id) ||
-        !stableId(value.courseId) ||
-        !value.id.startsWith(`${value.courseId}:`)
+        Object.keys(result).length !== 3 ||
+        !isDiscovery(result.discovery) ||
+        result.discovery.origin !== origin ||
+        !Array.isArray(items) ||
+        items.length !== handles.length ||
+        items.some(
+          (value) =>
+            !object(value) ||
+            Object.keys(value).length !== 2 ||
+            !itemKey(value.id) ||
+            !stableId(value.courseId) ||
+            !value.id.startsWith(`${value.courseId}:`),
+        ) ||
+        new Set(items.map((value) => value.id)).size !== items.length
       )
         throw new PlaybackRuntimeError("INVALID_RESPONSE");
       return {
-        discovery: value.discovery,
-        id: value.id,
-        courseId: value.courseId,
+        discovery: result.discovery,
+        items: items.map((value) => ({
+          id: value.id,
+          courseId: value.courseId,
+        })),
       };
     },
     async open(url) {

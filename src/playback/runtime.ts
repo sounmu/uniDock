@@ -13,7 +13,7 @@ import {
   type PlaybackSource,
   type PlayerBinding,
   type PlayerSignal,
-  type ResolvedRecording,
+  type ResolvedRecordingBatch,
   type RuntimeStatus,
 } from "./bridge";
 
@@ -36,10 +36,10 @@ export interface RuntimePorts {
     readonly discovery: PlaybackDiscovery;
     readonly source: PlaybackSource;
   }>;
-  readonly resolve: (
-    handle: string,
+  readonly resolveBatch: (
+    handles: readonly string[],
     source: PlaybackSource,
-  ) => Promise<ResolvedRecording>;
+  ) => Promise<ResolvedRecordingBatch>;
   readonly open: (url: string) => Promise<number>;
   readonly navigate: (tabId: number, url: string) => Promise<void>;
   readonly close: (tabId: number) => Promise<void>;
@@ -104,7 +104,10 @@ export class PlaybackRuntime {
     readonly sourceKey: string;
     readonly request: Promise<PlaybackDiscovery>;
   } | null = null;
-  private readonly resolutions = new Map<string, Promise<ResolvedRecording>>();
+  private readonly resolutions = new Map<
+    string,
+    Promise<ResolvedRecordingBatch>
+  >();
   constructor(private readonly ports: RuntimePorts) {}
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -180,14 +183,14 @@ export class PlaybackRuntime {
       .catch(() => {});
     return request;
   }
-  private resolve(
-    handle: string,
+  private resolveBatch(
+    handles: readonly string[],
     source: PlaybackSource,
-  ): Promise<ResolvedRecording> {
-    const key = `${source.sourceTabId}:${source.documentToken}:${handle}`;
+  ): Promise<ResolvedRecordingBatch> {
+    const key = `${source.sourceTabId}:${source.documentToken}:${handles.join(",")}`;
     const known = this.resolutions.get(key);
     if (known) return known;
-    const request = this.ports.resolve(handle, source);
+    const request = this.ports.resolveBatch(handles, source);
     this.resolutions.set(key, request);
     void request
       .finally(() => {
@@ -430,6 +433,7 @@ export class PlaybackRuntime {
     const intent = ["PLAYBACK_START", "PLAYBACK_RESUME"].includes(command.type);
     if (intent) this.intentGeneration++;
     if (urgent || intent) this.epoch++;
+    if (urgent) this.resolutions.clear();
     const context = this.context(intent ? this.intentGeneration : null);
     if (urgent || intent) this.pendingSource = null;
     if (command.type === "PLAYBACK_START")
@@ -534,17 +538,11 @@ export class PlaybackRuntime {
           sourceTabId: command.sourceTabId,
           documentToken: command.documentToken,
         };
-        const resolved: ResolvedRecording[] = [];
-        for (const handle of command.handles) {
-          this.assertCurrent(context);
-          resolved.push(await this.resolve(handle, source));
-          this.assertCurrent(context);
-        }
-        const latest = resolved.at(-1)!.discovery;
-        const items = resolved.map(({ discovery, id, courseId }) => {
+        const resolved = await this.resolveBatch(command.handles, source);
+        this.assertCurrent(context);
+        const latest = resolved.discovery;
+        const items = resolved.items.map(({ id, courseId }) => {
           if (
-            discovery.accountKey !== latest.accountKey ||
-            discovery.origin !== latest.origin ||
             !latest.candidates.some(
               (candidate) =>
                 candidate.id === id && candidate.courseId === courseId,
@@ -867,6 +865,7 @@ export class PlaybackRuntime {
     // Invalidate before any await so a reply from the replaced document cannot
     // authorize, lease, persist, or launch using its old capability epoch.
     this.epoch++;
+    this.resolutions.clear();
     this.source = null;
     this.pendingSource = null;
     const context = this.context();

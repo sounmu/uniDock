@@ -317,7 +317,8 @@ function playbackAdapterFixture({
       typeof response === "object" &&
       "status" in response &&
       response.status === "success" &&
-      "discovery" in response
+      "discovery" in response &&
+      !("items" in response)
       ? {
           ...response,
           documentToken: "00000000-0000-4000-8000-000000000099",
@@ -409,13 +410,18 @@ it("keeps overlapping created-tab ownership isolated through late cleanup", asyn
           : { id: tabId, url: "about:blank", active: true },
       ),
       sendMessage: vi.fn(
-        async (_tabId: number, message: { type: string; handle?: string }) => {
+        async (
+          _tabId: number,
+          message: { type: string; handles?: string[] },
+        ) => {
           if (message.type === "PLAYBACK_DISCOVER")
             return { status: "success", discovery };
-          const id = message.handle === firstHandle ? "101:501" : "101:502";
+          const id =
+            message.handles?.[0] === firstHandle ? "101:501" : "101:502";
           return {
             status: "success",
-            resolved: { discovery, id, courseId: "101" },
+            discovery,
+            items: [{ id, courseId: "101" }],
           };
         },
       ),
@@ -520,7 +526,8 @@ it("closes a pending created tab after local deletion erases its stored ownershi
       ),
       sendMessage: vi.fn(async () => ({
         status: "success",
-        resolved: { discovery, id: "101:501", courseId: "101" },
+        discovery,
+        items: [{ id: "101:501", courseId: "101" }],
       })),
       create: vi.fn().mockResolvedValue({ id: 9, url: "about:blank" }),
       update: vi.fn().mockResolvedValue(undefined),
@@ -604,7 +611,8 @@ it("resolves and revalidates a run only through its document-bound listing tab",
   const f = playbackAdapterFixture({
     response: {
       status: "success",
-      resolved: { discovery, id: "101:501", courseId: "101" },
+      discovery,
+      items: [{ id: "101:501", courseId: "101" }],
     },
   });
   chrome.tabs.query = vi
@@ -636,8 +644,8 @@ it("resolves and revalidates a run only through its document-bound listing tab",
     8,
     {
       version: 1,
-      type: "PLAYBACK_RESOLVE",
-      handle,
+      type: "PLAYBACK_RESOLVE_BATCH",
+      handles: [handle],
       salt: expect.stringMatching(/^[a-f0-9]{64}$/),
       documentToken,
     },
@@ -684,7 +692,8 @@ it("invalidates an adapter resolution when the source reloads at the same URL", 
   const f = playbackAdapterFixture({
     response: {
       status: "success",
-      resolved: { discovery, id: "101:501", courseId: "101" },
+      discovery,
+      items: [{ id: "101:501", courseId: "101" }],
     },
   });
   const postReply = deferred<chrome.tabs.Tab>();
