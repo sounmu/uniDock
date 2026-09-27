@@ -261,12 +261,20 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
         return;
       await chrome.tabs.remove(tabId);
     },
-    async control(address, binding, action) {
+    async control(address, authorization, action) {
       if (action === "resume")
         await chrome.tabs.update(address.tabId, { active: true });
       const result = await boundedMessage(
         address.tabId,
-        { version: 1, type: "PLAYBACK_PLAYER_CONTROL", ...binding, action },
+        {
+          version: 1,
+          type: "PLAYBACK_PLAYER_CONTROL",
+          ...authorization.binding,
+          action,
+          ...(action === "resume"
+            ? { leaseUntil: authorization.leaseUntil }
+            : {}),
+        },
         { frameId: address.frameId, documentId: address.documentId },
       );
       if (!object(result) || result.ok !== true)
@@ -296,6 +304,7 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
 async function playerAddress(
   sender: chrome.runtime.MessageSender,
   runtime: PlaybackRuntime,
+  allowInactive = false,
 ): Promise<PlayerAddress | null> {
   if (
     sender.id !== chrome.runtime.id ||
@@ -316,7 +325,7 @@ async function playerAddress(
     sender.tab.url,
     sender.tab.pendingUrl,
   ].find((url): url is string => typeof url === "string" && playerPage(url));
-  if (!topUrl || !tab.active) return null;
+  if (!topUrl || (!allowInactive && !tab.active)) return null;
   const item = runtime.dedicatedItem;
   if (!item) return null;
   if (
@@ -398,7 +407,15 @@ export default defineBackground(() => {
       ].includes(String(message.type))
     ) {
       void (async () => {
-        const address = await playerAddress(sender, playback);
+        const inactiveSignal =
+          message.type === "PLAYBACK_PLAYER_EVENT" &&
+          [
+            "paused",
+            "blocked-login",
+            "blocked-autoplay",
+            "failed",
+          ].includes(String(message.state));
+        const address = await playerAddress(sender, playback, inactiveSignal);
         if (!address) return { ok: false };
         if (
           message.type === "PLAYBACK_PLAYER_HELLO" &&

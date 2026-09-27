@@ -4,6 +4,7 @@ import { initializeKuLecture } from "../src/playback/ku-player";
 import {
   backgroundSender,
   isPlayerBinding,
+  isPlayerControl,
   object,
   playerPage,
   type PlayerBinding,
@@ -35,6 +36,8 @@ export default defineContentScript({
       connecting = false;
     let expiry: ReturnType<typeof setTimeout> | undefined;
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
+    let authorizationGeneration = 0;
+    let dormant = false;
     let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let initialization: AbortController | null = null;
     const discoveryUntil = Date.now() + 45000;
@@ -46,6 +49,7 @@ export default defineContentScript({
     function stop() {
       if (closed) return;
       closed = true;
+      authorizationGeneration++;
       clearTimeout(expiry);
       clearTimeout(heartbeat);
       clearTimeout(discoveryTimer);
@@ -57,6 +61,14 @@ export default defineContentScript({
       video?.removeEventListener("ratechange", normalSpeed);
       document.removeEventListener("visibilitychange", visibleOnly);
       player?.invalidate();
+    }
+    function suspendAuthorization() {
+      dormant = true;
+      authorizationGeneration++;
+      clearTimeout(expiry);
+      clearTimeout(heartbeat);
+      expiry = undefined;
+      heartbeat = undefined;
     }
     function normalSpeed() {
       if (!current()) {
@@ -117,32 +129,53 @@ export default defineContentScript({
       )
         return false;
       binding = value.binding;
+      dormant = false;
+      const generation = ++authorizationGeneration;
       clearTimeout(expiry);
       expiry = setTimeout(
         () => {
-          if (player?.status.state !== "paused")
-            void signal({ state: "failed", reason: "timeout" });
+          if (generation !== authorizationGeneration || dormant || closed)
+            return;
+          if (player?.status.state === "paused") {
+            suspendAuthorization();
+            return;
+          }
+          void signal({ state: "failed", reason: "timeout" });
           stop();
         },
         Math.max(0, Math.min(value.leaseUntil, binding.deadline) - Date.now()),
       );
       clearTimeout(heartbeat);
       heartbeat = setTimeout(() => {
-        void renew();
+        void renew(generation);
       }, 20000);
       return true;
     }
-    async function renew() {
-      if (!binding || !current()) {
-        stop();
+    async function renew(generation: number) {
+      if (
+        generation !== authorizationGeneration ||
+        dormant ||
+        !binding ||
+        !current()
+      ) {
+        if (generation === authorizationGeneration && !dormant) stop();
         return;
       }
+      const requested = binding;
       try {
         const result: unknown = await chrome.runtime.sendMessage({
           version: 1,
           type: "PLAYBACK_PLAYER_LEASE",
-          ...binding,
+          ...requested,
         });
+        // A pause invalidates the old renewal operation. Neither a late grant
+        // nor a refusal may close or re-arm the dormant adapter.
+        if (
+          generation !== authorizationGeneration ||
+          dormant ||
+          player?.status.state === "paused"
+        )
+          return;
         if (
           !current() ||
           !object(result) ||
@@ -151,8 +184,23 @@ export default defineContentScript({
         )
           stop();
       } catch {
-        stop();
+        if (generation === authorizationGeneration && !dormant) stop();
       }
+    }
+    function authorizeControl(message: {
+      runId: string;
+      token: string;
+      deadline: number;
+      leaseUntil: number;
+    }): boolean {
+      return authorize({
+        binding: {
+          runId: message.runId,
+          token: message.token,
+          deadline: message.deadline,
+        },
+        leaseUntil: message.leaseUntil,
+      });
     }
     async function connect() {
       if (closed || connecting || player) return;
@@ -245,6 +293,7 @@ export default defineContentScript({
               diagnostic(
                 `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
               );
+              if (status.state === "paused") suspendAuthorization();
               void signal(status);
             },
           });
@@ -266,6 +315,7 @@ export default defineContentScript({
             diagnostic(
               `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
             );
+            if (status.state === "paused") suspendAuthorization();
             void signal(status);
           },
         });
@@ -281,7 +331,7 @@ export default defineContentScript({
         visibleOnly();
       } catch {
         diagnostic("KU_INITIALIZATION_FAILED");
-        void signal({ state: "paused" });
+        void signal({ state: "failed", reason: "play" });
         stop();
       } finally {
         connecting = false;
@@ -319,10 +369,7 @@ export default defineContentScript({
         if (
           !backgroundSender(sender) ||
           !object(message) ||
-          Object.keys(message).length !== 6 ||
-          message.version !== 1 ||
-          message.type !== "PLAYBACK_PLAYER_CONTROL" ||
-          !isPlayerBinding(message) ||
+          !isPlayerControl(message) ||
           !binding ||
           message.runId !== binding.runId ||
           message.token !== binding.token ||
@@ -346,9 +393,19 @@ export default defineContentScript({
               respond({ ok: false });
               return false;
             }
+            if (!authorizeControl(message)) {
+              respond({ ok: false });
+              return false;
+            }
             normalSpeed();
             void player.resume().then(
-              (status) => respond({ ok: status.state === "playing" }),
+              (status) => {
+                if (status.state !== "playing") {
+                  if (status.state === "paused") suspendAuthorization();
+                  else stop();
+                }
+                respond({ ok: status.state === "playing" });
+              },
               () => {
                 stop();
                 respond({ ok: false });

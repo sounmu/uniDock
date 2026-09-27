@@ -37,7 +37,7 @@ export interface RuntimePorts {
   readonly close: (tabId: number) => Promise<void>;
   readonly control: (
     address: PlayerAddress,
-    binding: PlayerBinding,
+    authorization: PlayerAuthorization,
     action: "pause" | "resume" | "stop",
   ) => Promise<void>;
   readonly alarm: (name: string, when: number | null) => Promise<void>;
@@ -268,6 +268,12 @@ export class PlaybackRuntime {
       deadline: this.ports.now() + 70000,
     };
   }
+  private authorization(run: ActiveRun): PlayerAuthorization {
+    return {
+      binding: this.binding(run),
+      leaseUntil: this.ports.now() + 60000,
+    };
+  }
   private newRun(item: PlaylistItem): ActiveRun {
     return {
       item,
@@ -412,14 +418,17 @@ export class PlaybackRuntime {
         if (
           command.type === "PLAYBACK_PAUSE" &&
           run?.address &&
-          this.status === "playing" &&
+          (this.status === "playing" || this.status === "paused") &&
           !run.transitioning
         ) {
-          physical = this.ports.control(
-            run.address,
-            this.binding(run),
-            "pause",
-          );
+          physical =
+            this.status === "playing"
+              ? this.ports.control(
+                  run.address,
+                  this.authorization(run),
+                  "pause",
+                )
+              : this.disarmWatchdog();
         } else {
           physical = this.release(run);
         }
@@ -551,7 +560,7 @@ export class PlaybackRuntime {
           this.assertCurrent(context);
           await this.ports.control(
             captured.address,
-            this.binding(captured),
+            this.authorization(captured),
             "resume",
           );
           await this.serial(async () => {
@@ -646,10 +655,7 @@ export class PlaybackRuntime {
         if (!this.current(context) || this.run !== run || run.address)
           return null;
         run.address = address;
-        return {
-          binding: this.binding(run),
-          leaseUntil: this.ports.now() + 60000,
-        };
+        return this.authorization(run);
       });
     } catch (error) {
       await this.blocked(error, context);
@@ -672,9 +678,16 @@ export class PlaybackRuntime {
     binding: PlayerBinding,
     state: PlayerSignal,
   ): Promise<boolean> {
-    const context = this.context();
+    let context = this.context();
     await this.ensureInitialized();
     if (!this.matches(address, binding)) return false;
+    if (state === "paused") {
+      // Authentication must happen first, but invalidation must happen before
+      // the state lane: a lease may currently be awaiting discovery outside
+      // that lane. Its old context can no longer grant or arm authorization.
+      this.epoch++;
+      context = this.context();
+    }
     try {
       if (state === "ended") {
         if (this.status !== "playing" || this.saved.stopped) return false;
@@ -708,6 +721,7 @@ export class PlaybackRuntime {
           } else if (state === "paused") {
             this.saved.stopped = true;
             this.status = "paused";
+            await this.disarmWatchdog();
             await this.persist();
           } else if (!this.saved.stopped) this.status = state;
         });
@@ -737,20 +751,19 @@ export class PlaybackRuntime {
         if (
           !this.current(context) ||
           this.run !== run ||
-          !this.matches(address, binding)
+          !this.matches(address, binding) ||
+          this.saved.stopped
         )
           return null;
         await this.armWatchdog(run);
         if (
           !this.current(context) ||
           this.run !== run ||
-          !this.matches(address, binding)
+          !this.matches(address, binding) ||
+          this.saved.stopped
         )
           return null;
-        return {
-          binding: this.binding(run),
-          leaseUntil: this.ports.now() + 60000,
-        };
+        return this.authorization(run);
       });
     } catch (error) {
       await this.blocked(error, context);

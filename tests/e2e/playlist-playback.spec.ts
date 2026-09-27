@@ -280,6 +280,58 @@ test("production extension plays a click-ordered playlist and explicitly recover
         .evaluate((video: HTMLVideoElement) => video.playbackRate),
     ).toBe(1);
 
+    // Switching away is a real inactive-tab pause acknowledgement. Leave the
+    // production content heartbeat window elapsed, then explicitly resume the
+    // same native adapter with a fresh background authorization.
+    expect(
+      await worker.evaluate(async (tabUrl) => {
+        const tabs = await chrome.tabs.query({});
+        return tabs.find((tab) => tab.url === tabUrl)?.active;
+      }, secondPage!.url()),
+    ).toBe(true);
+    await panel.bringToFront();
+    await expect(panel.locator(".playback-panel h1")).toContainText("일시정지");
+    expect(
+      await worker.evaluate(async (tabUrl) => {
+        const tabs = await chrome.tabs.query({});
+        return tabs.find((tab) => tab.url === tabUrl)?.active;
+      }, secondPage!.url()),
+    ).toBe(false);
+    await expect
+      .poll(() =>
+        secondPage!
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate((video: HTMLVideoElement) => video.paused),
+      )
+      .toBe(true);
+    const pausedAt = await secondPage!
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture")
+      .evaluate((video: HTMLVideoElement) => video.currentTime);
+    await secondPage!.waitForTimeout(21000);
+    expect(context.pages()).toContain(secondPage);
+    await panel.getByRole("button", { name: "자동 재생 재개" }).click();
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+    expect(
+      await worker.evaluate(async (tabUrl) => {
+        const tabs = await chrome.tabs.query({});
+        return tabs.find((tab) => tab.url === tabUrl)?.active;
+      }, secondPage!.url()),
+    ).toBe(true);
+    await expect
+      .poll(() =>
+        secondPage!
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate(
+            (video: HTMLVideoElement, before) =>
+              !video.paused && video.currentTime > before,
+            pausedAt,
+          ),
+      )
+      .toBe(true);
+
     loggedIn = false;
     await panel.getByRole("button", { name: "새로고침" }).click();
     await expect(panel.locator(".playback-panel h1")).toContainText(

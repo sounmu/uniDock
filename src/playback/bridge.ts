@@ -266,8 +266,10 @@ export type PlayerSignal =
 export type PlayerControl = PlayerBinding & {
   readonly version: 1;
   readonly type: "PLAYBACK_PLAYER_CONTROL";
-  readonly action: "start" | "pause" | "resume" | "stop";
-};
+} & (
+    | { readonly action: "pause" | "stop" }
+    | { readonly action: "resume"; readonly leaseUntil: number }
+  );
 export function isPlayerBinding(value: unknown): value is PlayerBinding {
   return (
     object(value) &&
@@ -277,5 +279,23 @@ export function isPlayerBinding(value: unknown): value is PlayerBinding {
     /^[a-f0-9-]{36}$/.test(value.token) &&
     typeof value.deadline === "number" &&
     Number.isFinite(value.deadline)
+  );
+}
+
+export function isPlayerControl(value: unknown): value is PlayerControl {
+  if (
+    !object(value) ||
+    value.version !== 1 ||
+    value.type !== "PLAYBACK_PLAYER_CONTROL" ||
+    !isPlayerBinding(value)
+  )
+    return false;
+  if (value.action === "pause" || value.action === "stop")
+    return Object.keys(value).length === 6;
+  return (
+    value.action === "resume" &&
+    Object.keys(value).length === 7 &&
+    typeof value.leaseUntil === "number" &&
+    Number.isFinite(value.leaseUntil)
   );
 }

@@ -54,6 +54,10 @@ function fixture() {
   const opened: string[] = [];
   const closed: number[] = [];
   const controls: string[] = [];
+  const controlAuthorizations: Array<{
+    binding: { runId: string; token: string; deadline: number };
+    leaseUntil: number;
+  }> = [];
   const alarms = new Map<string, number>();
   const ports: RuntimePorts = {
     store: {
@@ -88,8 +92,9 @@ function fixture() {
     close: async (tabId) => {
       closed.push(tabId);
     },
-    control: async (_address, _binding, action) => {
+    control: async (_address, authorization, action) => {
       controls.push(action);
+      controlAuthorizations.push(authorization);
     },
     alarm: async (name, when) => {
       if (when === null) alarms.delete(name);
@@ -108,6 +113,7 @@ function fixture() {
     opened,
     closed,
     controls,
+    controlAuthorizations,
     alarms,
     get saved() {
       return saved;
@@ -866,6 +872,126 @@ describe("immediate ordered playlist runtime", () => {
     ).toBe("playing");
     expect(f.controls).toEqual(["pause", "resume"]);
     expect(f.opened).toHaveLength(1);
+  });
+
+  it("keeps an already-paused owned adapter across repeated inactive-tab pauses", async () => {
+    const f = fixture();
+    await playing(f);
+    await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    expect(
+      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" }))
+        .status,
+    ).toBe("paused");
+    expect(f.controls).toEqual(["pause"]);
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.closed).toEqual([]);
+  });
+
+  it("issues a fresh bounded authorization when resuming a long-dormant owned adapter", async () => {
+    const f = fixture();
+    const original = await playing(f);
+    await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    const dormantNow = original.deadline + 60000;
+    f.now = dormantNow;
+
+    expect(
+      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
+        .status,
+    ).toBe("playing");
+    const resumed = f.controlAuthorizations.at(-1)!;
+    expect(resumed.binding).toMatchObject({
+      runId: original.runId,
+      token: original.token,
+    });
+    expect(resumed.binding.deadline).toBe(dormantNow + 70000);
+    expect(resumed.leaseUntil).toBe(dormantNow + 60000);
+    expect(f.opened).toHaveLength(1);
+    expect(f.closed).toEqual([]);
+  });
+
+  it("does not let a lease pending at pause re-arm or close the dormant run", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const renewal = deferred<PlaybackDiscovery>();
+    const renewing = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+      renewing.resolve();
+      return renewal.promise;
+    });
+    const lease = f.runtime.lease(address, binding);
+    await renewing.promise;
+
+    expect(
+      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" }))
+        .status,
+    ).toBe("paused");
+    renewal.resolve(discovery);
+    expect(await lease).toBeNull();
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.closed).toEqual([]);
+    expect(f.alarms.size).toBe(0);
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "invalidates a pending lease when a bound native pause arrives, then ignores its late %s",
+    async (settlement) => {
+      const f = fixture();
+      const binding = await playing(f);
+      const renewal = deferred<PlaybackDiscovery>();
+      const renewing = deferred<void>();
+      vi.spyOn(f.ports, "discover").mockImplementationOnce(async () => {
+        renewing.resolve();
+        return renewal.promise;
+      });
+      const lease = f.runtime.lease(address, binding);
+      await renewing.promise;
+
+      expect(await f.runtime.signal(address, binding, "paused")).toBe(true);
+      expect(f.saved).toMatchObject({ stopped: true });
+      expect(f.runtime.dedicatedTabId).toBe(9);
+      expect(f.alarms.size).toBe(0);
+      if (settlement === "resolve") renewal.resolve(discovery);
+      else renewal.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
+
+      expect(await lease).toBeNull();
+      expect(f.runtime.dedicatedTabId).toBe(9);
+      expect(f.closed).toEqual([]);
+      expect(f.alarms.size).toBe(0);
+      expect(
+        snapshot(
+          await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+        ).status,
+      ).toBe("paused");
+    },
+  );
+
+  it("does not let a queued paused signal from an old binding cancel a replacement run", async () => {
+    const f = fixture();
+    const oldBinding = await playing(f);
+    await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    vi.spyOn(f.ports, "resolve").mockResolvedValue({
+      discovery,
+      id: "101:502",
+      courseId: "101",
+    });
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [handles[1]],
+    });
+    const replacement = await f.runtime.authorize(address);
+    if (!replacement) throw new Error("replacement not authorized");
+
+    expect(await f.runtime.signal(address, oldBinding, "paused")).toBe(false);
+    expect(
+      await f.runtime.signal(address, replacement.binding, "playing"),
+    ).toBe(true);
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "playing", current: { id: "101:502" } });
+    expect(f.runtime.dedicatedTabId).toBe(9);
   });
 
   it("retains a playlist across restart but never auto-runs it", async () => {

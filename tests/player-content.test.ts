@@ -94,6 +94,7 @@ function setup(
         type: "PLAYBACK_PLAYER_CONTROL",
         ...activeBinding,
         action,
+        ...(action === "resume" ? { leaseUntil: Date.now() + 45000 } : {}),
         ...fields,
       },
       from,
@@ -442,4 +443,72 @@ it("invalidates the video when background refuses lease renewal", async () => {
   });
   expect(fixture.control("pause").accepted).toBe(false);
   expect(fixture.pause).toHaveBeenCalledOnce();
+});
+
+it("keeps a paused adapter dormant past heartbeat and expiry until a freshly authorized resume", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-25T00:00:00Z"));
+  const fixture = setup();
+  document.body.append(fixture.video);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+
+  const paused = fixture.event("paused");
+  fixture.control("pause");
+  await paused;
+  await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(80000);
+
+  expect(
+    fixture.sendMessage.mock.calls.filter(
+      ([message]) => message.type === "PLAYBACK_PLAYER_LEASE",
+    ),
+  ).toHaveLength(0);
+  expect(fixture.pause).toHaveBeenCalledOnce();
+  const resumed = fixture.event("playing");
+  const resume = fixture.control("resume", sender, {
+    deadline: Date.now() + 70000,
+    leaseUntil: Date.now() + 60000,
+  });
+  await resumed;
+  expect(await resume.done).toEqual({ ok: true });
+  expect(fixture.play).toHaveBeenCalledTimes(2);
+  expect(fixture.video.playbackRate).toBe(1);
+});
+
+it("ignores a stale in-flight lease refusal after pause and rejects stale resume authorization", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-25T00:00:00Z"));
+  const renewal = Promise.withResolvers<unknown>();
+  const fixture = setup({ lease: renewal.promise });
+  document.body.append(fixture.video);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  await vi.advanceTimersByTimeAsync(20000);
+
+  const paused = fixture.event("paused");
+  fixture.control("pause");
+  await paused;
+  renewal.resolve({ ok: false });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const stale = fixture.control("resume", sender, {
+    deadline: Date.now() - 1,
+    leaseUntil: Date.now() - 1,
+  });
+  expect(stale.accepted).toBe(false);
+  expect(stale.respond).toHaveBeenCalledWith({ ok: false });
+  expect(fixture.play).toHaveBeenCalledOnce();
+
+  const resumed = fixture.event("playing");
+  const fresh = fixture.control("resume", sender, {
+    deadline: Date.now() + 70000,
+    leaseUntil: Date.now() + 60000,
+  });
+  await resumed;
+  expect(await fresh.done).toEqual({ ok: true });
+  expect(fixture.play).toHaveBeenCalledTimes(2);
 });
