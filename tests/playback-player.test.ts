@@ -232,9 +232,12 @@ it("bounds hung play and ignores late completion and cancellation", async () => 
   const starting = second.player.start();
   second.player.invalidate();
   expect(await starting).toEqual({ state: "stopped" });
+  expect(second.pause).toHaveBeenCalledOnce();
   release();
   await Promise.resolve();
+  await Promise.resolve();
   expect(second.player.status.state).toBe("stopped");
+  expect(second.pause).toHaveBeenCalledTimes(2);
   video.dispatchEvent(new Event("ended"));
 
   const detached = fixture({ timeoutMs: 50 });
@@ -243,9 +246,34 @@ it("bounds hung play and ignores late completion and cancellation", async () => 
   detached.video.remove();
   await vi.advanceTimersByTimeAsync(50);
   expect(await detachedStart).toEqual({ state: "stopped" });
+  expect(detached.pause).toHaveBeenCalledOnce();
 });
 
-it("invalidates detached or navigated documents and stale native event handlers", async () => {
+it.each(["url-changed", "detached"])(
+  "invalidates and physically pauses owned media when %s",
+  async (scenario) => {
+    const { video, player, pause } = fixture();
+    const originalUrl = location.href;
+    await player.start();
+    if (scenario === "url-changed") history.pushState({}, "", "#changed");
+    else video.remove();
+
+    expect(player.invalidate()).toEqual({ state: "stopped" });
+    expect(pause).toHaveBeenCalledOnce();
+    history.replaceState({}, "", originalUrl);
+  },
+);
+
+it("does not pause media whose ownership moved to another document", async () => {
+  const { video, player, pause } = fixture();
+  await player.start();
+  document.implementation.createHTMLDocument().adoptNode(video);
+
+  expect(player.invalidate()).toEqual({ state: "stopped" });
+  expect(pause).not.toHaveBeenCalled();
+});
+
+it("invalidates stale native event handlers", async () => {
   const { video, player } = fixture();
   const notify = nativeSignal(video, "ended");
   await player.start();

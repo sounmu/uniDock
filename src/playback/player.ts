@@ -56,11 +56,17 @@ export class PlaybackPlayer {
     return this.statusValue;
   }
 
+  private ownsVideo(): boolean {
+    return (
+      this.video.ownerDocument === this.document &&
+      this.document.defaultView?.document === this.document
+    );
+  }
+
   private valid(): boolean {
     return (
       this.video.isConnected &&
-      this.video.ownerDocument === this.document &&
-      this.document.defaultView?.document === this.document &&
+      this.ownsVideo() &&
       this.document.location.href === this.url
     );
   }
@@ -280,6 +286,11 @@ export class PlaybackPlayer {
         };
         requestPlay().then(
           () => {
+            if (generation !== this.generation) {
+              if (this.status.state === "stopped" && this.ownsVideo())
+                this.video.pause();
+              return;
+            }
             if (generation === this.generation && !this.valid()) this.stop();
             if (!current()) return;
             this.options.onDiagnostic?.("PLAY_ACCEPTED");
@@ -334,7 +345,7 @@ export class PlaybackPlayer {
     );
     this.set({ state: "stopped" });
     this.cancel();
-    if (this.valid() && shouldPause) this.video.pause();
+    if (this.ownsVideo() && shouldPause) this.video.pause();
     return this.status;
   }
 
