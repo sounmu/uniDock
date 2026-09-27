@@ -87,6 +87,55 @@ it("discards a late detection after its target reloads", async () => {
   });
   expect(document.querySelectorAll("li")).toHaveLength(0);
 });
+it("aborts a cleared detection and lets only a fresh replacement finish", async () => {
+  const first = deferred<CaptionResult>();
+  const second = deferred<CaptionResult>();
+  const signals: AbortSignal[] = [];
+  detect
+    .mockImplementationOnce((onTarget, signal) => {
+      signals.push(signal);
+      onTarget({ tabId: 7, windowId: 1 });
+      return first.promise;
+    })
+    .mockImplementationOnce((onTarget, signal) => {
+      signals.push(signal);
+      onTarget({ tabId: 8, windowId: 1 });
+      return second.promise;
+    });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+
+  await act(async () => {
+    updated.addListener.mock.calls[0]![0](7, { status: "loading" });
+  });
+  expect(signals[0]?.aborted).toBe(true);
+  await click("자막 감지");
+  expect(signals[1]).not.toBe(signals[0]);
+  expect(signals[1]?.aborted).toBe(false);
+
+  await act(async () => first.resolve(result));
+  expect(ui.host.querySelector("button")?.textContent).not.toContain(
+    "자막 감지",
+  );
+  expect(ui.host.textContent).toContain("감지 중…");
+  expect(document.querySelectorAll("li")).toHaveLength(0);
+
+  await act(async () => second.resolve(result));
+  expect(document.querySelectorAll("li")).toHaveLength(1);
+});
+it("aborts an in-flight detection on unmount", async () => {
+  const pending = deferred<CaptionResult>();
+  let signal: AbortSignal | undefined;
+  detect.mockImplementation((_onTarget, nextSignal) => {
+    signal = nextSignal;
+    return pending.promise;
+  });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+
+  await ui.unmount();
+  expect(signal?.aborted).toBe(true);
+});
 it("moves caption tools into a detail view while preserving the list", async () => {
   // Given
   ui = await mount(<CaptionsPanel />);

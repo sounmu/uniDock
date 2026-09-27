@@ -509,6 +509,80 @@ it("never checks the tab after verification resolves beyond the deadline", async
   expect(get).not.toHaveBeenCalled();
 });
 
+it("does not launch a fallback after cancellation while the DOM capture is held", async () => {
+  let finishDom!: (value: ReturnType<typeof injection>[]) => void;
+  const captured = new Promise<ReturnType<typeof injection>[]>((resolve) => {
+    finishDom = resolve;
+  });
+  const execute = vi.fn().mockReturnValueOnce(captured);
+  const { get } = chromeMock(execute);
+  const controller = new AbortController();
+  const pending = detectCaptions(undefined, controller.signal);
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+
+  controller.abort();
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  finishDom([injection(), injection([], playerUrl, "player", 1)]);
+  await captured;
+  await Promise.resolve();
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("honors a replaced generation after the active-tab query resolves", async () => {
+  let finishQuery!: (
+    value: { id: number; url: string; title: string }[],
+  ) => void;
+  const queryResult = new Promise<
+    { id: number; url: string; title: string }[]
+  >((resolve) => {
+    finishQuery = resolve;
+  });
+  const execute = vi.fn();
+  const { query } = chromeMock(execute);
+  query.mockReturnValue(queryResult);
+  let current = true;
+  const pending = detectCaptions(undefined, undefined, () => current);
+  current = false;
+  finishQuery([
+    { id: 7, url: transcript.sourceUrl, title: transcript.pageTitle },
+  ]);
+
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it("does not verify or inspect loaded scripts after a held fallback is cancelled", async () => {
+  const playerFrame = injection([], playerUrl, "player", 1);
+  let finishFallback!: (value: ReturnType<typeof injection>[]) => void;
+  const fallback = new Promise<ReturnType<typeof injection>[]>((resolve) => {
+    finishFallback = resolve;
+  });
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), playerFrame])
+    .mockReturnValueOnce(fallback);
+  const { get } = chromeMock(execute);
+  const controller = new AbortController();
+  const pending = detectCaptions(undefined, controller.signal);
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+
+  controller.abort();
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  finishFallback([
+    {
+      ...playerFrame,
+      result: { ...playerFrame.result, source: "player_vtt", vtt },
+    },
+  ]);
+  await fallback;
+  await Promise.resolve();
+
+  expect(execute).toHaveBeenCalledTimes(2);
+  expect(get).not.toHaveBeenCalled();
+});
+
 it("does not fetch VTT after the caption deadline expires during XML fetch", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-13T00:00:00.000Z"));

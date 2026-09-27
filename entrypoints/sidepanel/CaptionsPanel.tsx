@@ -34,9 +34,14 @@ export function CaptionsPanel() {
       : undefined;
   const generation = useRef(0);
   const target = useRef<CaptionTarget | null>(null);
+  const detection = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
   useEffect(() => {
+    mounted.current = true;
     const clear = () => {
       generation.current++;
+      detection.current?.abort();
+      detection.current = null;
       target.current = null;
       setState({ status: "idle" });
       setNotice("");
@@ -66,7 +71,11 @@ export function CaptionsPanel() {
     chrome.tabs.onUpdated.addListener(updated);
     chrome.tabs.onRemoved.addListener(removed);
     return () => {
+      mounted.current = false;
       generation.current++;
+      detection.current?.abort();
+      detection.current = null;
+      target.current = null;
       chrome.tabs.onActivated.removeListener(activated);
       chrome.tabs.onUpdated.removeListener(updated);
       chrome.tabs.onRemoved.removeListener(removed);
@@ -82,15 +91,29 @@ export function CaptionsPanel() {
   }, [state]);
   async function detect() {
     back();
+    detection.current?.abort();
+    const controller = new AbortController();
+    detection.current = controller;
     const current = ++generation.current;
     setState({ status: "loading" });
     setNotice("");
-    const result = await detectCaptions((selected) => {
-      if (current !== generation.current) return false;
-      target.current = selected;
-      return true;
-    });
-    if (current === generation.current) setState(result);
+    const isCurrent = () =>
+      mounted.current &&
+      current === generation.current &&
+      detection.current === controller;
+    const result = await detectCaptions(
+      (selected) => {
+        if (!isCurrent()) return false;
+        target.current = selected;
+        return true;
+      },
+      controller.signal,
+      isCurrent,
+    );
+    if (isCurrent()) {
+      detection.current = null;
+      setState(result);
+    }
   }
   return (
     <section>
