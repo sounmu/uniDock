@@ -36,6 +36,7 @@ export default defineContentScript({
     let expiry: ReturnType<typeof setTimeout> | undefined;
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let initialization: AbortController | null = null;
     const discoveryUntil = Date.now() + 45000;
     const current = () =>
       !closed &&
@@ -48,6 +49,8 @@ export default defineContentScript({
       clearTimeout(expiry);
       clearTimeout(heartbeat);
       clearTimeout(discoveryTimer);
+      initialization?.abort();
+      initialization = null;
       observer.disconnect();
       document.removeEventListener("loadedmetadata", connect, true);
       window.removeEventListener("resize", connect);
@@ -65,7 +68,12 @@ export default defineContentScript({
         video.defaultPlaybackRate = 1;
     }
     function visibleOnly() {
-      if (document.visibilityState !== "hidden" || !player) return;
+      if (document.visibilityState !== "hidden") return;
+      if (!player) {
+        if (connecting) void signal({ state: "failed", reason: "play" });
+        stop();
+        return;
+      }
       if (player.status.state === "starting") {
         void signal({ state: "failed", reason: "play" });
         stop();
@@ -212,7 +220,8 @@ export default defineContentScript({
             return;
           }
           diagnostic("KU_INITIALIZING");
-          video = await initializeKuLecture(
+          initialization = new AbortController();
+          const ready = await initializeKuLecture(
             found,
             () =>
               !closed &&
@@ -220,14 +229,35 @@ export default defineContentScript({
               document.visibilityState !== "hidden" &&
               !!binding &&
               binding.deadline > Date.now(),
+            initialization.signal,
           );
+          video = ready.video;
           diagnostic("KU_LECTURE_READY");
+          if (!current()) {
+            stop();
+            return;
+          }
+          player = new PlaybackPlayer(video, {
+            onDiagnostic: diagnostic,
+            isLoginPage: () => !playerPage(location.href),
+            onStateChange: (status) => {
+              diagnostic(
+                `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
+              );
+              void signal(status);
+            },
+          });
+          if (!ready.handoff()) {
+            stop();
+            return;
+          }
+          initialization = null;
         }
         if (!current()) {
           stop();
           return;
         }
-        player = new PlaybackPlayer(video!, {
+        player ??= new PlaybackPlayer(video!, {
           onDiagnostic: diagnostic,
           isLoginPage: () => !playerPage(location.href),
           onStateChange: (status) => {
