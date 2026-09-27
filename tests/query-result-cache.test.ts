@@ -77,6 +77,22 @@ describe("QueryResultCache", () => {
     expect(cache.get("extra", 2)).toBeDefined();
   });
 
+  it("deletes only the selected entry and releases its row capacity", () => {
+    const cache = new QueryResultCache();
+    for (let index = 0; index < 4; index += 1)
+      expect(cache.set(`full-${index}`, courses(5_000), 1_000, 0)).toBe(true);
+
+    expect(cache.delete("missing")).toBe(false);
+    expect(cache.delete("full-1")).toBe(true);
+    expect(cache.get("full-1", 1)).toBeUndefined();
+    expect(cache.set("replacement", courses(5_000), 1_000, 1)).toBe(true);
+
+    expect(cache.get("full-0", 2)).toBeDefined();
+    expect(cache.get("full-2", 2)).toBeDefined();
+    expect(cache.get("full-3", 2)).toBeDefined();
+    expect(cache.get("replacement", 2)).toBeDefined();
+  });
+
   it("clears all in-memory results and isolates cached arrays", () => {
     const cache = new QueryResultCache();
     const result = courses(1);

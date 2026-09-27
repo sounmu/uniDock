@@ -61,7 +61,7 @@ export class QueryResultCache {
     const entry = this.entries.get(key);
     if (!entry) return undefined;
     if (entry.expiresAt <= now) {
-      this.remove(key, entry);
+      this.removeEntry(key, entry);
       return undefined;
     }
 
@@ -73,7 +73,7 @@ export class QueryResultCache {
 
   set(key: string, result: Result, ttlMs: number, now = Date.now()): boolean {
     const previous = this.entries.get(key);
-    if (previous) this.remove(key, previous);
+    if (previous) this.removeEntry(key, previous);
     this.removeExpired(now);
 
     const expiresAt = now + ttlMs;
@@ -97,19 +97,26 @@ export class QueryResultCache {
     return this.entries.has(key);
   }
 
+  delete(key: string): boolean {
+    const entry = this.entries.get(key);
+    if (!entry) return false;
+    this.removeEntry(key, entry);
+    return true;
+  }
+
   clear(): void {
     this.entries.clear();
     this.totalRows = 0;
   }
 
-  private remove(key: string, entry: CacheEntry): void {
+  private removeEntry(key: string, entry: CacheEntry): void {
     if (!this.entries.delete(key)) return;
     this.totalRows -= entry.rows;
   }
 
   private removeExpired(now: number): void {
     for (const [key, entry] of this.entries) {
-      if (entry.expiresAt <= now) this.remove(key, entry);
+      if (entry.expiresAt <= now) this.removeEntry(key, entry);
     }
   }
 
@@ -117,7 +124,7 @@ export class QueryResultCache {
     while (this.entries.size > MAX_ENTRIES || this.totalRows > MAX_TOTAL_ROWS) {
       const oldest = this.entries.entries().next().value;
       if (!oldest) return;
-      this.remove(oldest[0], oldest[1]);
+      this.removeEntry(oldest[0], oldest[1]);
     }
   }
 }

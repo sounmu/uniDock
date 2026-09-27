@@ -445,6 +445,7 @@ export default defineContentScript({
       }
       publishOwner?.({ account, epoch });
       const key = JSON.stringify(message);
+      if (ttl !== undefined && refresh) cache.delete(key);
       if (ttl !== undefined && !refresh) {
         const hit = cache.get(key);
         if (hit) return hit;

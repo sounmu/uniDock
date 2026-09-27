@@ -50,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
-it("reuses bounded account-scoped list results and bypasses them on explicit refresh", async () => {
+it("reuses bounded account-scoped list results and replaces them on explicit refresh", async () => {
   const addListener = vi.fn();
   vi.stubGlobal("chrome", {
     runtime: {
@@ -60,10 +60,15 @@ it("reuses bounded account-scoped list results and bypasses them on explicit ref
     },
   });
   vi.stubGlobal("location", { href: origin + "/", origin });
-  list.mockResolvedValue({
-    status: "success",
-    courses: [{ name: "캐시 과목" }],
-  });
+  list
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "기존 과목" }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "새 과목" }],
+    });
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
   const sender = {
@@ -71,20 +76,72 @@ it("reuses bounded account-scoped list results and bypasses them on explicit ref
     url: "chrome-extension://fixture-extension/sidepanel.html",
   };
 
-  for (const message of [
-    request,
-    request,
-    { version: 1, type: "QUERY_REFRESH", request },
-  ]) {
+  for (const [message, name] of [
+    [request, "기존 과목"],
+    [request, "기존 과목"],
+    [{ version: 1, type: "QUERY_REFRESH", request }, "새 과목"],
+    [request, "새 과목"],
+  ] as const) {
     const result = response();
     expect(listener(message, sender, result.respond)).toBe(true);
     expect(await result.done).toEqual({
       status: "success",
-      courses: [{ name: "캐시 과목" }],
+      courses: [{ name }],
     });
   }
   expect(list).toHaveBeenCalledTimes(2);
 });
+
+it.each(["NETWORK", "TIMEOUT", "LIMIT", "INVALID_RESPONSE"] as const)(
+  "evicts only the targeted cached list before a failed %s refresh",
+  async (code) => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", {
+      runtime: {
+        id: "fixture-extension",
+        getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+        onMessage: { addListener },
+      },
+    });
+    vi.stubGlobal("location", { href: origin + "/", origin });
+    list
+      .mockResolvedValueOnce({
+        status: "success",
+        courses: [{ name: "old" }],
+      })
+      .mockResolvedValueOnce({ status: "error", code })
+      .mockResolvedValueOnce({
+        status: "success",
+        courses: [{ name: "new" }],
+      });
+    query.mockResolvedValue({ status: "success", todo: [] });
+    (content as unknown as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]![0];
+    const sender = {
+      id: "fixture-extension",
+      url: "chrome-extension://fixture-extension/sidepanel.html",
+    };
+    const send = async (message: unknown) => {
+      const result = response();
+      listener(message, sender, result.respond);
+      return result.done;
+    };
+    const todo = { version: 1, type: "TODO_LIST" } as const;
+
+    expect(await send(request)).toMatchObject({ courses: [{ name: "old" }] });
+    expect(await send(request)).toMatchObject({ courses: [{ name: "old" }] });
+    expect(await send(todo)).toEqual({ status: "success", todo: [] });
+    expect(await send({ version: 1, type: "QUERY_REFRESH", request })).toEqual({
+      status: "error",
+      code,
+    });
+    expect(await send(request)).toMatchObject({ courses: [{ name: "new" }] });
+    expect(await send(request)).toMatchObject({ courses: [{ name: "new" }] });
+    expect(await send(todo)).toEqual({ status: "success", todo: [] });
+    expect(list).toHaveBeenCalledTimes(3);
+    expect(query).toHaveBeenCalledTimes(1);
+  },
+);
 
 it("clears cached lists when the current LMS account changes", async () => {
   const addListener = vi.fn();
@@ -172,6 +229,67 @@ it("does not commit a cached list whose API response arrives after pagehide", as
       courses: [{ name: "current" }],
     });
   }
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it("does not let a refresh identity from before pagehide delete the new lifecycle cache", async () => {
+  const addListener = vi.fn();
+  let pagehide!: () => void;
+  vi.stubGlobal(
+    "addEventListener",
+    vi.fn((type: string, listener: EventListener) => {
+      if (type === "pagehide") pagehide = listener as () => void;
+    }),
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const staleIdentity = Promise.withResolvers<Response>();
+  let identityCalls = 0;
+  vi.mocked(fetch).mockImplementation(async () => {
+    identityCalls++;
+    if (identityCalls === 3) return staleIdentity.promise;
+    return Response.json({ id: 42 });
+  });
+  list
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "old lifecycle" }],
+    })
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "new lifecycle" }],
+    });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const send = (message: unknown) => {
+    const result = response();
+    listener(message, sender, result.respond);
+    return result.done;
+  };
+
+  expect(await send(request)).toMatchObject({
+    courses: [{ name: "old lifecycle" }],
+  });
+  const staleRefresh = send({ version: 1, type: "QUERY_REFRESH", request });
+  await vi.waitFor(() => expect(identityCalls).toBe(3));
+  pagehide();
+  staleIdentity.resolve(Response.json({ id: 42 }));
+  expect(await staleRefresh).toEqual({ status: "error", code: "RELOAD_TAB" });
+
+  for (let index = 0; index < 2; index++)
+    expect(await send(request)).toMatchObject({
+      courses: [{ name: "new lifecycle" }],
+    });
   expect(list).toHaveBeenCalledTimes(2);
 });
 
