@@ -802,6 +802,15 @@ export class PlaybackRuntime {
       }
       return true;
     } catch (error) {
+      // A newer operation may supersede this event while it is waiting for the
+      // state lane. If the exact run is still retained, the sender remains
+      // authorized: acknowledge the stale event without applying its state.
+      // A released or replaced run must still fail closed.
+      if (
+        (error instanceof SupersededOperationError || !this.current(context)) &&
+        this.matches(address, binding)
+      )
+        return true;
       await this.blocked(error, context);
       return false;
     }

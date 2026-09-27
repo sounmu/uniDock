@@ -1277,6 +1277,42 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.alarms.size).toBe(0);
   });
 
+  it("acknowledges a superseded native pause for the retained run without reviving its lease", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const alarmEntered = deferred<void>();
+    const releaseAlarm = deferred<void>();
+    const alarm = f.ports.alarm;
+    vi.spyOn(f.ports, "alarm").mockImplementation(async (name, when) => {
+      if (when !== null) {
+        alarmEntered.resolve();
+        await releaseAlarm.promise;
+      }
+      await alarm(name, when);
+    });
+
+    const lease = f.runtime.lease(address, binding);
+    await alarmEntered.promise;
+    const nativePause = f.runtime.signal(address, binding, "paused");
+    const pause = f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    releaseAlarm.resolve();
+
+    expect(await lease).toBeNull();
+    expect(await nativePause).toBe(true);
+    expect(snapshot(await pause).status).toBe("paused");
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.closed).toEqual([]);
+    expect(f.alarms.size).toBe(0);
+
+    expect(
+      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
+        .status,
+    ).toBe("playing");
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.controls).toEqual(["pause", "resume"]);
+    expect(f.closed).toEqual([]);
+  });
+
   it("does not grant a pending lease after the source document is replaced", async () => {
     const f = fixture();
     const binding = await playing(f);

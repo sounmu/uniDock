@@ -622,6 +622,83 @@ test("production extension plays a click-ordered playlist and explicitly recover
       if (message.type() === "error")
         actions.push(`WORKER_CONSOLE_ERROR:${message.text()}`);
     });
+    await worker.evaluate(() => {
+      const scope = globalThis as typeof globalThis & {
+        __pauseLeaseRace?: {
+          armed: boolean;
+          entered: boolean;
+          messages: string[];
+          binding: {
+            runId: string;
+            token: string;
+            deadline: number;
+          } | null;
+          release: () => void;
+          restore: () => void;
+        };
+      };
+      const originalCreate = chrome.alarms.create.bind(chrome.alarms);
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const listener = (message: unknown) => {
+        if (!message || typeof message !== "object") return;
+        const value = message as Record<string, unknown>;
+        const suffix =
+          value.type === "PLAYBACK_PLAYER_EVENT" &&
+          typeof value.state === "string"
+            ? `:${value.state}`
+            : "";
+        if (typeof value.type === "string")
+          state.messages.push(`${value.type}${suffix}`);
+        if (
+          value.type === "PLAYBACK_PLAYER_EVENT" &&
+          typeof value.runId === "string" &&
+          typeof value.token === "string" &&
+          typeof value.deadline === "number"
+        )
+          state.binding = {
+            runId: value.runId,
+            token: value.token,
+            deadline: value.deadline,
+          };
+      };
+      const state = {
+        armed: false,
+        entered: false,
+        messages: [] as string[],
+        binding: null as {
+          runId: string;
+          token: string;
+          deadline: number;
+        } | null,
+        release: () => {
+          state.armed = false;
+          release();
+        },
+        restore: () => {
+          release();
+          chrome.alarms.create = originalCreate;
+          chrome.runtime.onMessage.removeListener(listener);
+          delete scope.__pauseLeaseRace;
+        },
+      };
+      chrome.alarms.create = (async (
+        name: string,
+        info: chrome.alarms.AlarmCreateInfo,
+      ) => {
+        if (
+          state.armed &&
+          !state.entered &&
+          name.startsWith("unidock.playback.watchdog:")
+        ) {
+          state.entered = true;
+          await held;
+        }
+        await originalCreate(name, info);
+      }) as typeof chrome.alarms.create;
+      chrome.runtime.onMessage.addListener(listener);
+      scope.__pauseLeaseRace = state;
+    });
     const extensionId = new URL(worker.url()).host;
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
@@ -688,6 +765,215 @@ test("production extension plays a click-ordered playlist and explicitly recover
         .locator("video#lecture")
         .evaluate((video: HTMLVideoElement) => video.playbackRate),
     ).toBe(1);
+
+    // Hold a real lease while a trusted native pause and an urgent panel pause
+    // queue for the same run. The stale native event must still be acknowledged
+    // so the dormant adapter remains available for an explicit resume.
+    expect(
+      await worker.evaluate(async (playerUrl) => {
+        const state = (
+          globalThis as typeof globalThis & {
+            __pauseLeaseRace?: {
+              armed: boolean;
+              binding: {
+                runId: string;
+                token: string;
+                deadline: number;
+              } | null;
+            };
+          }
+        ).__pauseLeaseRace;
+        if (!state?.binding) throw new Error("missing player binding");
+        const tab = (await chrome.tabs.query({})).find(
+          (candidate) => candidate.url === playerUrl,
+        );
+        if (tab?.id === undefined) throw new Error("missing player tab");
+        state.armed = true;
+        const injected = await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          world: "ISOLATED",
+          func: (binding) => {
+            if (location.origin !== "https://kucom.korea.ac.kr") return false;
+            const root = globalThis as typeof globalThis & {
+              __pauseLeaseResult?: Promise<unknown>;
+            };
+            root.__pauseLeaseResult = chrome.runtime.sendMessage({
+              version: 1,
+              type: "PLAYBACK_PLAYER_LEASE",
+              ...binding,
+            });
+            return true;
+          },
+          args: [state.binding],
+        });
+        return injected.some(({ result }) => result === true);
+      }, secondPage!.url()),
+    ).toBe(true);
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          () =>
+            !!(
+              globalThis as typeof globalThis & {
+                __pauseLeaseRace?: { entered: boolean };
+              }
+            ).__pauseLeaseRace?.entered,
+        ),
+      )
+      .toBe(true);
+
+    const nativePause = await secondPage!
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture")
+      .evaluate(
+        (video: HTMLVideoElement) =>
+          new Promise<{ trusted: boolean; identity: string; pausedAt: number }>(
+            (resolve) => {
+              const identity = crypto.randomUUID();
+              video.dataset.pauseLeaseIdentity = identity;
+              video.addEventListener(
+                "pause",
+                (event) =>
+                  resolve({
+                    trusted: event.isTrusted,
+                    identity,
+                    pausedAt: video.currentTime,
+                  }),
+                { once: true },
+              );
+              video.pause();
+            },
+          ),
+      );
+    expect(nativePause.trusted).toBe(true);
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          () =>
+            (
+              globalThis as typeof globalThis & {
+                __pauseLeaseRace?: { messages: string[] };
+              }
+            ).__pauseLeaseRace?.messages.includes(
+              "PLAYBACK_PLAYER_EVENT:paused",
+            ) ?? false,
+        ),
+      )
+      .toBe(true);
+    await panel.evaluate(() => {
+      const root = globalThis as typeof globalThis & {
+        __pauseLeaseCommand?: Promise<unknown>;
+      };
+      root.__pauseLeaseCommand = chrome.runtime.sendMessage({
+        version: 1,
+        type: "PLAYBACK_PAUSE",
+      });
+    });
+    await expect
+      .poll(() =>
+        worker.evaluate(() => {
+          const messages = (
+            globalThis as typeof globalThis & {
+              __pauseLeaseRace?: { messages: string[] };
+            }
+          ).__pauseLeaseRace?.messages;
+          return {
+            nativeSeen:
+              (messages?.indexOf("PLAYBACK_PLAYER_EVENT:paused") ?? -1) >= 0,
+            urgentSeen: (messages?.indexOf("PLAYBACK_PAUSE") ?? -1) >= 0,
+          };
+        }),
+      )
+      .toEqual({ nativeSeen: true, urgentSeen: true });
+    const ordering = await worker.evaluate(() => {
+      const messages = (
+        globalThis as typeof globalThis & {
+          __pauseLeaseRace?: { messages: string[] };
+        }
+      ).__pauseLeaseRace?.messages;
+      return {
+        native: messages?.indexOf("PLAYBACK_PLAYER_EVENT:paused") ?? -1,
+        urgent: messages?.indexOf("PLAYBACK_PAUSE") ?? -1,
+      };
+    });
+    expect(ordering.native).toBeGreaterThanOrEqual(0);
+    expect(ordering.urgent).toBeGreaterThan(ordering.native);
+    await worker.evaluate(() => {
+      const state = (
+        globalThis as typeof globalThis & {
+          __pauseLeaseRace?: { release: () => void };
+        }
+      ).__pauseLeaseRace;
+      if (!state) throw new Error("missing pause lease gate");
+      state.release();
+    });
+    expect(
+      await panel.evaluate(async () => {
+        const root = globalThis as typeof globalThis & {
+          __pauseLeaseCommand?: Promise<unknown>;
+        };
+        return root.__pauseLeaseCommand;
+      }),
+    ).toMatchObject({ status: "success", snapshot: { status: "paused" } });
+    const leaseResult = await worker.evaluate(async (playerUrl) => {
+      const tab = (await chrome.tabs.query({})).find(
+        (candidate) => candidate.url === playerUrl,
+      );
+      if (tab?.id === undefined) throw new Error("missing retained player tab");
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        world: "ISOLATED",
+        func: async () => {
+          if (location.origin !== "https://kucom.korea.ac.kr") return undefined;
+          return (
+            globalThis as typeof globalThis & {
+              __pauseLeaseResult?: Promise<unknown>;
+            }
+          ).__pauseLeaseResult;
+        },
+      });
+      return injected.find(
+        ({ result }) =>
+          !!result && typeof result === "object" && "ok" in result,
+      )?.result;
+    }, secondPage!.url());
+    expect(leaseResult).toEqual({ ok: true, authorization: null });
+    await expect(panel.locator(".playback-panel h1")).toContainText("일시정지");
+    expect(
+      await secondPage!
+        .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+        .locator("video#lecture")
+        .evaluate(
+          (video: HTMLVideoElement, identity) => ({
+            same: video.dataset.pauseLeaseIdentity === identity,
+            paused: video.paused,
+          }),
+          nativePause.identity,
+        ),
+    ).toEqual({ same: true, paused: true });
+    await panel.getByRole("button", { name: "자동 재생 재개" }).click();
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+    await expect
+      .poll(() =>
+        secondPage!
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate(
+            (video: HTMLVideoElement, paused) => ({
+              same: video.dataset.pauseLeaseIdentity === paused.identity,
+              progressed: !video.paused && video.currentTime > paused.pausedAt,
+            }),
+            nativePause,
+          ),
+      )
+      .toEqual({ same: true, progressed: true });
+    await worker.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          __pauseLeaseRace?: { restore: () => void };
+        }
+      ).__pauseLeaseRace?.restore();
+    });
 
     const beforeOtherWindow = await secondPage!
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
