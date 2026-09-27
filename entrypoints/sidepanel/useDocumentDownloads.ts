@@ -45,6 +45,7 @@ export function useDocumentDownloads(context: {
   const expected = useRef<Expected[]>([]);
   const candidates = useRef(new Set<number>());
   const bindings = useRef(new Map<number, string>());
+  const observed = useRef(new Map<string, DownloadStatus>());
   // Unlike batch cancellation, a list reset retires browser observations too.
   const observationEpoch = useRef(0);
   const source = useRef(context);
@@ -84,6 +85,7 @@ export function useDocumentDownloads(context: {
               ? "complete"
               : "review"
             : "requested";
+      observed.current.set(handle, state);
       setStatuses((previous) => ({ ...previous, [handle]: state }));
     };
     const created = (item: chrome.downloads.DownloadItem) => {
@@ -143,6 +145,7 @@ export function useDocumentDownloads(context: {
     expected.current = [];
     candidates.current.clear();
     bindings.current.clear();
+    observed.current.clear();
     setStatuses({});
     setProgress({ running: false, done: 0, total: 0 });
     setNotice("");
@@ -198,6 +201,7 @@ export function useDocumentDownloads(context: {
       if (inFlight.current === work) inFlight.current = null;
       done++;
       if (current !== generation.current) break;
+      const observedState = observed.current.get(handle);
       setStatuses((previous) => ({
         ...previous,
         [handle]:
@@ -205,9 +209,9 @@ export function useDocumentDownloads(context: {
             ? previous[handle] === "queued"
               ? "requested"
               : (previous[handle] ?? "requested")
-            : "failed",
+            : (observedState ?? "failed"),
       }));
-      if (result.status === "error")
+      if (result.status === "error" && observedState === undefined)
         setNotice(
           result.code === "STALE_SELECTION"
             ? "목록을 새로고침한 뒤 다시 다운로드하세요."

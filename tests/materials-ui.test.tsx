@@ -172,6 +172,128 @@ it.each([
     expect(search).toHaveBeenCalledWith({ id: 42 });
   },
 );
+it.each([
+  ["application/pdf", "완료"],
+  ["text/html", "확인 필요"],
+])(
+  "keeps an observed %s completion when the request acknowledgement times out",
+  async (mime, status) => {
+    await materials();
+    const acknowledgement = deferred<Result>();
+    query.mockReturnValueOnce(acknowledgement.promise);
+    const checkbox = document.querySelector<HTMLInputElement>(
+      'input[aria-label="one.pdf 선택"]',
+    );
+    if (!checkbox) throw new Error("Missing checkbox");
+    await act(async () => checkbox.click());
+    await click("선택 다운로드 (1)");
+    await act(async () => {
+      onCreated.addListener.mock.calls[0]?.[0]({
+        id: 42,
+        byExtensionId: "test",
+        url: `${target.url}courses/101/files/501/download?download_frd=1`,
+        filename: "/Downloads/uniDock/Course/Week/one.pdf",
+        state: "complete",
+        mime,
+      });
+      acknowledgement.resolve({ status: "error", code: "TIMEOUT" });
+    });
+    expect(chips()).toEqual([status, "대기", "LMS에서 확인"]);
+    expect(document.body.textContent).not.toContain(
+      "PDF 다운로드를 시작하지 못했습니다",
+    );
+  },
+);
+it("keeps tracking an observed in-progress download after an acknowledgement timeout", async () => {
+  await materials();
+  const acknowledgement = deferred<Result>();
+  query.mockReturnValueOnce(acknowledgement.promise);
+  const checkbox = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!checkbox) throw new Error("Missing checkbox");
+  await act(async () => checkbox.click());
+  await click("선택 다운로드 (1)");
+  const item = {
+    id: 42,
+    byExtensionId: "test",
+    url: `${target.url}courses/101/files/501/download?download_frd=1`,
+    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    state: "in_progress",
+    mime: "application/pdf",
+  };
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0](item);
+    acknowledgement.resolve({ status: "error", code: "TIMEOUT" });
+  });
+  expect(chips()).toEqual(["요청됨", "대기", "LMS에서 확인"]);
+  expect(document.body.textContent).not.toContain(
+    "PDF 다운로드를 시작하지 못했습니다",
+  );
+
+  search.mockResolvedValueOnce([
+    { ...item, state: "complete" } as chrome.downloads.DownloadItem,
+  ]);
+  await act(async () => {
+    onChanged.addListener.mock.calls[0]?.[0]({
+      id: item.id,
+      state: { current: "complete" },
+    });
+  });
+  expect(chips()).toEqual(["완료", "대기", "LMS에서 확인"]);
+});
+it("fails an unobserved download when its acknowledgement errors", async () => {
+  await materials();
+  query.mockResolvedValueOnce({ status: "error", code: "TIMEOUT" });
+  const checkbox = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!checkbox) throw new Error("Missing checkbox");
+  await act(async () => checkbox.click());
+  await click("선택 다운로드 (1)");
+  expect(chips()).toEqual(["실패", "대기", "LMS에서 확인"]);
+  expect(document.body.textContent).toContain(
+    "PDF 다운로드를 시작하지 못했습니다",
+  );
+});
+it("does not preserve an old list observation for a new acknowledgement", async () => {
+  await materials();
+  const oldAcknowledgement = deferred<Result>();
+  query.mockReturnValueOnce(oldAcknowledgement.promise);
+  const firstCheckbox = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!firstCheckbox) throw new Error("Missing checkbox");
+  await act(async () => firstCheckbox.click());
+  await click("선택 다운로드 (1)");
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0]({
+      id: 42,
+      byExtensionId: "test",
+      url: `${target.url}courses/101/files/501/download?download_frd=1`,
+      filename: "/Downloads/uniDock/Course/Week/one.pdf",
+      state: "complete",
+      mime: "application/pdf",
+    });
+  });
+
+  query.mockImplementationOnce(async (_request, options) => {
+    options.onTarget(target);
+    return { status: "success", documents };
+  });
+  await click("수업 자료");
+  await act(async () =>
+    oldAcknowledgement.resolve({ status: "error", code: "TIMEOUT" }),
+  );
+  const newCheckbox = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!newCheckbox) throw new Error("Missing refreshed checkbox");
+  query.mockResolvedValueOnce({ status: "error", code: "TIMEOUT" });
+  await act(async () => newCheckbox.click());
+  await click("선택 다운로드 (1)");
+  expect(chips()).toEqual(["실패", "대기", "LMS에서 확인"]);
+});
 it("leaves unassociated and foreign download events unconfirmed", async () => {
   // Given
   await materials();
