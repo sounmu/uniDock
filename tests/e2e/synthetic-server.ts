@@ -49,12 +49,18 @@ export async function syntheticServer(directory: string) {
   ]);
   let coursesRequestCount = 0;
   const downloads: string[] = [];
+  const requests: { host: string; method: string; pathname: string }[] = [];
   const pdf = textPdf("Operating systems schedule runnable processes.");
   let nextDownloadGate: Promise<void> | undefined;
   const server = createServer(
     { key: await readFile(keyPath), cert: await readFile(certPath) },
     async (request, response) => {
       const url = new URL(request.url ?? "/", "https://mylms.korea.ac.kr");
+      requests.push({
+        host: request.headers.host ?? "",
+        method: request.method ?? "",
+        pathname: url.pathname,
+      });
       const routes: Record<string, unknown> = {
         "/api/v1/users/self": { id: 71 },
         "/api/v1/courses": [
@@ -197,6 +203,7 @@ export async function syntheticServer(directory: string) {
     port: address.port,
     pdf,
     downloads,
+    requests,
     holdNextDownload: () => {
       let release!: () => void;
       nextDownloadGate = new Promise<void>((resolve) => {

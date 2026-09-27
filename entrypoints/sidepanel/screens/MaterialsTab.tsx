@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Document } from "../../../src/documents";
 import { copyPromptAndOpen } from "../../../src/pdf/handoff";
 import { PagedList } from "../PagedList";
@@ -16,7 +16,19 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
     state.status === "success" && "documents" in state ? state.documents : [];
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState("");
+  const handoffInFlight = useRef(false);
+  const handoffGeneration = useRef(0);
+  const [handoffPending, setHandoffPending] = useState(false);
   const { detail, open, back } = useDetail<Document>();
+  useEffect(() => {
+    handoffInFlight.current = false;
+    setHandoffPending(false);
+    setNotice("");
+    return () => {
+      handoffGeneration.current++;
+      handoffInFlight.current = false;
+    };
+  }, [course]);
   const available = items.filter(
     (item) =>
       item.downloadHandle &&
@@ -210,19 +222,36 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 </button>
                 <button
                   className="btn-secondary"
+                  disabled={handoffPending}
                   onClick={() => {
-                    void copyPromptAndOpen(course).then(
-                      (copied) =>
-                        setNotice(
-                          copied
-                            ? "질문을 복사했습니다. PDF를 직접 첨부하고 붙여넣으세요."
-                            : "질문을 복사하지 못했습니다. ChatGPT 창에서 직접 질문하고 PDF를 첨부하세요.",
-                        ),
-                      () =>
-                        setNotice(
-                          "ChatGPT 탭을 열지 못했습니다. 직접 chatgpt.com을 열어주세요.",
-                        ),
-                    );
+                    if (handoffInFlight.current) return;
+                    handoffInFlight.current = true;
+                    const current = ++handoffGeneration.current;
+                    const isCurrent = () =>
+                      current === handoffGeneration.current;
+                    setHandoffPending(true);
+                    void copyPromptAndOpen(course, isCurrent)
+                      .then(
+                        (copied) => {
+                          if (!isCurrent()) return;
+                          setNotice(
+                            copied
+                              ? "질문을 복사했습니다. PDF를 직접 첨부하고 붙여넣으세요."
+                              : "질문을 복사하지 못했습니다. ChatGPT 창에서 직접 질문하고 PDF를 첨부하세요.",
+                          );
+                        },
+                        () => {
+                          if (!isCurrent()) return;
+                          setNotice(
+                            "ChatGPT 탭을 열지 못했습니다. 직접 chatgpt.com을 열어주세요.",
+                          );
+                        },
+                      )
+                      .finally(() => {
+                        if (!isCurrent()) return;
+                        handoffInFlight.current = false;
+                        setHandoffPending(false);
+                      });
                   }}
                 >
                   ChatGPT에서 질문하기 ↗

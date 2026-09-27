@@ -13,6 +13,8 @@ import { syntheticServer } from "./synthetic-server";
 declare global {
   interface Window {
     downloadEvidence?: Promise<chrome.downloads.DownloadItem[]>;
+    handoffClipboardWrites?: number;
+    releaseHandoffClipboard?: () => void;
   }
 }
 const extensionPath = path.resolve(".output/chrome-mv3");
@@ -246,11 +248,50 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await expect(
       panel.getByRole("button", { name: "다운로드 폴더 열기" }),
     ).toBeVisible();
+    await panel.evaluate(() => {
+      window.handoffClipboardWrites = 0;
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: () => {
+            window.handoffClipboardWrites! += 1;
+            return new Promise<void>((resolve) => {
+              window.releaseHandoffClipboard = resolve;
+            });
+          },
+        },
+      });
+    });
+    const requestStart = server.requests.length;
     const handoff = context.waitForEvent("page");
-    await panel.getByRole("button", { name: "ChatGPT에서 질문하기" }).click();
+    const handoffButton = panel.getByRole("button", {
+      name: "ChatGPT에서 질문하기",
+    });
+    await handoffButton.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await expect(handoffButton).toBeDisabled();
+    expect(await panel.evaluate(() => window.handoffClipboardWrites)).toBe(1);
+    expect(
+      context.pages().filter((page) => page.url() === "https://chatgpt.com/"),
+    ).toHaveLength(0);
+    await panel.evaluate(() => window.releaseHandoffClipboard?.());
     const chat = await handoff;
     await chat.waitForLoadState("domcontentloaded");
     expect(chat.url()).toBe("https://chatgpt.com/");
+    expect(
+      context.pages().filter((page) => page.url() === "https://chatgpt.com/"),
+    ).toHaveLength(1);
+    const chatRequests = server.requests
+      .slice(requestStart)
+      .filter(({ host }) => host.startsWith("chatgpt.com"));
+    expect(chatRequests.length).toBeGreaterThan(0);
+    expect(chatRequests.every(({ method }) => method === "GET")).toBe(true);
+    expect(server.downloads).toEqual([
+      "/courses/101/files/501/download",
+      "/courses/101/files/502/download",
+    ]);
     await chat.close();
     await lms.bringToFront();
     await panel

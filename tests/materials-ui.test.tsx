@@ -10,6 +10,8 @@ let ui: Awaited<ReturnType<typeof mount>>;
 const onCreated = { addListener: vi.fn(), removeListener: vi.fn() };
 const onChanged = { addListener: vi.fn(), removeListener: vi.fn() };
 const search = vi.fn();
+const createTab = vi.fn();
+const writeText = vi.fn();
 const target = { id: 7, url: "https://mylms.korea.ac.kr/" };
 const documents = ["one.pdf", "two.pdf", "no-id.pdf"].map((title, index) => ({
   module: "Week",
@@ -19,9 +21,16 @@ const documents = ["one.pdf", "two.pdf", "no-id.pdf"].map((title, index) => ({
   downloadHandle: index === 2 ? "" : crypto.randomUUID(),
 }));
 beforeEach(() => {
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
   vi.stubGlobal("chrome", {
     runtime: { id: "test" },
-    downloads: { onCreated, onChanged, search },
+    downloads: {
+      onCreated,
+      onChanged,
+      search,
+      showDefaultFolder: vi.fn(),
+    },
+    tabs: { create: createTab },
   });
 });
 afterEach(async () => {
@@ -448,4 +457,100 @@ it("ignores a held download search after unmount", async () => {
   // Then
   expect(onCreated.removeListener).toHaveBeenCalled();
   expect(onChanged.removeListener).toHaveBeenCalled();
+});
+it.each([
+  ["success", true],
+  ["denial", false],
+] as const)(
+  "admits one handoff for rapid clicks after delayed clipboard %s",
+  async (_case, succeeds) => {
+    await materials();
+    query.mockResolvedValue({ status: "success", downloaded: true });
+    await click("PDF 전체 다운로드");
+    let settle!: () => void;
+    const clipboard = new Promise<void>((resolve, reject) => {
+      settle = () => (succeeds ? resolve() : reject(new Error("denied")));
+    });
+    writeText.mockReturnValueOnce(clipboard);
+    createTab.mockResolvedValue({});
+    const button = [...document.querySelectorAll("button")].find((item) =>
+      item.textContent?.includes("ChatGPT에서 질문하기"),
+    );
+    if (!button) throw new Error("Missing handoff button");
+
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(createTab).not.toHaveBeenCalled();
+    expect(button.disabled).toBe(true);
+    await act(async () => settle());
+    expect(createTab).toHaveBeenCalledExactlyOnceWith({
+      url: "https://chatgpt.com/",
+    });
+    expect(button.disabled).toBe(false);
+    expect(document.body.textContent).toContain(
+      succeeds ? "질문을 복사했습니다." : "질문을 복사하지 못했습니다.",
+    );
+  },
+);
+it("does not open or publish a notice when unmounted during clipboard write", async () => {
+  await materials();
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  const clipboard = deferred<void>();
+  writeText.mockReturnValueOnce(clipboard.promise);
+  await click("ChatGPT에서 질문하기 ↗");
+
+  await ui.unmount();
+  await act(async () => clipboard.resolve());
+
+  expect(createTab).not.toHaveBeenCalled();
+  expect(document.body.textContent).not.toContain("질문을 복사했습니다.");
+});
+it("lets a new course handoff proceed without an old completion unlocking it", async () => {
+  await materials();
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  const oldClipboard = deferred<void>();
+  const newClipboard = deferred<void>();
+  writeText
+    .mockReturnValueOnce(oldClipboard.promise)
+    .mockReturnValueOnce(newClipboard.promise);
+  createTab.mockResolvedValue({});
+  await click("ChatGPT에서 질문하기 ↗");
+
+  query
+    .mockResolvedValueOnce({
+      status: "success",
+      courses: [{ name: "New Course" }],
+    })
+    .mockResolvedValueOnce({ status: "success", assignments: [] })
+    .mockImplementationOnce(async (_request, options) => {
+      options.onTarget(target);
+      return { status: "success", documents };
+    });
+  await click("← 과목 선택");
+  expect(document.body.textContent).not.toContain("질문을 복사했습니다.");
+  await click("New Course");
+  await click("수업 자료");
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  await click("ChatGPT에서 질문하기 ↗");
+  expect(writeText).toHaveBeenCalledTimes(2);
+  const newButton = [...document.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes("ChatGPT에서 질문하기"),
+  );
+  if (!newButton) throw new Error("Missing new handoff button");
+
+  await act(async () => oldClipboard.resolve());
+  expect(createTab).not.toHaveBeenCalled();
+  expect(newButton.disabled).toBe(true);
+  expect(document.body.textContent).not.toContain("질문을 복사했습니다.");
+
+  await act(async () => newClipboard.resolve());
+  expect(createTab).toHaveBeenCalledOnce();
+  expect(newButton.disabled).toBe(false);
 });
