@@ -199,6 +199,20 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       await chrome.alarms.clear(name);
       if (when !== null) await chrome.alarms.create(name, { when });
     },
+    async clearAlarmPrefix(prefix) {
+      try {
+        const alarms = await chrome.alarms.getAll();
+        await Promise.all(
+          alarms
+            .filter(
+              ({ name }) => name === prefix || name.startsWith(`${prefix}:`),
+            )
+            .map(({ name }) => chrome.alarms.clear(name)),
+        );
+      } catch {
+        // In-memory identity checks still make an abandoned alarm harmless.
+      }
+    },
   });
   return runtime;
 }

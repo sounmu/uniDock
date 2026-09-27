@@ -95,6 +95,11 @@ function fixture() {
       if (when === null) alarms.delete(name);
       else alarms.set(name, when);
     },
+    clearAlarmPrefix: async (prefix) => {
+      for (const name of alarms.keys())
+        if (name === prefix || name.startsWith(`${prefix}:`))
+          alarms.delete(name);
+    },
   };
   const runtime = new PlaybackRuntime(ports);
   return {
@@ -132,6 +137,13 @@ async function playing(f: ReturnType<typeof fixture>) {
   if (!authorization) throw new Error("not authorized");
   await f.runtime.signal(address, authorization.binding, "playing");
   return authorization.binding;
+}
+function watchdogName(f: ReturnType<typeof fixture>): string {
+  const names = [...f.alarms.keys()].filter((name) =>
+    name.startsWith(`${PLAYBACK_WATCHDOG}:`),
+  );
+  if (names.length !== 1) throw new Error("missing unique watchdog alarm");
+  return names[0]!;
 }
 
 describe("immediate ordered playlist runtime", () => {
@@ -542,15 +554,83 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.opened).toHaveLength(1);
   });
 
-  it("stops after a missed lease without dropping the playlist", async () => {
+  it("ignores an old run's alarm after a replacement starts", async () => {
     const f = fixture();
     await playing(f);
-    expect(await f.runtime.alarm(PLAYBACK_WATCHDOG)).toEqual({
+    const oldAlarm = watchdogName(f);
+
+    const replacement = snapshot(
+      await f.runtime.command({
+        version: 1,
+        type: "PLAYBACK_START",
+        handles: [handles[1]],
+      }),
+    );
+    const newAlarm = watchdogName(f);
+    expect(newAlarm).not.toBe(oldAlarm);
+    expect(replacement).toMatchObject({
+      status: "starting",
+      current: { id: "101:502" },
+    });
+
+    expect(await f.runtime.alarm(oldAlarm)).toMatchObject({
+      status: "success",
+      snapshot: { status: "starting", current: { id: "101:502" } },
+    });
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.saved?.stopped).toBe(false);
+  });
+
+  it("ignores an old renewal alarm for the same run", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const oldAlarm = watchdogName(f);
+    expect(await f.runtime.lease(address, binding)).not.toBeNull();
+    expect(watchdogName(f)).not.toBe(oldAlarm);
+
+    expect(await f.runtime.alarm(oldAlarm)).toMatchObject({
+      status: "success",
+      snapshot: { status: "playing" },
+    });
+    expect(f.saved?.stopped).toBe(false);
+    expect(f.closed).toEqual([]);
+  });
+
+  it("stops after the current watchdog expires without dropping the playlist", async () => {
+    const f = fixture();
+    await playing(f);
+    expect(await f.runtime.alarm(watchdogName(f))).toEqual({
       status: "error",
       code: "PLAYER_LOST",
     });
     expect(f.saved?.playlist).toHaveLength(2);
     expect(f.saved?.stopped).toBe(true);
+  });
+
+  it.each([
+    ["pause", { version: 1, type: "PLAYBACK_PAUSE" } as const, "paused"],
+    ["stop", { version: 1, type: "PLAYBACK_STOP_ALL" } as const, "stopped"],
+    ["delete", { version: 1, type: "LOCAL_DATA_DELETE_ALL" } as const, "idle"],
+  ])("ignores a stale watchdog after %s", async (_name, command, status) => {
+    const f = fixture();
+    await playing(f);
+    const staleAlarm = watchdogName(f);
+    await f.runtime.command(command);
+
+    expect(await f.runtime.alarm(staleAlarm)).toMatchObject({
+      status: "success",
+      snapshot: { status },
+    });
+  });
+
+  it("clears legacy and abandoned watchdog names during startup", async () => {
+    const f = fixture();
+    f.alarms.set(PLAYBACK_WATCHDOG, 1);
+    f.alarms.set(`${PLAYBACK_WATCHDOG}:abandoned`, 2);
+    f.alarms.set("unrelated", 3);
+
+    expect(await f.runtime.startup()).toMatchObject({ status: "success" });
+    expect([...f.alarms]).toEqual([["unrelated", 3]]);
   });
 });
 

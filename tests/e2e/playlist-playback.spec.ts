@@ -623,3 +623,238 @@ test("a deferred old start failure cannot invalidate a newer stop and start", as
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("a production stale watchdog delivery cannot stop its replacement", async ({
+  playwright,
+}) => {
+  test.setTimeout(90_000);
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-watchdog-race-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    await context.route(`${origin}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic LMS</title><body>Synthetic LMS</body></html>",
+        });
+        return;
+      }
+      if (/^\/courses\/101\/modules\/items\/(501|502)$/.test(url.pathname)) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><html><title>Synthetic module item</title></html>",
+        });
+        return;
+      }
+      const values: Record<string, unknown> = {
+        "/api/v1/users/self": { id: 71 },
+        "/api/v1/courses": [{ id: 101, name: "합성 운영체제" }],
+        "/api/v1/courses/101/assignments": [],
+        "/api/v1/planner/items": [],
+        "/api/v1/courses/101/modules": [
+          {
+            id: 20,
+            name: "1주차",
+            published: true,
+            items_count: 2,
+            items: [501, 502].map((id) => ({
+              id,
+              type: "ExternalTool",
+              title: `합성 영상 ${id}`,
+              html_url: `${origin}/courses/101/modules/items/${id}`,
+            })),
+          },
+        ],
+      };
+      if (url.pathname in values) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(values[url.pathname]),
+        });
+        return;
+      }
+      await route.fulfill({ status: 404, body: "not found" });
+    });
+
+    const lms = await context.newPage();
+    await lms.goto(origin);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    expect(
+      await panel.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "success" });
+    const handles = await panel.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({
+        url: ["https://mylms.korea.ac.kr/*"],
+      });
+      if (tab?.id === undefined) throw new Error("missing synthetic LMS tab");
+      const result = (await chrome.tabs.sendMessage(
+        tab.id,
+        {
+          version: 1,
+          type: "RECORDINGS_LIST",
+          course: "합성 운영체제",
+        },
+        { frameId: 0 },
+      )) as {
+        status: string;
+        recordings?: { launchHandle?: string }[];
+      };
+      const handles =
+        result.status === "success"
+          ? (result.recordings ?? [])
+              .map(({ launchHandle }) => launchHandle)
+              .filter((value): value is string => typeof value === "string")
+          : [];
+      if (handles.length !== 2) throw new Error("missing playback handles");
+      return handles;
+    });
+
+    // Gate only alarm scheduling. We later deliver the captured old name
+    // through Chrome itself, exercising the production onAlarm listener.
+    await worker.evaluate(() => {
+      const scope = globalThis as typeof globalThis & {
+        __watchdogFault?: {
+          names: string[];
+          delivered: string[];
+          deliver: (name: string) => Promise<void>;
+          restore: () => void;
+        };
+      };
+      const originalCreate = chrome.alarms.create.bind(chrome.alarms);
+      const names: string[] = [];
+      const delivered: string[] = [];
+      chrome.alarms.create = (async (
+        name: string,
+        info: chrome.alarms.AlarmCreateInfo,
+      ) => {
+        if (name.startsWith("unidock.playback.watchdog:")) {
+          names.push(name);
+          return;
+        }
+        await originalCreate(name, info);
+      }) as typeof chrome.alarms.create;
+      const listener = (alarm: chrome.alarms.Alarm) => {
+        if (names.includes(alarm.name)) delivered.push(alarm.name);
+      };
+      chrome.alarms.onAlarm.addListener(listener);
+      scope.__watchdogFault = {
+        names,
+        delivered,
+        deliver: async (name) => {
+          await originalCreate(name, { when: Date.now() - 1 });
+        },
+        restore: () => {
+          chrome.alarms.create = originalCreate;
+          chrome.alarms.onAlarm.removeListener(listener);
+          delete scope.__watchdogFault;
+        },
+      };
+    });
+
+    expect(
+      await panel.evaluate(
+        (handle) =>
+          chrome.runtime.sendMessage({
+            version: 1,
+            type: "PLAYBACK_START",
+            handles: [handle],
+          }),
+        handles[0],
+      ),
+    ).toMatchObject({ status: "success" });
+    const oldName = await worker.evaluate(() => {
+      const names = (
+        globalThis as typeof globalThis & {
+          __watchdogFault?: { names: string[] };
+        }
+      ).__watchdogFault?.names;
+      if (!names?.[0]) throw new Error("old watchdog was not armed");
+      return names[0];
+    });
+    expect(
+      await panel.evaluate(
+        (handle) =>
+          chrome.runtime.sendMessage({
+            version: 1,
+            type: "PLAYBACK_START",
+            handles: [handle],
+          }),
+        handles[1],
+      ),
+    ).toMatchObject({
+      status: "success",
+      snapshot: { status: "starting", current: { id: "101:502" } },
+    });
+    expect(
+      await worker.evaluate(() => {
+        const names = (
+          globalThis as typeof globalThis & {
+            __watchdogFault?: { names: string[] };
+          }
+        ).__watchdogFault?.names;
+        return names?.length === 2 && names[0] !== names[1];
+      }),
+    ).toBe(true);
+
+    await worker.evaluate(async (name) => {
+      const fault = (
+        globalThis as typeof globalThis & {
+          __watchdogFault?: { deliver: (value: string) => Promise<void> };
+        }
+      ).__watchdogFault;
+      if (!fault) throw new Error("missing watchdog fault gate");
+      await fault.deliver(name);
+    }, oldName);
+    await expect
+      .poll(() =>
+        worker.evaluate(
+          (name) =>
+            (
+              globalThis as typeof globalThis & {
+                __watchdogFault?: { delivered: string[] };
+              }
+            ).__watchdogFault?.delivered.includes(name) ?? false,
+          oldName,
+        ),
+      )
+      .toBe(true);
+    expect(
+      await panel.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({
+      status: "success",
+      snapshot: { status: "starting", current: { id: "101:502" } },
+    });
+    await worker.evaluate(() => {
+      (
+        globalThis as typeof globalThis & {
+          __watchdogFault?: { restore: () => void };
+        }
+      ).__watchdogFault?.restore();
+    });
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

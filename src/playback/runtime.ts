@@ -37,6 +37,7 @@ export interface RuntimePorts {
     action: "pause" | "resume" | "stop",
   ) => Promise<void>;
   readonly alarm: (name: string, when: number | null) => Promise<void>;
+  readonly clearAlarmPrefix: (prefix: string) => Promise<void>;
 }
 export class PlaybackRuntimeError extends Error {
   constructor(readonly code: PlaybackError) {
@@ -49,6 +50,11 @@ interface ActiveRun {
   token: string;
   tabId: number | null;
   address: PlayerAddress | null;
+}
+interface WatchdogArm {
+  readonly name: string;
+  readonly runId: string;
+  readonly deadline: number;
 }
 interface OperationContext {
   readonly epoch: number;
@@ -71,6 +77,7 @@ export class PlaybackRuntime {
   private consented = false;
   private epoch = 0;
   private intentGeneration = 0;
+  private watchdog: WatchdogArm | null = null;
   constructor(private readonly ports: RuntimePorts) {}
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
@@ -103,11 +110,35 @@ export class PlaybackRuntime {
       throw new PlaybackRuntimeError("STORAGE");
     }
   }
+  private async disarmWatchdog(): Promise<void> {
+    const watchdog = this.watchdog;
+    // Invalidate the callback identity before yielding to Chrome. An already
+    // queued onAlarm delivery must not acquire a replacement run or lease.
+    this.watchdog = null;
+    await Promise.all([
+      this.ports.alarm(PLAYBACK_WATCHDOG, null),
+      ...(watchdog ? [this.ports.alarm(watchdog.name, null)] : []),
+    ]);
+  }
+  private async armWatchdog(run: ActiveRun): Promise<void> {
+    const previous = this.watchdog;
+    const watchdog: WatchdogArm = {
+      name: `${PLAYBACK_WATCHDOG}:${this.ports.uuid()}`,
+      runId: run.runId,
+      deadline: this.ports.now() + 60000,
+    };
+    // Publish a fresh, opaque per-arm identity before the first await. The
+    // suffix is independent of the player authorization token.
+    this.watchdog = watchdog;
+    if (previous) await this.ports.alarm(previous.name, null);
+    if (this.watchdog === watchdog)
+      await this.ports.alarm(watchdog.name, watchdog.deadline);
+  }
   private async disarm(): Promise<void> {
+    await this.disarmWatchdog();
     await Promise.all([
       this.ports.alarm(PLAYBACK_ALARM, null),
       this.ports.alarm(PLAYBACK_PREFLIGHT, null),
-      this.ports.alarm(PLAYBACK_WATCHDOG, null),
       // Remove a possible alarm left by the non-migrated v1 scheduler.
       this.ports.alarm("unidock.playback.retention", null),
     ]);
@@ -117,7 +148,7 @@ export class PlaybackRuntime {
     this.run = null;
     const tabId = run?.tabId ?? this.saved.player?.tabId;
     this.saved.player = null;
-    await this.ports.alarm(PLAYBACK_WATCHDOG, null);
+    await this.disarmWatchdog();
     if (tabId !== undefined && tabId !== null) await this.ports.close(tabId);
   }
   private async abandon(run: ActiveRun): Promise<void> {
@@ -130,7 +161,7 @@ export class PlaybackRuntime {
       )
         this.saved.player = null;
       try {
-        await this.ports.alarm(PLAYBACK_WATCHDOG, null);
+        await this.disarmWatchdog();
       } finally {
         if (tabId !== null) await this.ports.close(tabId);
       }
@@ -157,6 +188,7 @@ export class PlaybackRuntime {
     const loaded = await this.ports.store.load();
     this.consented = loaded !== null;
     this.saved = loaded ?? emptyPlayback();
+    await this.ports.clearAlarmPrefix(PLAYBACK_WATCHDOG);
     await this.disarm();
     if (this.saved.player) await this.release();
     // A worker/browser restart never starts or advances retained media.
@@ -235,7 +267,7 @@ export class PlaybackRuntime {
       if (!this.current(context) || this.run !== run)
         throw new SupersededOperationError();
       await this.ports.navigate(tabId, url);
-      await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
+      await this.armWatchdog(run);
     } catch (error) {
       if (!this.current(context) || this.run !== run) {
         try {
@@ -380,7 +412,7 @@ export class PlaybackRuntime {
               );
             this.saved.stopped = true;
             this.status = "paused";
-            await this.ports.alarm(PLAYBACK_WATCHDOG, null);
+            await this.disarmWatchdog();
             break;
           case "PLAYBACK_RESUME":
             this.saved.stopped = false;
@@ -396,10 +428,7 @@ export class PlaybackRuntime {
                 "resume",
               );
               this.status = "playing";
-              await this.ports.alarm(
-                PLAYBACK_WATCHDOG,
-                this.ports.now() + 60000,
-              );
+              await this.armWatchdog(this.run);
             } else await this.startCurrent(context);
             break;
           case "PLAYBACK_CANCEL": {
@@ -445,9 +474,15 @@ export class PlaybackRuntime {
       try {
         await this.init();
         this.assertCurrent(context);
-        if (name === PLAYBACK_WATCHDOG && this.run && !this.saved.stopped)
+        const watchdog = this.watchdog;
+        if (
+          watchdog?.name === name &&
+          this.run?.runId === watchdog.runId &&
+          !this.saved.stopped &&
+          (this.status === "starting" || this.status === "playing")
+        )
           throw new PlaybackRuntimeError("PLAYER_LOST");
-        else if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
+        if (name === PLAYBACK_ALARM || name === PLAYBACK_PREFLIGHT)
           await this.ports.alarm(name, null);
         return { status: "success", snapshot: this.snapshot() };
       } catch (error) {
@@ -548,7 +583,7 @@ export class PlaybackRuntime {
         )
           return null;
         if (!this.matches(address, binding)) return null;
-        await this.ports.alarm(PLAYBACK_WATCHDOG, this.ports.now() + 60000);
+        await this.armWatchdog(this.run);
         return {
           binding: this.binding(this.run),
           leaseUntil: this.ports.now() + 60000,
