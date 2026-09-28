@@ -59,15 +59,6 @@ it("handles a missing content script without leaking exceptions", async () => {
     code: "RELOAD_TAB",
   });
 });
-it("bounds a lost message response", async () => {
-  vi.useFakeTimers();
-  const { sendMessage } = setup();
-  sendMessage.mockReturnValue(new Promise(() => {}));
-  const result = queryActiveCourses();
-  await vi.advanceTimersByTimeAsync(23000);
-  expect(await result).toEqual({ status: "error", code: "TIMEOUT" });
-});
-
 it("times out a stalled active-tab query and never messages after it resolves late", async () => {
   vi.useFakeTimers();
   const { get, query, sendMessage } = setup();

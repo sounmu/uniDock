@@ -14,32 +14,28 @@ const json = (body: unknown) =>
   new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json" },
   });
-for (const [name, data] of [
-  ["original Python FakeSession", fixture],
-  ["Python-evaluated edge cases", fixture.edge],
-] as const) {
-  describe(name, () => {
-    it("matches every assignment field and default", () =>
-      expect(projectAssignments(data.raw.assignments, now)).toEqual(
-        data.expected.assignments,
-      ));
-    it("matches all deadline rows without filtering or sorting", () =>
-      expect(
-        projectDeadlines(projectAssignments(data.raw.assignments, now)),
-      ).toEqual(data.expected.deadlines));
-    it("matches upcoming title/date fallbacks and submission state", () =>
-      expect(projectUpcoming(data.raw.upcoming)).toEqual(
-        data.expected.upcoming,
-      ));
-    it.each(["assignments", "deadlines", "upcoming"] as const)(
-      "preserves %s contract through message validation",
-      (key) => {
-        const result = { status: "success", [key]: data.expected[key] };
-        expect(parseResult(result)).toEqual(result);
-      },
-    );
-  });
-}
+// The original FakeSession is covered end-to-end below; keep direct projection
+// checks for the additional edge fixtures only.
+describe("Python-evaluated edge cases", () => {
+  const data = fixture.edge;
+  it("matches every assignment field and default", () =>
+    expect(projectAssignments(data.raw.assignments, now)).toEqual(
+      data.expected.assignments,
+    ));
+  it("matches all deadline rows without filtering or sorting", () =>
+    expect(
+      projectDeadlines(projectAssignments(data.raw.assignments, now)),
+    ).toEqual(data.expected.deadlines));
+  it("matches upcoming title/date fallbacks and submission state", () =>
+    expect(projectUpcoming(data.raw.upcoming)).toEqual(data.expected.upcoming));
+  it.each(["assignments", "deadlines", "upcoming"] as const)(
+    "preserves %s contract through message validation",
+    (key) => {
+      const result = { status: "success", [key]: data.expected[key] };
+      expect(parseResult(result)).toEqual(result);
+    },
+  );
+});
 it.each(fixture.remaining)(
   "matches Python remaining-candidate assertion $args",
   ({ args, expected }) => {

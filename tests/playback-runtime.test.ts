@@ -1204,21 +1204,6 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.alarms.size).toBe(0);
   });
 
-  it("pauses and resumes the same visible player without replacing the playlist", async () => {
-    const f = fixture();
-    await playing(f);
-    expect(
-      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" }))
-        .status,
-    ).toBe("paused");
-    expect(
-      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
-        .status,
-    ).toBe("playing");
-    expect(f.controls).toEqual(["pause", "resume"]);
-    expect(f.opened).toHaveLength(1);
-  });
-
   it("keeps an already-paused owned adapter across repeated inactive-tab pauses", async () => {
     const f = fixture();
     await playing(f);
@@ -1235,7 +1220,10 @@ describe("immediate ordered playlist runtime", () => {
   it("issues a fresh bounded authorization when resuming a long-dormant owned adapter", async () => {
     const f = fixture();
     const original = await playing(f);
-    await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    expect(
+      snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" }))
+        .status,
+    ).toBe("paused");
     const dormantNow = original.deadline + 60000;
     f.now = dormantNow;
 
@@ -1250,6 +1238,7 @@ describe("immediate ordered playlist runtime", () => {
     });
     expect(resumed.binding.deadline).toBe(dormantNow + 70000);
     expect(resumed.leaseUntil).toBe(dormantNow + 60000);
+    expect(f.controls).toEqual(["pause", "resume"]);
     expect(f.opened).toHaveLength(1);
     expect(f.closed).toEqual([]);
   });

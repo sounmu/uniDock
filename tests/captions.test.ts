@@ -214,16 +214,20 @@ it("exports exactly the requested JSON fields and readable TXT", () => {
   );
   expect(formatTime("00:00:36.000")).toBe("00:36");
 });
-it("downloads both matching UTF-8 files under output/", async () => {
-  vi.spyOn(crypto, "randomUUID").mockReturnValue(
-    "12345678-1234-4234-8234-123456789abc",
-  );
+it("downloads matching UTF-8 pairs with distinct names even at the same timestamp", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-12T06:00:00Z"));
+  vi.spyOn(crypto, "randomUUID")
+    .mockReturnValueOnce("12345678-1234-4234-8234-123456789abc")
+    .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
   const download = vi.fn().mockResolvedValue(1);
   vi.stubGlobal("chrome", { downloads: { download } });
   const create = vi
       .fn()
       .mockReturnValueOnce("blob:txt")
-      .mockReturnValueOnce("blob:json"),
+      .mockReturnValueOnce("blob:json")
+      .mockReturnValueOnce("blob:txt-2")
+      .mockReturnValueOnce("blob:json-2"),
     revoke = vi.fn();
   vi.stubGlobal(
     "URL",
@@ -249,6 +253,17 @@ it("downloads both matching UTF-8 files under output/", async () => {
     "application/json;charset=utf-8",
   ]);
   expect(revoke).toHaveBeenCalledTimes(2);
+  await downloadCaption(transcript);
+  const bases = download.mock.calls.map(([options]) =>
+    (options as chrome.downloads.DownloadOptions).filename!.replace(
+      /\.(txt|json)$/,
+      "",
+    ),
+  );
+  expect(download).toHaveBeenCalledTimes(4);
+  expect(bases[2]).toBe(bases[3]);
+  expect(bases[0]).not.toBe(bases[2]);
+  expect(revoke).toHaveBeenCalledTimes(4);
 });
 it("stops before JSON when its export context is cleared during TXT", async () => {
   vi.spyOn(crypto, "randomUUID").mockReturnValue(
@@ -276,33 +291,6 @@ it("stops before JSON when its export context is cleared during TXT", async () =
 
   await expect(pending).resolves.toEqual({ status: "partial", accepted: 1 });
   expect(download).toHaveBeenCalledTimes(1);
-});
-it("uses one matching basename per pair and unique basenames across exports", async () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-09-12T06:00:00Z"));
-  vi.spyOn(crypto, "randomUUID")
-    .mockReturnValueOnce("11111111-1111-4111-8111-111111111111")
-    .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
-  const download = vi.fn().mockResolvedValue(1);
-  vi.stubGlobal("chrome", { downloads: { download } });
-  vi.stubGlobal(
-    "URL",
-    Object.assign(URL, {
-      createObjectURL: vi.fn().mockReturnValue("blob:caption"),
-      revokeObjectURL: vi.fn(),
-    }),
-  );
-
-  await downloadCaption(transcript);
-  await downloadCaption(transcript);
-
-  const filenames = download.mock.calls.map(
-    ([options]) => (options as chrome.downloads.DownloadOptions).filename!,
-  );
-  const bases = filenames.map((name) => name.replace(/\.(txt|json)$/, ""));
-  expect(bases[0]).toBe(bases[1]);
-  expect(bases[2]).toBe(bases[3]);
-  expect(bases[0]).not.toBe(bases[2]);
 });
 function injection(
   items: { time: string; text: string }[] = [],
@@ -501,13 +489,21 @@ it("accepts multiple contributing frames only when their URLs stay stable", asyn
     ],
   });
 });
-it("bounds injection timeout and never downloads during detection", async () => {
+it("bounds injection time and never starts a fallback after its late result", async () => {
   vi.useFakeTimers();
-  const execute = vi.fn().mockReturnValue(new Promise(() => {}));
+  let finish!: (value: ReturnType<typeof injection>[]) => void;
+  const execute = vi.fn().mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
   chromeMock(execute);
   const result = detectCaptions();
   await vi.advanceTimersByTimeAsync(15000);
   expect(await result).toEqual({ status: "error", code: "TIMEOUT" });
+  finish([injection()]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it("times out a stalled active-tab query and never injects after it resolves late", async () => {

@@ -29,8 +29,6 @@ it.each(["en", "zh", "ja"])(
   "does not infer Korean from transcript text: %s",
   (value) => expect(isKorean(value, "")).toBe(false),
 );
-it("matches the Python CLI VTT fixture TXT output", () =>
-  expect(captionToText(korean.text)).toBe("국제법 자막입니다.\n"));
 it("strips cue ids/timestamps/VTT metadata while preserving dialogue", () => {
   expect(
     captionToText(

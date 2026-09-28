@@ -109,26 +109,6 @@ it("keeps a narrow event guard that pauses a page-scheduled play after cancellat
   expect(helperPause).not.toHaveBeenCalled();
 });
 
-it("owns and pauses a late primary replacement after cancellation", async () => {
-  const f = fixture();
-  const controller = new AbortController();
-  const result = expect(
-    initializeKuLecture(f.video, () => true, controller.signal),
-  ).rejects.toThrow("PLAYER_LOST");
-  controller.abort();
-  await result;
-
-  const replacement = document.createElement("video");
-  replacement.className = "vc-vplay-video1";
-  const pause = vi
-    .spyOn(replacement, "pause")
-    .mockImplementation(() => undefined);
-  document.querySelector(".vc-vplay-container")!.append(replacement);
-  await Promise.resolve();
-  replacement.dispatchEvent(new Event("play"));
-  expect(pause).toHaveBeenCalled();
-});
-
 it("keeps ownership across every primary replacement after cancellation", async () => {
   const f = fixture();
   const controller = new AbortController();
@@ -140,9 +120,13 @@ it("keeps ownership across every primary replacement after cancellation", async 
 
   const first = document.createElement("video");
   first.className = "vc-vplay-video1";
-  vi.spyOn(first, "pause").mockImplementation(() => undefined);
-  f.video.replaceWith(first);
+  const pauseFirst = vi
+    .spyOn(first, "pause")
+    .mockImplementation(() => undefined);
+  document.querySelector(".vc-vplay-container")!.append(first);
   await Promise.resolve();
+  first.dispatchEvent(new Event("play"));
+  expect(pauseFirst).toHaveBeenCalled();
   const second = document.createElement("video");
   second.className = "vc-vplay-video1";
   const pauseSecond = vi
