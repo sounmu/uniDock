@@ -442,7 +442,8 @@ export class PlaybackPlayer {
   }
 
   pause(): PlaybackStatus {
-    if (!this.valid()) return this.status;
+    // An invalidated player must still silence media it owns (visible-tab only).
+    if (!this.valid()) return this.stop();
     this.freezeCompletionEvidence();
     this.video.pause();
     if (this.status.state === "playing") return this.set({ state: "paused" });

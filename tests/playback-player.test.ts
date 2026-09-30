@@ -471,6 +471,21 @@ it.each(["url-changed", "detached"])(
   },
 );
 
+it.each(["url-changed", "detached"])(
+  "a pause request physically stops owned media when %s",
+  async (scenario) => {
+    const { video, player, pause } = fixture();
+    const originalUrl = location.href;
+    await player.start();
+    if (scenario === "url-changed") history.pushState({}, "", "#changed");
+    else video.remove();
+
+    expect(player.pause()).toEqual({ state: "stopped" });
+    expect(pause).toHaveBeenCalledOnce();
+    history.replaceState({}, "", originalUrl);
+  },
+);
+
 it("does not pause media whose ownership moved to another document", async () => {
   const { video, player, pause } = fixture();
   await player.start();
