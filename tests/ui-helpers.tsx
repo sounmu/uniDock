@@ -19,11 +19,17 @@ export async function mount(element: ReactNode) {
   };
 }
 export async function click(label: string, index = 0) {
-  const button = [...document.querySelectorAll("button")].filter(
-    (button) => button.textContent === label,
+  const button = [
+    ...document.querySelectorAll<HTMLElement>("button, summary"),
+  ].filter(
+    (element) =>
+      !element.closest("[hidden]") &&
+      (element.textContent === label ||
+        element.querySelector("strong")?.textContent === label),
   )[index];
   expect(button).toBeDefined();
-  await act(async () => button!.click());
+  if (!button) throw new Error(`Missing control: ${label}`);
+  await act(async () => button.click());
 }
 export function deferred<T>() {
   let resolve!: (value: T) => void;

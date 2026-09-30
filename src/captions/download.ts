@@ -26,25 +26,46 @@ export function exportTranscript(value: Transcript): {
     text: transcriptText(transcript),
   };
 }
-export async function downloadCaption(value: Transcript): Promise<void> {
+export type CaptionDownloadResult =
+  { status: "complete" } | { status: "partial"; accepted: 0 | 1 };
+
+export async function downloadCaption(
+  value: Transcript,
+  options: { signal?: AbortSignal; isCurrent?: () => boolean } = {},
+): Promise<CaptionDownloadResult> {
   const files = exportTranscript(value);
-  const stem = `output/uniDock-${value.extractedAt.replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")}`;
+  const timestamp = value.extractedAt
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
+  const nonce = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  const stem = `output/uniDock-${timestamp}-${nonce}`;
+  let accepted: 0 | 1 | 2 = 0;
+  const canContinue = () =>
+    !options.signal?.aborted && (options.isCurrent?.() ?? true);
   for (const [extension, body, type] of [
     ["txt", files.text, "text/plain"],
     ["json", files.json, "application/json"],
   ] as const) {
+    if (!canContinue())
+      return { status: "partial", accepted: accepted as 0 | 1 };
     const url = URL.createObjectURL(
       new Blob([body], { type: `${type};charset=utf-8` }),
     );
     try {
+      if (!canContinue())
+        return { status: "partial", accepted: accepted as 0 | 1 };
       await chrome.downloads.download({
         url,
         filename: `${stem}.${extension}`,
         conflictAction: "uniquify",
         saveAs: false,
       });
+      accepted++;
+    } catch {
+      return { status: "partial", accepted: accepted as 0 | 1 };
     } finally {
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      URL.revokeObjectURL(url);
     }
   }
+  return { status: "complete" };
 }

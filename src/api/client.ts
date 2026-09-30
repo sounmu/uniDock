@@ -1,12 +1,13 @@
 import { readJsonBounded } from "./body";
 import { NavigationCatalog } from "../navigation-catalog";
-import { projectCourses } from "../domain";
+import { projectCourseIndex, type InternalCourse } from "../domain";
 import {
   projectAssignments,
+  projectCourseTodo,
   projectDeadlines,
   projectUpcoming,
-  projectTodo,
   rows,
+  type Todo,
 } from "../domain-items";
 import {
   errors,
@@ -16,9 +17,9 @@ import {
   type Result,
 } from "../protocol";
 import { readUrl } from "../security/policy";
-import { redactText } from "../security/redaction";
 import { nextPage } from "./pagination";
 import { collectRecordings } from "./recording-collection";
+import { collectDocuments } from "./document-collection";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -27,6 +28,7 @@ export async function listQuery(
   fetcher: typeof fetch = fetch,
   now = Date.now(),
   catalog?: NavigationCatalog,
+  resolvedCourseId?: string,
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
@@ -79,22 +81,11 @@ export async function listQuery(
   }
   try {
     if (!isRequest(query)) throw new Error("POLICY");
-    if (query.type === "RECORDINGS_LIST") catalog?.clear();
+    if (query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST")
+      catalog?.clear();
     switch (query.type) {
       case "COURSES_LIST":
-        return {
-          status: "success",
-          courses: await collect(coursesQuery, coursesPath, projectCourses),
-        };
-      case "TODO_LIST":
-        return {
-          status: "success",
-          todo: await collect(
-            "/api/v1/users/self/todo?per_page=100",
-            "/api/v1/users/self/todo",
-            (raw) => projectTodo(raw, origin),
-          ),
-        };
+        throw new Error("POLICY");
       case "UPCOMING_LIST": {
         const params = new URLSearchParams({ per_page: "100" });
         if (query.start_date) params.set("start_date", query.start_date);
@@ -109,36 +100,45 @@ export async function listQuery(
         };
       }
       case "RECORDING_OPEN":
+      case "DOCUMENT_OPEN":
+      case "DOCUMENT_DOWNLOAD":
         throw new Error("POLICY");
+      case "TODO_LIST":
       case "RECORDINGS_LIST":
+      case "DOCUMENTS_LIST":
       case "ASSIGNMENTS_LIST":
       case "DEADLINES_LIST": {
         // Internal IDs live only inside this call, never in panel messages or storage.
-        const courses = await collect(coursesQuery, coursesPath, (raw) =>
-          rows(raw).flatMap((row) => {
-            if (
-              typeof row.name !== "string" ||
-              row.name.length > 2000 ||
-              !(
-                typeof row.id === "string" ||
-                (typeof row.id === "number" && Number.isSafeInteger(row.id))
-              )
+        const courses = resolvedCourseId
+          ? []
+          : await collect(coursesQuery, coursesPath, projectCourseIndex);
+        if (query.type === "TODO_LIST") {
+          const todo: Todo[] = [];
+          for (const course of courses) {
+            const path = `/api/v1/courses/${course.id}/assignments`;
+            todo.push(
+              ...(await collect(
+                `${path}?per_page=100&include[]=submission`,
+                path,
+                (raw) => projectCourseTodo(raw, course.name, origin),
+              )),
+            );
+            if (todo.length > 10000) throw new Error("LIMIT");
+          }
+          return { status: "success", todo };
+        }
+        const search = query.course?.trim().toLowerCase();
+        const matches = search
+          ? courses.filter((course) =>
+              course.name.toLowerCase().includes(search),
             )
-              return [];
-            const id = String(row.id);
-            if (!/^[1-9]\d{0,19}$/.test(id)) return [];
-            return [{ id, name: redactText(row.name, [id]).trim() }];
-          }),
-        );
-        const search = query.course.trim().toLowerCase();
-        const matches = courses.filter((course) =>
-          course.name.toLowerCase().includes(search),
-        );
-        const exact = matches.filter(
-          (course) => course.name.toLowerCase() === search,
-        );
-        const match =
-          matches.length === 1
+          : [];
+        const exact = search
+          ? matches.filter((course) => course.name.toLowerCase() === search)
+          : [];
+        const match = resolvedCourseId
+          ? { id: resolvedCourseId, name: "" }
+          : matches.length === 1
             ? matches[0]
             : exact.length === 1
               ? exact[0]
@@ -147,7 +147,10 @@ export async function listQuery(
           throw new Error(
             matches.length ? "COURSE_AMBIGUOUS" : "COURSE_NOT_FOUND",
           );
-        if (query.type === "RECORDINGS_LIST") {
+        if (
+          query.type === "RECORDINGS_LIST" ||
+          query.type === "DOCUMENTS_LIST"
+        ) {
           if (!catalog) throw new Error("POLICY");
           catalog.clear();
           const courseId = match.id;
@@ -157,19 +160,19 @@ export async function listQuery(
             path,
             rows,
           );
-          return {
-            status: "success",
-            recordings: await collectRecordings({
-              origin,
-              courseId,
-              path,
-              modules,
-              collect,
-              catalog,
-              now,
-              controller,
-            }),
+          const input = {
+            origin,
+            courseId,
+            path,
+            modules,
+            collect,
+            catalog,
+            now,
+            controller,
           };
+          return query.type === "DOCUMENTS_LIST"
+            ? { status: "success", documents: await collectDocuments(input) }
+            : { status: "success", recordings: await collectRecordings(input) };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;
         const assignments = await collect(
@@ -197,6 +200,104 @@ export async function listQuery(
 export function listCourses(
   origin: string,
   fetcher: typeof fetch = fetch,
-): Promise<Result> {
-  return listQuery(origin, { version: 1, type: "COURSES_LIST" }, fetcher);
+): Promise<
+  | { status: "success"; courses: { name: string }[] }
+  | { status: "error"; code: ErrorCode }
+> {
+  return collectCourseIndex(origin, fetcher, false).then((result) =>
+    result.status === "success"
+      ? {
+          status: "success",
+          courses: result.courses.map(({ name }) => ({ name })),
+        }
+      : result,
+  );
+}
+
+export async function listCourseIndex(
+  origin: string,
+  fetcher: typeof fetch = fetch,
+): Promise<
+  | { status: "success"; courses: InternalCourse[] }
+  | { status: "error"; code: ErrorCode }
+> {
+  return collectCourseIndex(origin, fetcher);
+}
+
+async function collectCourseIndex(
+  origin: string,
+  fetcher: typeof fetch,
+  includeUnnamed = true,
+): Promise<
+  | { status: "success"; courses: InternalCourse[] }
+  | { status: "error"; code: ErrorCode }
+> {
+  // Reuse the fully bounded query executor without making COURSES_LIST a
+  // public ID-bearing Result.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 20000);
+  let pages = 0;
+  try {
+    let next: string | null = readUrl(coursesQuery, origin, coursesPath).href;
+    const visited = new Set<string>();
+    const courses: InternalCourse[] = [];
+    while (next) {
+      if (controller.signal.aborted) throw new Error("TIMEOUT");
+      if (visited.has(next) || pages++ >= 100) throw new Error("LIMIT");
+      visited.add(next);
+      const response = await fetcher(readUrl(next, origin, coursesPath).href, {
+        method: "GET",
+        credentials: "same-origin",
+        redirect: "manual",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (
+        response.type === "opaqueredirect" ||
+        response.status === 401 ||
+        (response.status >= 300 && response.status < 400)
+      )
+        throw new Error("LOGIN_REQUIRED");
+      if (response.status === 403) throw new Error("FORBIDDEN");
+      if (!response.ok) throw new Error("NETWORK");
+      const type = response.headers.get("content-type") ?? "";
+      if (type.includes("text/html")) throw new Error("LOGIN_REQUIRED");
+      if (!/^application\/json\b/i.test(type))
+        throw new Error("INVALID_RESPONSE");
+      const raw = await readJsonBounded(response);
+      courses.push(
+        ...projectCourseIndex(
+          includeUnnamed && Array.isArray(raw)
+            ? raw
+            : Array.isArray(raw)
+              ? raw.filter(
+                  (item) =>
+                    item !== null &&
+                    typeof item === "object" &&
+                    (item as Record<string, unknown>).name !== undefined,
+                )
+              : raw,
+        ),
+      );
+      if (courses.length > 10000) throw new Error("LIMIT");
+      next = nextPage(response.headers.get("link"), origin, coursesPath);
+    }
+    return { status: "success", courses };
+  } catch (error) {
+    const code: ErrorCode = timedOut
+      ? "TIMEOUT"
+      : error instanceof Error && errors.includes(error.message as ErrorCode)
+        ? (error.message as ErrorCode)
+        : "NETWORK";
+    return { status: "error", code };
+  } finally {
+    controller.abort();
+    clearTimeout(timer);
+  }
 }

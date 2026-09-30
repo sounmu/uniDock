@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { projectUpcoming, projectTodo } from "../src/domain-items";
+import { projectCourseTodo, projectUpcoming } from "../src/domain-items";
 import { parseResult } from "../src/protocol";
 import { itemUrl } from "../src/security/item-link";
 
@@ -9,14 +9,11 @@ it("preserves planner and todo post links through response validation", () => {
     [{ html_url: path, plannable: { title: "일정" } }],
     "https://canvas.korea.ac.kr",
   );
-  const todo = projectTodo([
-    {
-      assignment: {
-        name: "할 일",
-        html_url: `https://mylms.korea.ac.kr${path}`,
-      },
-    },
-  ]);
+  const todo = projectCourseTodo(
+    [{ name: "할 일", html_url: `https://mylms.korea.ac.kr${path}` }],
+    "과목",
+    "https://mylms.korea.ac.kr",
+  );
   expect(upcoming[0]?.html_url).toBe(`https://canvas.korea.ac.kr${path}`);
   expect(todo[0]?.html_url).toBe(`https://mylms.korea.ac.kr${path}`);
   for (const result of [
@@ -34,8 +31,9 @@ it("omits the other LMS origin when a projection binds its source origin", () =>
     [{ html_url: `${mylms}${path}`, plannable: { title: "일정" } }],
     canvas,
   );
-  const todo = projectTodo(
-    [{ assignment: { name: "할 일", html_url: `${canvas}${path}` } }],
+  const todo = projectCourseTodo(
+    [{ name: "할 일", html_url: `${canvas}${path}` }],
+    "과목",
     mylms,
   );
   expect(upcoming[0]).not.toHaveProperty("html_url");
@@ -51,5 +49,5 @@ it("omits missing or non-LMS post links", () => {
     "https://user:pass@mylms.korea.ac.kr/courses/1/assignments/2",
   ])
     expect(itemUrl(value)).toBeUndefined();
-  expect(projectTodo([{}])[0]).not.toHaveProperty("html_url");
+  expect(projectCourseTodo([{}], "과목")[0]).not.toHaveProperty("html_url");
 });

@@ -33,14 +33,15 @@ export function readUrl(
       expectedPath,
     );
   const courses = expectedPath === "/api/v1/courses",
-    planner = expectedPath === "/api/v1/planner/items";
+    planner = expectedPath === "/api/v1/planner/items",
+    currentUser = expectedPath === "/api/v1/users/self";
   if (!(
     assignments ||
     modules ||
     moduleItems ||
     courses ||
     planner ||
-    expectedPath === "/api/v1/users/self/todo"
+    currentUser
   ))
     throw new Error("POLICY");
   if (
@@ -51,8 +52,7 @@ export function readUrl(
   )
     throw new Error("POLICY");
   const permitted = [
-    "per_page",
-    "page",
+    ...(!currentUser ? ["per_page", "page"] : []),
     ...(courses ? ["enrollment_state"] : []),
     ...(assignments || modules || moduleItems ? ["include[]"] : []),
     ...(planner ? ["start_date", "end_date"] : []),

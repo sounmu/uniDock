@@ -4,7 +4,7 @@ import { ResultList, dateLabel } from "../entrypoints/sidepanel/ResultList";
 import fixture from "./fixtures/python-contract.json";
 import type { Result } from "../src/protocol";
 afterEach(() => vi.useRealTimers());
-it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
+it.each(["assignments", "deadlines", "upcoming"] as const)(
   "renders the %s Python contract without raw identifiers",
   (key) => {
     vi.useFakeTimers();
@@ -20,6 +20,27 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
     expect(html).not.toMatch(/11111111|html_url|course_id|online_upload/);
   },
 );
+it("renders unfinished all-course Todo assignments including undated rows", () => {
+  const html = renderToStaticMarkup(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          {
+            title: "마감 없는 과제",
+            due_at: "",
+            course: "국제법",
+            type: "unsubmitted",
+            ignore: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  expect(html).toContain("마감 없는 과제");
+  expect(html).toContain("미제출");
+});
 it("hides completed/non-candidate deadline rows by default", () => {
   const html = renderToStaticMarkup(
     <ResultList
@@ -84,7 +105,7 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
       onRecording={() => {}}
     />,
   );
-  expect(html).toContain("LMS에서 보기");
-  expect(html).toContain("LTI 탭 열기");
+  expect(html).toContain("1차시");
+  expect(html).toContain("LTI 열기 가능");
   expect(html).not.toMatch(/href=|https:|\/courses\//);
 });

@@ -55,6 +55,125 @@ it("respects exact time boundaries and missing availability", () => {
   expect(accessible({ unlock_at: "2026-09-11T00:00:00Z" }, now)).toBe(true);
   expect(accessible({ lock_at: "2026-09-11T00:00:00Z" }, now)).toBe(false);
 });
+it("validates a recording batch completely before spending any handle", () => {
+  const store = catalog();
+  const recordings = store.replace(
+    origin,
+    [501, 502].map((itemId) => ({
+      module: "Week",
+      title: String(itemId),
+      courseId: "101",
+      itemId: String(itemId),
+      moduleAccess: {},
+      itemAccess: {},
+    })),
+    now,
+  );
+  const first = recordings[0]!.launchHandle;
+  const second = recordings[1]!.launchHandle;
+  expect(
+    store.takeRecordingBatch(
+      [first, "00000000-0000-4000-8000-000000000099"],
+      origin,
+      now,
+    ),
+  ).toBeNull();
+  expect(store.takeRecordingBatch([first, second], origin, now)).toEqual([
+    `${origin}/courses/101/modules/items/501`,
+    `${origin}/courses/101/modules/items/502`,
+  ]);
+  expect(store.takeRecordingBatch([first], origin, now)).toBeNull();
+});
+
+it("rejects duplicate, expired, and wrong-kind batches without partial consumption", () => {
+  const store = catalog();
+  const [recording] = store.replace(
+    origin,
+    [
+      {
+        module: "Week",
+        title: "Recording",
+        courseId: "101",
+        itemId: "501",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ],
+    now,
+  );
+  const handle = recording!.launchHandle;
+  expect(store.takeRecordingBatch([handle, handle], origin, now)).toBeNull();
+  expect(
+    store.takeRecordingBatch([recording!.lmsHandle], origin, now),
+  ).toBeNull();
+  expect(store.takeRecordingBatch([handle], origin, now + 300_000)).toBeNull();
+
+  const documentStore = catalog();
+  const document = documentStore.replaceDocuments(
+    origin,
+    [
+      {
+        module: "Week",
+        title: "Document",
+        courseId: "101",
+        itemId: "601",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ],
+    now,
+  )[0]!;
+  expect(
+    documentStore.takeRecordingBatch([document.lmsHandle], origin, now),
+  ).toBeNull();
+  expect(documentStore.take(document.lmsHandle, origin, now, "document")).toBe(
+    `${origin}/courses/101/modules/items/601`,
+  );
+
+  const fresh = store.replace(
+    origin,
+    [
+      {
+        module: "Week",
+        title: "Fresh",
+        courseId: "101",
+        itemId: "502",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ],
+    now,
+  )[0]!;
+  expect(
+    store.takeRecordingBatch([fresh.launchHandle], origin, now + 299_999),
+  ).toEqual([`${origin}/courses/101/modules/items/502`]);
+  // Once accepted, later work crossing the original TTL uses the reserved URL.
+  expect(now + 299_999 + 20_000).toBeGreaterThan(now + 300_000);
+});
+
+it("rejects distinct handles for the same canonical item without consuming either", () => {
+  const store = catalog();
+  const recordings = store.replace(
+    origin,
+    ["First projection", "Duplicate projection"].map((title) => ({
+      module: "Week",
+      title,
+      courseId: "101",
+      itemId: "501",
+      moduleAccess: {},
+      itemAccess: {},
+    })),
+    now,
+  );
+  const handles = recordings.map((recording) => recording.launchHandle);
+  expect(store.takeRecordingBatch(handles, origin, now)).toBeNull();
+  expect(store.takeRecordingBatch([handles[0]!], origin, now)).toEqual([
+    `${origin}/courses/101/modules/items/501`,
+  ]);
+  expect(store.takeRecordingBatch([handles[1]!], origin, now)).toEqual([
+    `${origin}/courses/101/modules/items/501`,
+  ]);
+});
 it.each(["[강의 교안] 1주차", "강 의 자 료", "자료"])(
   "excludes handouts %s",
   (title) => expect(recordingCandidate(item(1, title), now)).toBe(false),

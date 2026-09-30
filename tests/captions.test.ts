@@ -214,14 +214,20 @@ it("exports exactly the requested JSON fields and readable TXT", () => {
   );
   expect(formatTime("00:00:36.000")).toBe("00:36");
 });
-it("downloads both matching UTF-8 files under output/", async () => {
+it("downloads matching UTF-8 pairs with distinct names even at the same timestamp", async () => {
   vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-12T06:00:00Z"));
+  vi.spyOn(crypto, "randomUUID")
+    .mockReturnValueOnce("12345678-1234-4234-8234-123456789abc")
+    .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
   const download = vi.fn().mockResolvedValue(1);
   vi.stubGlobal("chrome", { downloads: { download } });
   const create = vi
       .fn()
       .mockReturnValueOnce("blob:txt")
-      .mockReturnValueOnce("blob:json"),
+      .mockReturnValueOnce("blob:json")
+      .mockReturnValueOnce("blob:txt-2")
+      .mockReturnValueOnce("blob:json-2"),
     revoke = vi.fn();
   vi.stubGlobal(
     "URL",
@@ -231,13 +237,13 @@ it("downloads both matching UTF-8 files under output/", async () => {
   expect(download.mock.calls.map((call) => call[0])).toEqual([
     {
       url: "blob:txt",
-      filename: "output/uniDock-20260912T060000Z.txt",
+      filename: "output/uniDock-20260912T060000Z-123456781234.txt",
       conflictAction: "uniquify",
       saveAs: false,
     },
     {
       url: "blob:json",
-      filename: "output/uniDock-20260912T060000Z.json",
+      filename: "output/uniDock-20260912T060000Z-123456781234.json",
       conflictAction: "uniquify",
       saveAs: false,
     },
@@ -246,8 +252,45 @@ it("downloads both matching UTF-8 files under output/", async () => {
     "text/plain;charset=utf-8",
     "application/json;charset=utf-8",
   ]);
-  vi.advanceTimersByTime(60000);
   expect(revoke).toHaveBeenCalledTimes(2);
+  await downloadCaption(transcript);
+  const bases = download.mock.calls.map(([options]) =>
+    (options as chrome.downloads.DownloadOptions).filename!.replace(
+      /\.(txt|json)$/,
+      "",
+    ),
+  );
+  expect(download).toHaveBeenCalledTimes(4);
+  expect(bases[2]).toBe(bases[3]);
+  expect(bases[0]).not.toBe(bases[2]);
+  expect(revoke).toHaveBeenCalledTimes(4);
+});
+it("stops before JSON when its export context is cleared during TXT", async () => {
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(
+    "12345678-1234-4234-8234-123456789abc",
+  );
+  let finish!: (id: number) => void;
+  const held = new Promise<number>((resolve) => {
+    finish = resolve;
+  });
+  const download = vi.fn().mockReturnValue(held);
+  vi.stubGlobal("chrome", { downloads: { download } });
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: vi.fn().mockReturnValue("blob:caption"),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  const controller = new AbortController();
+  const pending = downloadCaption(transcript, { signal: controller.signal });
+  expect(download).toHaveBeenCalledTimes(1);
+
+  controller.abort();
+  finish(1);
+
+  await expect(pending).resolves.toEqual({ status: "partial", accepted: 1 });
+  expect(download).toHaveBeenCalledTimes(1);
 });
 function injection(
   items: { time: string; text: string }[] = [],
@@ -269,6 +312,13 @@ function injection(
       pageTitle: "국제법",
     },
   };
+}
+function verification(...batches: ReturnType<typeof injection>[]) {
+  return batches.map(({ documentId, frameId, result }) => ({
+    documentId,
+    frameId,
+    result: result.pageUrl,
+  }));
 }
 function chromeMock(executeScript: ReturnType<typeof vi.fn>) {
   const query = vi
@@ -293,7 +343,9 @@ it("uses iframe DOM before any player fetch even when a KU player is available",
       injection(),
       injection(items, playerUrl, "player", 1),
     ])
-    .mockResolvedValueOnce([{ documentId: "top" }, { documentId: "player" }]);
+    .mockResolvedValueOnce(
+      verification(injection(), injection(items, playerUrl, "player", 1)),
+    );
   chromeMock(execute);
   const result = await detectCaptions();
   expect(result.status).toBe("success");
@@ -322,7 +374,9 @@ it("falls back to the exact KU document only when every frame DOM is empty", asy
     .fn()
     .mockResolvedValueOnce([injection(), injection([], playerUrl, "player", 1)])
     .mockResolvedValueOnce([xmlResult])
-    .mockResolvedValueOnce([{ documentId: "top" }, { documentId: "player" }]);
+    .mockResolvedValueOnce(
+      verification(injection(), injection([], playerUrl, "player", 1)),
+    );
   chromeMock(execute);
   expect(await detectCaptions()).toMatchObject({
     status: "success",
@@ -345,8 +399,12 @@ it("drops results when the iframe navigates", async () => {
       injection(items, playerUrl, "player", 1),
     ])
     .mockResolvedValueOnce([
-      { documentId: "top" },
-      { documentId: "replacement" },
+      ...verification(injection()),
+      {
+        documentId: "replacement",
+        frameId: 1,
+        result: playerUrl,
+      },
     ]);
   chromeMock(execute);
   expect(await detectCaptions()).toEqual({
@@ -354,13 +412,98 @@ it("drops results when the iframe navigates", async () => {
     code: "RELOAD_TAB",
   });
 });
-it("bounds injection timeout and never downloads during detection", async () => {
+it("drops results when a contributing iframe changes URL in the same document", async () => {
+  const contributor = injection(items, playerUrl, "player", 1);
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), contributor])
+    .mockResolvedValueOnce([
+      ...verification(injection()),
+      {
+        documentId: "player",
+        frameId: 1,
+        result: `${playerUrl}#same-document-change`,
+      },
+    ]);
+  chromeMock(execute);
+  expect(await detectCaptions()).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
+});
+it("does not bind captions to a non-contributing frame", async () => {
+  const contributor = injection(items, playerUrl, "player", 1);
+  const unrelated = injection(
+    [],
+    "https://mylms.korea.ac.kr/unrelated",
+    "unrelated",
+    2,
+  );
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), contributor, unrelated])
+    .mockResolvedValueOnce(verification(injection(), contributor));
+  chromeMock(execute);
+
+  expect(await detectCaptions()).toMatchObject({ status: "success" });
+  expect(execute.mock.calls[1]?.[0].target.documentIds).toEqual([
+    "player",
+    "top",
+  ]);
+});
+it("rejects fallback results without matching isolated frame provenance", async () => {
+  const p = injection([], playerUrl, "player", 1);
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), p])
+    .mockResolvedValueOnce([
+      {
+        ...p,
+        frameId: 2,
+        result: { ...p.result, source: "player_vtt", vtt },
+      },
+    ]);
+  chromeMock(execute);
+
+  expect(await detectCaptions()).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
+  expect(execute).toHaveBeenCalledTimes(2);
+});
+it("accepts multiple contributing frames only when their URLs stay stable", async () => {
+  const first = injection(items, `${playerUrl}#first`, "first", 1);
+  const secondItems = [{ time: "00:03", text: "두 번째 자막" }];
+  const second = injection(secondItems, `${playerUrl}#second`, "second", 2);
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), first, second])
+    .mockResolvedValueOnce(verification(injection(), first, second));
+  chromeMock(execute);
+
+  expect(await detectCaptions()).toMatchObject({
+    status: "success",
+    captions: [
+      { items },
+      { items: [expect.objectContaining(secondItems[0]!)] },
+    ],
+  });
+});
+it("bounds injection time and never starts a fallback after its late result", async () => {
   vi.useFakeTimers();
-  const execute = vi.fn().mockReturnValue(new Promise(() => {}));
+  let finish!: (value: ReturnType<typeof injection>[]) => void;
+  const execute = vi.fn().mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
   chromeMock(execute);
   const result = detectCaptions();
   await vi.advanceTimersByTimeAsync(15000);
   expect(await result).toEqual({ status: "error", code: "TIMEOUT" });
+  finish([injection()]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(execute).toHaveBeenCalledTimes(1);
 });
 
 it("times out a stalled active-tab query and never injects after it resolves late", async () => {
@@ -394,7 +537,9 @@ it("times out a stalled active-tab query and never injects after it resolves lat
 
 it("never checks the tab after verification resolves beyond the deadline", async () => {
   vi.useFakeTimers();
-  let finishVerification: (result: { documentId: string }[]) => void = () => {};
+  let finishVerification: (
+    result: { documentId: string; frameId: number; result: string }[],
+  ) => void = () => {};
   const execute = vi
     .fn()
     .mockResolvedValueOnce([injection(items)])
@@ -410,8 +555,82 @@ it("never checks the tab after verification resolves beyond the deadline", async
   await vi.advanceTimersByTimeAsync(15000);
   expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
 
-  finishVerification([{ documentId: "top" }]);
+  finishVerification(verification(injection()));
   await vi.advanceTimersByTimeAsync(0);
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("does not launch a fallback after cancellation while the DOM capture is held", async () => {
+  let finishDom!: (value: ReturnType<typeof injection>[]) => void;
+  const captured = new Promise<ReturnType<typeof injection>[]>((resolve) => {
+    finishDom = resolve;
+  });
+  const execute = vi.fn().mockReturnValueOnce(captured);
+  const { get } = chromeMock(execute);
+  const controller = new AbortController();
+  const pending = detectCaptions(undefined, controller.signal);
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+
+  controller.abort();
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  finishDom([injection(), injection([], playerUrl, "player", 1)]);
+  await captured;
+  await Promise.resolve();
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(get).not.toHaveBeenCalled();
+});
+
+it("honors a replaced generation after the active-tab query resolves", async () => {
+  let finishQuery!: (
+    value: { id: number; url: string; title: string }[],
+  ) => void;
+  const queryResult = new Promise<{ id: number; url: string; title: string }[]>(
+    (resolve) => {
+      finishQuery = resolve;
+    },
+  );
+  const execute = vi.fn();
+  const { query } = chromeMock(execute);
+  query.mockReturnValue(queryResult);
+  let current = true;
+  const pending = detectCaptions(undefined, undefined, () => current);
+  current = false;
+  finishQuery([
+    { id: 7, url: transcript.sourceUrl, title: transcript.pageTitle },
+  ]);
+
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(execute).not.toHaveBeenCalled();
+});
+
+it("does not verify or inspect loaded scripts after a held fallback is cancelled", async () => {
+  const playerFrame = injection([], playerUrl, "player", 1);
+  let finishFallback!: (value: ReturnType<typeof injection>[]) => void;
+  const fallback = new Promise<ReturnType<typeof injection>[]>((resolve) => {
+    finishFallback = resolve;
+  });
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce([injection(), playerFrame])
+    .mockReturnValueOnce(fallback);
+  const { get } = chromeMock(execute);
+  const controller = new AbortController();
+  const pending = detectCaptions(undefined, controller.signal);
+  await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+
+  controller.abort();
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+  finishFallback([
+    {
+      ...playerFrame,
+      result: { ...playerFrame.result, source: "player_vtt", vtt },
+    },
+  ]);
+  await fallback;
+  await Promise.resolve();
+
+  expect(execute).toHaveBeenCalledTimes(2);
   expect(get).not.toHaveBeenCalled();
 });
 
@@ -554,7 +773,9 @@ it("falls back to loaded scripts when a generated caption XML filename returns H
         },
       },
     ])
-    .mockResolvedValueOnce([{ documentId: "top" }, { documentId: "player" }]);
+    .mockResolvedValueOnce(
+      verification(injection(), injection([], playerUrl, "player", 1)),
+    );
   chromeMock(execute);
   expect(await detectCaptions()).toMatchObject({
     status: "success",

@@ -26,7 +26,7 @@ export function PagedList<T>({
       {items.length > pageSize && (
         <nav className="pagination" aria-label="목록 페이지">
           <button
-            className="secondary"
+            className="btn-secondary"
             disabled={page === 0}
             onClick={() => setSelection({ resetKey, page: page - 1 })}
           >
@@ -36,7 +36,7 @@ export function PagedList<T>({
             {start + 1}–{end} / {items.length}개
           </span>
           <button
-            className="secondary"
+            className="btn-secondary"
             disabled={end === items.length}
             onClick={() => setSelection({ resetKey, page: page + 1 })}
           >

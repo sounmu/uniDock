@@ -1,10 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { queryActiveCourses, queryActive } from "../src/transport";
 const url = "https://mylms.korea.ac.kr/";
+const selector = "00000000-0000-4000-8000-000000000001";
 function setup(tab = { id: 7, url }) {
   const sendMessage = vi.fn().mockResolvedValue({
     status: "success",
-    courses: [{ name: "샘플 과목", token: "private" }],
+    courses: [{ name: "샘플 과목", courseSelector: selector }],
   });
   const get = vi.fn().mockResolvedValue(tab);
   const query = vi.fn().mockResolvedValue([tab]);
@@ -17,15 +18,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-it("queries only active top frame and strips extra output fields", async () => {
+it("queries only the active top frame through a closed course capability", async () => {
   const { sendMessage } = setup();
   expect(await queryActiveCourses()).toEqual({
     status: "success",
-    courses: [{ name: "샘플 과목" }],
+    courses: [{ name: "샘플 과목", courseSelector: selector }],
   });
   expect(sendMessage).toHaveBeenCalledWith(
     7,
-    { version: 1, type: "COURSES_LIST" },
+    expect.objectContaining({
+      version: 1,
+      type: "CAPABILITY_LIST",
+      refresh: false,
+      request: { version: 1, type: "COURSES_LIST" },
+    }),
     { frameId: 0 },
   );
 });
@@ -53,15 +59,6 @@ it("handles a missing content script without leaking exceptions", async () => {
     code: "RELOAD_TAB",
   });
 });
-it("bounds a lost message response", async () => {
-  vi.useFakeTimers();
-  const { sendMessage } = setup();
-  sendMessage.mockReturnValue(new Promise(() => {}));
-  const result = queryActiveCourses();
-  await vi.advanceTimersByTimeAsync(23000);
-  expect(await result).toEqual({ status: "error", code: "TIMEOUT" });
-});
-
 it("times out a stalled active-tab query and never messages after it resolves late", async () => {
   vi.useFakeTimers();
   const { get, query, sendMessage } = setup();
@@ -154,6 +151,83 @@ it("sends new read requests and rejects mismatched result kinds", async () => {
   });
 });
 
+it("uses the closed refresh envelope only for explicit list refreshes", async () => {
+  const { sendMessage } = setup();
+  sendMessage.mockResolvedValue({ status: "success", courses: [] });
+  expect(
+    await queryActive(
+      { version: 1, type: "COURSES_LIST" },
+      { refresh: true, capabilityScope: crypto.randomUUID() },
+    ),
+  ).toEqual({ status: "success", courses: [] });
+  expect(sendMessage).toHaveBeenCalledWith(
+    7,
+    {
+      version: 1,
+      type: "CAPABILITY_LIST",
+      scope: expect.any(String),
+      refresh: true,
+      request: { version: 1, type: "COURSES_LIST" },
+    },
+    { frameId: 0 },
+  );
+  sendMessage.mockClear();
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDING_OPEN", handle: crypto.randomUUID() },
+      { refresh: true },
+    ),
+  ).toEqual({ status: "error", code: "POLICY" });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
+it("mints one absolute deadline before looking up a download target", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-28T00:00:00Z"));
+  const { sendMessage } = setup();
+  sendMessage.mockResolvedValue({ status: "success", downloaded: true });
+  const request = {
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD",
+    handle: crypto.randomUUID(),
+    course: "Course",
+  } as const;
+
+  expect(await queryActive(request)).toEqual({
+    status: "success",
+    downloaded: true,
+  });
+  expect(sendMessage).toHaveBeenCalledWith(
+    7,
+    {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD_REQUEST",
+      deadline: Date.now() + 23_000,
+      request,
+    },
+    { frameId: 0 },
+  );
+});
+
+it("never sends a download request after a late active-tab lookup", async () => {
+  vi.useFakeTimers();
+  const { query, sendMessage } = setup();
+  let finish!: (tabs: { id: number; url: string }[]) => void;
+  query.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+  const pending = queryActive({
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD",
+    handle: crypto.randomUUID(),
+    course: "Course",
+  });
+
+  await vi.advanceTimersByTimeAsync(23_000);
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+  finish([{ id: 7, url }]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
 it.each([
   [url, "https://canvas.korea.ac.kr/courses/12/assignments/34"],
   [
@@ -218,6 +292,42 @@ it("rejects a bound tab that navigated before sending an open", async () => {
 it("reports the selected source tab before delivering its result", async () => {
   setup();
   const onTarget = vi.fn();
-  await queryActive({ version: 1, type: "COURSES_LIST" }, { onTarget });
+  await queryActive(
+    { version: 1, type: "COURSES_LIST" },
+    { onTarget, capabilityScope: crypto.randomUUID() },
+  );
   expect(onTarget).toHaveBeenCalledExactlyOnceWith({ id: 7, url });
+});
+
+it("accepts a recording target only from the closed document-bound response", async () => {
+  const { sendMessage } = setup();
+  const onTarget = vi.fn();
+  const documentToken = crypto.randomUUID();
+  const capabilityScope = crypto.randomUUID();
+  sendMessage.mockResolvedValue({
+    status: "success",
+    recordings: [],
+    documentToken,
+  });
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDINGS_LIST", courseSelector: selector },
+      { onTarget, capabilityScope },
+    ),
+  ).toEqual({ status: "success", recordings: [] });
+  expect(onTarget).toHaveBeenCalledWith({ id: 7, url, documentToken });
+
+  sendMessage.mockResolvedValue({
+    status: "success",
+    recordings: [],
+    documentToken,
+    sourceTabId: 99,
+  });
+  expect(
+    await queryActive(
+      { version: 1, type: "RECORDINGS_LIST", courseSelector: selector },
+      { onTarget, capabilityScope },
+    ),
+  ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+  expect(onTarget).toHaveBeenCalledTimes(1);
 });

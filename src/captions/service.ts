@@ -24,14 +24,49 @@ export interface CaptionTarget {
   tabId: number;
   windowId: number;
 }
+
+interface DocumentProvenance {
+  documentId: string;
+  frameId: number;
+  pageUrl: string;
+}
+
+function validPageUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value) return false;
+  try {
+    return new URL(value).href === value;
+  } catch {
+    return false;
+  }
+}
+
 export async function detectCaptions(
   onTarget?: (target: CaptionTarget) => boolean,
+  signal?: AbortSignal,
+  current: () => boolean = () => true,
 ): Promise<CaptionResult> {
   const deadline = Date.now() + 15000;
   let expired = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = () => expired || Date.now() >= deadline;
+  const cancelled = () => {
+    if (signal?.aborted) return true;
+    try {
+      return !current();
+    } catch {
+      return true;
+    }
+  };
+  const stopped = (): CaptionResult | undefined =>
+    cancelled()
+      ? { status: "error", code: "RELOAD_TAB" }
+      : timedOut()
+        ? { status: "error", code: "TIMEOUT" }
+        : undefined;
+  let cancel: (() => void) | undefined;
   try {
+    const initialStop = stopped();
+    if (initialStop) return initialStop;
     const timeout = new Promise<CaptionResult>((resolve) => {
       timer = setTimeout(
         () => {
@@ -41,34 +76,88 @@ export async function detectCaptions(
         Math.max(0, deadline - Date.now()),
       );
     });
-    const tabs = await Promise.race([
-      chrome.tabs.query({ active: true, currentWindow: true }),
-      timeout,
-    ]);
-    if (!Array.isArray(tabs)) return tabs;
-    if (timedOut()) return { status: "error", code: "TIMEOUT" };
-    const [tab] = tabs;
-    if (
-      tab?.id === undefined ||
-      !tab.url ||
-      new URL(tab.url).protocol !== "https:"
-    )
-      return { status: "error", code: "ACTIVATE_TAB" };
-    const id = tab.id;
-    if (onTarget && !onTarget({ tabId: id, windowId: tab.windowId }))
-      return { status: "error", code: "RELOAD_TAB" };
+    const cancellation = new Promise<CaptionResult>((resolve) => {
+      cancel = () => resolve({ status: "error", code: "RELOAD_TAB" });
+      signal?.addEventListener("abort", cancel, { once: true });
+    });
     const work = async (): Promise<CaptionResult> => {
-      if (timedOut()) return { status: "error", code: "TIMEOUT" };
+      let stop = stopped();
+      if (stop) return stop;
+      const tabs = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      stop = stopped();
+      if (stop) return stop;
+      const [tab] = tabs;
+      if (
+        tab?.id === undefined ||
+        !tab.url ||
+        new URL(tab.url).protocol !== "https:"
+      )
+        return { status: "error", code: "ACTIVATE_TAB" };
+      const id = tab.id;
+      if (onTarget && !onTarget({ tabId: id, windowId: tab.windowId }))
+        return { status: "error", code: "RELOAD_TAB" };
+      stop = stopped();
+      if (stop) return stop;
       const dom = await chrome.scripting.executeScript({
         target: { tabId: id, allFrames: true },
         world: "ISOLATED",
         func: collectCaptionSources,
         args: ["dom"],
       });
-      if (timedOut()) return { status: "error", code: "TIMEOUT" };
+      stop = stopped();
+      if (stop) return stop;
       const top = dom.find((batch) => batch.frameId === 0);
-      if (!top?.documentId) return { status: "error", code: "RELOAD_TAB" };
+      if (
+        !top?.documentId ||
+        !validPageUrl(top.result?.pageUrl) ||
+        typeof top.frameId !== "number"
+      )
+        return { status: "error", code: "RELOAD_TAB" };
       if (dom.length > 20) return { status: "error", code: "UNSAFE_CAPTION" };
+      const isolated = new Map<string, DocumentProvenance>();
+      for (const batch of dom) {
+        if (
+          !batch.documentId ||
+          typeof batch.frameId !== "number" ||
+          !validPageUrl(batch.result?.pageUrl)
+        )
+          continue;
+        isolated.set(batch.documentId, {
+          documentId: batch.documentId,
+          frameId: batch.frameId,
+          pageUrl: batch.result.pageUrl,
+        });
+      }
+      const topProvenance = isolated.get(top.documentId);
+      if (!topProvenance || topProvenance.frameId !== 0)
+        return { status: "error", code: "RELOAD_TAB" };
+      const knownInjection = (batch: {
+        documentId?: string;
+        frameId: number;
+      }): DocumentProvenance | undefined => {
+        if (!batch.documentId) return undefined;
+        const provenance = isolated.get(batch.documentId);
+        return provenance?.frameId === batch.frameId ? provenance : undefined;
+      };
+      const allTargeted = (
+        batches: { documentId?: string; frameId: number }[],
+        documentIds: string[],
+      ) =>
+        batches.length === documentIds.length &&
+        batches.every(
+          (batch) =>
+            !!knownInjection(batch) &&
+            !!batch.documentId &&
+            documentIds.includes(batch.documentId),
+        ) &&
+        documentIds.every(
+          (documentId) =>
+            batches.filter((batch) => batch.documentId === documentId)
+              .length === 1,
+        );
       let blocked = dom.some(
         (batch) => batch.result?.blocked || batch.result?.limited,
       );
@@ -89,21 +178,24 @@ export async function detectCaptions(
           })
           .map((batch) => batch.documentId!);
         if (playerDocuments.length) {
-          if (timedOut()) return { status: "error", code: "TIMEOUT" };
-          const player = await chrome.scripting.executeScript({
-            target: { tabId: id, documentIds: playerDocuments },
-            world: "MAIN",
-            func: collectCaptionSources,
-            args: ["player", deadline],
-          });
-          if (timedOut()) return { status: "error", code: "TIMEOUT" };
-          if (
-            player.some(
-              (batch) =>
-                !batch.documentId ||
-                !playerDocuments.includes(batch.documentId),
-            )
-          )
+          stop = stopped();
+          if (stop) return stop;
+          let player;
+          try {
+            player = await chrome.scripting.executeScript({
+              target: { tabId: id, documentIds: playerDocuments },
+              world: "MAIN",
+              func: collectCaptionSources,
+              args: ["player", deadline],
+            });
+          } catch {
+            stop = stopped();
+            if (stop) return stop;
+            return { status: "error", code: "RELOAD_TAB" };
+          }
+          stop = stopped();
+          if (stop) return stop;
+          if (!allTargeted(player, playerDocuments))
             return { status: "error", code: "RELOAD_TAB" };
           blocked ||= player.some(
             (batch) => batch.result?.blocked || batch.result?.limited,
@@ -118,21 +210,24 @@ export async function detectCaptions(
             }
           });
           if (!chosen.length) {
-            if (timedOut()) return { status: "error", code: "TIMEOUT" };
-            const scripts = await chrome.scripting.executeScript({
-              target: { tabId: id, documentIds: playerDocuments },
-              world: "MAIN",
-              func: collectCaptionSources,
-              args: ["script"],
-            });
-            if (timedOut()) return { status: "error", code: "TIMEOUT" };
-            if (
-              scripts.some(
-                (batch) =>
-                  !batch.documentId ||
-                  !playerDocuments.includes(batch.documentId),
-              )
-            )
+            stop = stopped();
+            if (stop) return stop;
+            let scripts;
+            try {
+              scripts = await chrome.scripting.executeScript({
+                target: { tabId: id, documentIds: playerDocuments },
+                world: "MAIN",
+                func: collectCaptionSources,
+                args: ["script"],
+              });
+            } catch {
+              stop = stopped();
+              if (stop) return stop;
+              return { status: "error", code: "RELOAD_TAB" };
+            }
+            stop = stopped();
+            if (stop) return stop;
+            if (!allTargeted(scripts, playerDocuments))
               return { status: "error", code: "RELOAD_TAB" };
             blocked ||= scripts.some(
               (batch) => batch.result?.blocked || batch.result?.limited,
@@ -142,10 +237,13 @@ export async function detectCaptions(
         }
       }
       const captions: Caption[] = [];
+      const contributors = new Map<string, DocumentProvenance>();
       let total = 0;
       for (const batch of chosen) {
         const row = batch.result;
-        if (!row || row.limited || !batch.documentId) {
+        const provenance = knownInjection(batch);
+        if (!row || row.limited || !provenance) {
+          if (!provenance) return { status: "error", code: "RELOAD_TAB" };
           blocked = true;
           continue;
         }
@@ -176,30 +274,48 @@ export async function detectCaptions(
             label: row.label || "화면 자막",
             source: row.source,
           });
+          contributors.set(provenance.documentId, provenance);
         } catch {
           blocked = true;
         }
       }
       // Verify all contributing documents still exist, including the outer lecture page.
-      const documentIds = [
-        ...new Set([
-          top.documentId,
-          ...chosen.map((batch) => batch.documentId!),
-        ]),
-      ];
-      if (timedOut()) return { status: "error", code: "TIMEOUT" };
-      const verified = await chrome.scripting.executeScript({
-        target: { tabId: id, documentIds },
-        world: "ISOLATED",
-        func: () => location.href,
-      });
-      if (timedOut()) return { status: "error", code: "TIMEOUT" };
+      contributors.set(topProvenance.documentId, topProvenance);
+      const documentIds = [...contributors.keys()];
+      stop = stopped();
+      if (stop) return stop;
+      let verified;
+      try {
+        verified = await chrome.scripting.executeScript({
+          target: { tabId: id, documentIds },
+          world: "ISOLATED",
+          func: () => location.href,
+        });
+      } catch {
+        stop = stopped();
+        if (stop) return stop;
+        return { status: "error", code: "RELOAD_TAB" };
+      }
+      stop = stopped();
+      if (stop) return stop;
       const current = await chrome.tabs.get(id);
-      if (timedOut()) return { status: "error", code: "TIMEOUT" };
+      stop = stopped();
+      if (stop) return stop;
       if (
         current.url !== tab.url ||
+        verified.length !== contributors.size ||
+        verified.some((batch) => {
+          if (!batch.documentId || !validPageUrl(batch.result)) return true;
+          const expected = contributors.get(batch.documentId);
+          return (
+            !expected ||
+            batch.frameId !== expected.frameId ||
+            batch.result !== expected.pageUrl
+          );
+        }) ||
         documentIds.some(
-          (doc) => !verified.some((batch) => batch.documentId === doc),
+          (documentId) =>
+            !verified.some((batch) => batch.documentId === documentId),
         )
       )
         return { status: "error", code: "RELOAD_TAB" };
@@ -210,10 +326,13 @@ export async function detectCaptions(
         };
       return { status: "success", captions, blocked };
     };
-    return await Promise.race([work(), timeout]);
+    const result = await Promise.race([work(), timeout, cancellation]);
+    return cancelled() ? { status: "error", code: "RELOAD_TAB" } : result;
   } catch {
-    return { status: "error", code: "ACTIVATE_TAB" };
+    const stop = stopped();
+    return stop ?? { status: "error", code: "ACTIVATE_TAB" };
   } finally {
     clearTimeout(timer);
+    if (cancel) signal?.removeEventListener("abort", cancel);
   }
 }

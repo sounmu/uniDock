@@ -24,6 +24,7 @@ it("resets pagination on filter changes, preserves it on ticks, and expires cand
       onCourse={() => {}}
     />,
   );
+  await click("보기 설정");
   expect(
     (document.querySelector('input[type="checkbox"]') as HTMLInputElement)
       .checked,
@@ -63,6 +64,7 @@ it("sorts the whole response before pagination and returns to LMS order", async 
     />,
   );
   expect(document.querySelectorAll("li")).toHaveLength(0);
+  await click("보기 설정");
   await act(async () => {
     (
       document.querySelector('input[type="checkbox"]') as HTMLInputElement
@@ -80,4 +82,56 @@ it("sorts the whole response before pagination and returns to LMS order", async 
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
   expect(document.querySelector("li strong")?.textContent).toBe("과제 0");
+});
+it("sorts Todo by due date on demand and restores LMS order", async () => {
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          {
+            title: "마감 없음",
+            due_at: "",
+            type: "unsubmitted",
+            course: "A",
+            ignore: false,
+          },
+          {
+            title: "늦은 마감",
+            due_at: "2027-02-01T00:00:00Z",
+            type: "unsubmitted",
+            course: "B",
+            ignore: false,
+          },
+          {
+            title: "빠른 마감",
+            due_at: "2027-01-01T00:00:00Z",
+            type: "unsubmitted",
+            course: "A",
+            ignore: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
+  await click("보기 설정");
+  const select = document.querySelector("select")!;
+  await act(async () => {
+    select.value = "due";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
+  await act(async () => {
+    select.value = "original";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
 });

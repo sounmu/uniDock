@@ -1,6 +1,8 @@
 import { itemUrl } from "./security/item-link";
+import { fields, resultKey } from "./protocol-fields";
 import { type Recording } from "./recordings";
-import { type Course, projectCourses } from "./domain";
+import { type Document } from "./documents";
+import { type Course } from "./domain";
 import {
   type Assignment,
   type Deadline,
@@ -24,14 +26,31 @@ export const errors = [
   "BUSY",
   "STALE_SELECTION",
   "TAB_OPEN_FAILED",
+  "DOWNLOAD_FAILED",
 ] as const;
 export type ErrorCode = (typeof errors)[number];
 export type ListRequest =
-  | { version: 1; type: "COURSES_LIST" | "TODO_LIST" }
+  | { version: 1; type: "COURSES_LIST" }
+  | { version: 1; type: "TODO_LIST" }
   | {
       version: 1;
-      type: "ASSIGNMENTS_LIST" | "DEADLINES_LIST" | "RECORDINGS_LIST";
+      type:
+        | "ASSIGNMENTS_LIST"
+        | "DEADLINES_LIST"
+        | "RECORDINGS_LIST"
+        | "DOCUMENTS_LIST";
       course: string;
+      courseSelector?: never;
+    }
+  | {
+      version: 1;
+      type:
+        | "ASSIGNMENTS_LIST"
+        | "DEADLINES_LIST"
+        | "RECORDINGS_LIST"
+        | "DOCUMENTS_LIST";
+      courseSelector: string;
+      course?: never;
     }
   | {
       version: 1;
@@ -39,8 +58,36 @@ export type ListRequest =
       start_date?: string;
       end_date?: string;
     };
+export type CapabilityListRequest =
+  | {
+      version: 1;
+      type: "COURSES_LIST";
+    }
+  | Extract<ListRequest, { course: string } | { courseSelector: string }>;
 export type Request =
-  ListRequest | { version: 1; type: "RECORDING_OPEN"; handle: string };
+  | ListRequest
+  | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
+  | { version: 1; type: "RECORDING_OPEN" | "DOCUMENT_OPEN"; handle: string };
+export type PanelQueryMessage =
+  | Exclude<Request, { type: "DOCUMENT_DOWNLOAD" }>
+  | {
+      version: 1;
+      type: "DOCUMENT_DOWNLOAD_REQUEST";
+      deadline: number;
+      request: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>;
+    }
+  | {
+      version: 1;
+      type: "QUERY_REFRESH";
+      request: ListRequest;
+    }
+  | {
+      version: 1;
+      type: "CAPABILITY_LIST";
+      scope: string;
+      refresh: boolean;
+      request: CapabilityListRequest;
+    };
 export function validHandle(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -49,9 +96,24 @@ export function validHandle(value: unknown): value is string {
     )
   );
 }
+export const DOWNLOAD_REQUEST_WINDOW_MS = 23_000;
+export function validDownloadDeadline(
+  value: unknown,
+  now = Date.now(),
+): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value > now &&
+    value <= now + DOWNLOAD_REQUEST_WINDOW_MS
+  );
+}
 export type Result =
   | { status: "success"; recordings: Recording[] }
+  | { status: "success"; documents: Document[] }
   | { status: "success"; opened: true }
+  | { status: "success"; downloaded: true }
   | { status: "success"; courses: Course[] }
   | { status: "success"; assignments: Assignment[] }
   | { status: "success"; deadlines: Deadline[] }
@@ -73,19 +135,32 @@ export function isRequest(value: unknown): value is Request {
   const keys = Object.keys(row);
   if (row.type === "COURSES_LIST" || row.type === "TODO_LIST")
     return keys.length === 2;
-  if (row.type === "RECORDING_OPEN")
+  if (row.type === "RECORDING_OPEN" || row.type === "DOCUMENT_OPEN")
     return keys.length === 3 && validHandle(row.handle);
   if (
     row.type === "ASSIGNMENTS_LIST" ||
     row.type === "DEADLINES_LIST" ||
-    row.type === "RECORDINGS_LIST"
+    row.type === "RECORDINGS_LIST" ||
+    row.type === "DOCUMENTS_LIST"
   )
     return (
       keys.length === 3 &&
+      ((typeof row.course === "string" &&
+        row.course.trim().length > 0 &&
+        row.course.length <= 2000 &&
+        redactText(row.course) === row.course &&
+        row.courseSelector === undefined) ||
+        (validHandle(row.courseSelector) && row.course === undefined))
+    );
+  if (row.type === "DOCUMENT_DOWNLOAD")
+    return (
+      keys.length === 4 &&
+      validHandle(row.handle) &&
       typeof row.course === "string" &&
       row.course.trim().length > 0 &&
       row.course.length <= 2000 &&
-      redactText(row.course) === row.course
+      redactText(row.course) === row.course &&
+      row.courseSelector === undefined
     );
   if (row.type === "UPCOMING_LIST")
     return (
@@ -102,57 +177,67 @@ export function isRequest(value: unknown): value is Request {
     );
   return false;
 }
-const fields = {
-  recordings: {
-    module: "text",
-    title: "text",
-    type: "externalTool",
-    lmsHandle: "handle",
-    launchHandle: "optionalHandle",
-  },
-  assignments: {
-    title: "text",
-    due_at: "text",
-    remaining_candidate: "boolean",
-    unlock_at: "text",
-    lock_at: "text",
-    points_possible: "number",
-    published: "boolean",
-    locked_for_user: "boolean",
-    submission_workflow_state: "text",
-    submitted_at: "text",
-    missing: "boolean",
-    late: "boolean",
-    submission_types: "texts",
-  },
-  deadlines: { title: "text", due_at: "text", remaining_candidate: "boolean" },
-  upcoming: {
-    html_url: "optionalUrl",
-    title: "text",
-    date: "text",
-    type: "text",
-    course: "text",
-    submitted: "boolean",
-    new_activity: "boolean",
-  },
-  todo: {
-    html_url: "optionalUrl",
-    title: "text",
-    due_at: "text",
-    type: "text",
-    course: "text",
-    ignore: "boolean",
-  },
-} as const;
-const resultKey = {
-  COURSES_LIST: "courses",
-  ASSIGNMENTS_LIST: "assignments",
-  DEADLINES_LIST: "deadlines",
-  UPCOMING_LIST: "upcoming",
-  TODO_LIST: "todo",
-  RECORDINGS_LIST: "recordings",
-  RECORDING_OPEN: "opened",
-} as const;
+export function panelQuery(value: unknown): {
+  request: Request;
+  refresh: boolean;
+  scope?: string;
+  deadline?: number;
+} | null {
+  if (isRequest(value))
+    return value.type === "COURSES_LIST" ||
+      value.type === "RECORDINGS_LIST" ||
+      value.type === "DOCUMENTS_LIST" ||
+      value.type === "DOCUMENT_DOWNLOAD"
+      ? null
+      : { request: value, refresh: false };
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (row.version !== 1) return null;
+  if (row.type === "DOCUMENT_DOWNLOAD_REQUEST") {
+    if (
+      Object.keys(row).length !== 4 ||
+      !validDownloadDeadline(row.deadline) ||
+      !isRequest(row.request) ||
+      row.request.type !== "DOCUMENT_DOWNLOAD"
+    )
+      return null;
+    return {
+      request: row.request,
+      refresh: false,
+      deadline: row.deadline,
+    };
+  }
+  if (row.type === "CAPABILITY_LIST") {
+    if (
+      Object.keys(row).length !== 5 ||
+      !validHandle(row.scope) ||
+      typeof row.refresh !== "boolean" ||
+      !isRequest(row.request) ||
+      (row.request.type !== "COURSES_LIST" &&
+        row.request.type !== "RECORDINGS_LIST" &&
+        row.request.type !== "DOCUMENTS_LIST")
+    )
+      return null;
+    return {
+      request: row.request as CapabilityListRequest,
+      refresh: row.refresh,
+      scope: row.scope,
+    };
+  }
+  if (
+    row.type !== "QUERY_REFRESH" ||
+    Object.keys(row).length !== 3 ||
+    !isRequest(row.request)
+  )
+    return null;
+  const request = row.request;
+  return request.type.endsWith("_LIST") &&
+    request.type !== "COURSES_LIST" &&
+    request.type !== "RECORDINGS_LIST" &&
+    request.type !== "DOCUMENTS_LIST"
+    ? { request: request as ListRequest, refresh: true }
+    : null;
+}
 export function parseResult(
   value: unknown,
   expected?: Request,
@@ -167,9 +252,18 @@ export function parseResult(
         row.status === "success" &&
         row.opened === true &&
         Object.keys(row).length === 2 &&
-        (!expected || expected.type === "RECORDING_OPEN")
+        (!expected ||
+          expected.type === "RECORDING_OPEN" ||
+          expected.type === "DOCUMENT_OPEN")
       )
         return { status: "success", opened: true };
+      if (
+        row.status === "success" &&
+        row.downloaded === true &&
+        Object.keys(row).length === 2 &&
+        expected?.type === "DOCUMENT_DOWNLOAD"
+      )
+        return { status: "success", downloaded: true };
       const keys = ["courses", ...Object.keys(fields)].filter(
         (key) => key in row,
       );
@@ -178,15 +272,31 @@ export function parseResult(
         row.status !== "success" ||
         keys.length !== 1 ||
         !key ||
+        Object.keys(row).some(
+          (field) =>
+            field !== "status" &&
+            field !== key &&
+            !(key === "recordings" && field === "documentToken"),
+        ) ||
         (expected && resultKey[expected.type] !== key)
       )
         throw new Error();
       const raw = row[key];
       if (!Array.isArray(raw) || raw.length > 10000) throw new Error();
       if (key === "courses") {
-        const courses: Course[] = [];
-        for (let i = 0; i < raw.length; i += 1000)
-          courses.push(...projectCourses(raw.slice(i, i + 1000)));
+        const courses: Course[] = raw.map((item: unknown) => {
+          if (!item || typeof item !== "object") throw new Error();
+          const course = item as Record<string, unknown>;
+          if (
+            Object.keys(course).length !== 2 ||
+            typeof course.name !== "string" ||
+            course.name.length > 2000 ||
+            redactText(course.name) !== course.name ||
+            !validHandle(course.courseSelector)
+          )
+            throw new Error();
+          return { name: course.name, courseSelector: course.courseSelector };
+        });
         return { status: "success", courses };
       }
       const schema = fields[key as keyof typeof fields];
@@ -209,6 +319,7 @@ export function parseResult(
                 return [field, child];
               if (type === "externalTool" && child === "ExternalTool")
                 return [field, child];
+              if (type === "file" && child === "File") return [field, child];
               if (
                 (type === "handle" || type === "optionalHandle") &&
                 (validHandle(child) ||
@@ -224,9 +335,10 @@ export function parseResult(
               if (type === "boolean" && typeof child === "boolean")
                 return [field, child];
               if (
-                type === "number" &&
-                (child === null ||
-                  (typeof child === "number" && Number.isFinite(child)))
+                (type === "number" && child === null) ||
+                (type === "number" &&
+                  typeof child === "number" &&
+                  Number.isFinite(child))
               )
                 return [field, child];
               if (

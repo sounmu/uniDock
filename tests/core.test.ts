@@ -58,9 +58,23 @@ describe("privacy and policy", () => {
   it("re-projects protocol responses", () => {
     expect(
       parseResult({ status: "success", courses: fixture, token: "secret" }),
+    ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+    const first = "00000000-0000-4000-8000-000000000001";
+    const second = "00000000-0000-4000-8000-000000000002";
+    expect(
+      parseResult({
+        status: "success",
+        courses: [
+          { name: "국제법", courseSelector: first },
+          { name: "운영체제", courseSelector: second },
+        ],
+      }),
     ).toEqual({
       status: "success",
-      courses: [{ name: "국제법" }, { name: "운영체제" }],
+      courses: [
+        { name: "국제법", courseSelector: first },
+        { name: "운영체제", courseSelector: second },
+      ],
     });
     expect(parseResult({ status: "error", code: "secret" })).toEqual({
       status: "error",
