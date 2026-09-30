@@ -2,7 +2,7 @@
 
 ## 준비된 산출물
 
-- release/uniDock-0.1.0-chrome-mv3.zip: production 전용 배포 후보
+- release/uniDock-0.1.1-chrome-mv3.zip: production 전용 배포 후보
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
 - public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본
 - docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신)
