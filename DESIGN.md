@@ -21,6 +21,7 @@ The root is a single column: compact navigation header followed by full-width ma
 ## 5. Components
 
 - **Top navigation:** four native buttons with 20px inline SVG and permanent 12px labels: 내 과목, 할 일·일정, 자동 재생, 자막 추출. `aria-current="page"` plus brand wash marks selection. Utility links open LMS/privacy; 정보 opens policy detail. Existing callbacks and keyboard behavior remain.
+- **Pending navigation entry:** in release builds (`__UNIDOCK_PLAYBACK__` false) 자동 재생 keeps its grid slot as an `aria-disabled="true"` button (not `disabled`, so it stays focusable) at disabled opacity .5 with a default cursor and no hover wash. Clicking does nothing. A sibling `role="tooltip"` below the button, wired through `aria-describedby`, reads “현재 검토 중인 기능입니다.” on hover and `:focus-visible`: ink background, surface text, 12px type, `--radius-sm`, max 12rem, no pointer events, and its fade is removed under reduced motion.
 - **ScreenHeader:** title with one primary action and at most one muted subtitle. Longer policy copy lives in native 안내 details.
 - **ListRow:** full-row native button, two-line title, secondary course label and one trailing StatusChip. At least 48px, 12px horizontal padding, separator only. Material checkboxes are separate labelled inputs, never nested inside buttons.
 - **StatusChip:** visible neutral or urgent text; no color-only distinctions. Course rows have no chip.
@@ -35,7 +36,7 @@ The root is a single column: compact navigation header followed by full-width ma
 | Courses / tasks | 새로고침 |
 | Course assignments / recordings | 새로고침 |
 | Materials | PDF 전체 다운로드 / 선택 다운로드 |
-| Playback | 자동 재생 켜기 / 끄기 |
+| Playback (playback builds only) | 자동 재생 켜기 / 끄기 |
 | Captions | 자막 감지 |
 | Item details | Open LMS, open LTI, download PDF, cancel reservation, or download captions; assignment details have none |
 

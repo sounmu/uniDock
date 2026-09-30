@@ -52,6 +52,17 @@
 
 - UPF TXT 스크립트 대체 경로: 이미 로드된 `_mediaScriptList`의 데이터 속성만 읽으며 네트워크 요청이나 플레이어 함수는 실행하지 않습니다. 녹화 시각을 재생 위치로 추정하지 않고 원문 시각을 보존합니다. 시간 없는 스크립트는 빈 time으로 명시합니다.
 
+## 2026-09-30 0.1.1 배포 범위: 자동 재생 제외
+
+아래 2026-09-26 순차 자동 재생 검토는 저장소 구현에 대한 기록입니다. 기능이 검토 중이므로 0.1.1 배포 빌드에서는 빌드 타임 상수 `__UNIDOCK_PLAYBACK__`(기본 `false`, `UNIDOCK_PLAYBACK=1`일 때만 `true`)로 코드를 제외합니다.
+
+- 제외 항목: `player` 콘텐츠 스크립트(LMS·KU 플레이어 전 프레임 주입), background 재생 런타임·alarm·탭 소유권 처리, LMS content script의 `PLAYBACK_DISCOVER`/`PLAYBACK_RESOLVE_BATCH` 처리, 사이드패널 재생 화면.
+- 권한 축소: `storage`, `alarms` 제거. 배포 manifest 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`와 기존 세 호스트입니다. `kucom.korea.ac.kr`은 자막 읽기에 계속 필요합니다.
+- 저장소: 배포 빌드는 `chrome.storage`·IndexedDB·Web Storage를 사용하지 않습니다. 아래 “저장소 경계”는 재생 빌드에만 해당합니다.
+- UI: 메뉴의 `자동 재생`은 `aria-disabled` 버튼과 “현재 검토 중인 기능입니다.” 툴팁만 남고 메시지를 보내지 않습니다.
+- 강제 장치: `scripts/package-release.mjs`가 `UNIDOCK_PLAYBACK=1` 환경, `player.js`, `storage`·`alarms`, 설명의 “자동 재생”, 재생 전용 문자열(`unidock.playback.owned-tab`, `PLAYBACK_PLAYER_HELLO`, `PLAYBACK_DISCOVER`, `PLAYBACK_REFRESH`, `unidock-playback-v1`)을 발견하면 패키징을 중단합니다. 번들에 남는 `playback` 문자열은 React DOM 내장 속성명, 도달 불가능한 내비게이션 enum, 메뉴 라벨·아이콘뿐입니다.
+- 검증: 제외 빌드 E2E(재생 전용 spec skip)와 `npm run test:e2e:playback` 전체 E2E를 모두 합성 LMS에서 통과했습니다. 실제 LMS·Chrome 114 검증 범위는 변하지 않았습니다.
+
 ## 2026-09-26 opt-in 순차 자동 재생
 
 위 검토 및 자막 경로 변경은 이전 구현에 대한 기록입니다. 순차 자동 재생은 과목을 고른 뒤 사용자가 영상을 직접 체크하고 시작하는 opt-in이며 기본 비활성입니다. 이 추가분은 자동 재생의 보안 경계를 기술합니다.
