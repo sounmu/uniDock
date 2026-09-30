@@ -18,6 +18,8 @@ export function projectCourseIndex(raw: unknown): InternalCourse[] {
       (typeof row.name !== "string" || row.name.length > 2000)
     )
       throw new Error("INVALID_RESPONSE");
+    // Date-restricted enrollments cannot be queried; one would fail every aggregate.
+    if (row.access_restricted_by_date === true) return [];
     const id =
       typeof row.id === "string" ||
       (typeof row.id === "number" && Number.isSafeInteger(row.id))

@@ -112,6 +112,29 @@ it("paginates active courses and each Todo assignment list", async () => {
   ]);
   expect(fetcher).toHaveBeenCalledTimes(5);
 });
+it("skips date-restricted courses instead of failing the whole Todo", async () => {
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path === "/api/v1/courses")
+      return json([
+        { id: 101, name: "운영체제" },
+        { id: 303, access_restricted_by_date: true },
+      ]);
+    if (path === "/api/v1/courses/101/assignments")
+      return json([{ name: "남은 과제", due_at: null }]);
+    return new Response("{}", { status: 403 });
+  });
+  const result = await listQuery(
+    origin,
+    { version: 1, type: "TODO_LIST" },
+    fetcher,
+  );
+  expect(result.status).toBe("success");
+  if (result.status !== "success" || !("todo" in result))
+    throw new Error("Expected Todo result");
+  expect(result.todo.map(({ title }) => title)).toEqual(["남은 과제"]);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
 it("lists unfinished assignments from every active course in Todo", async () => {
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const path = new URL(String(input)).pathname;
