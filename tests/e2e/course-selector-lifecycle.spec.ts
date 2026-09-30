@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
+import { playbackBuild } from "./build-shape";
 
 const extensionPath = path.resolve(".output/chrome-mv3");
 const origin = "https://mylms.korea.ac.kr";
@@ -185,59 +186,66 @@ test("production pickers keep duplicate and redacted courses bound to opaque sel
 
     await otherLms.close();
     await issuingLms.bringToFront();
-    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
-    const playback = panel.getByRole("region", { name: "자동 재생" });
-    const pickerButton = playback.getByRole("button", { name: "영상 선택" });
-    await expect(pickerButton).toBeEnabled();
-    const coursesBeforePicker = server.coursesCount();
-    await pickerButton.click();
-    const select = panel.getByLabel("과목 선택");
-    await expect(select.locator("option")).toHaveCount(5);
-    await expect(
-      select.locator("option", { hasText: "이름 없는 과목" }),
-    ).toHaveCount(1);
-    expect(server.coursesCount()).toBe(coursesBeforePicker);
-    const duplicateOptions = select.locator("option", {
-      hasText: "Duplicate Course",
-    });
-    const secondDuplicateValue = await duplicateOptions
-      .nth(1)
-      .getAttribute("value");
-    expect(secondDuplicateValue).toMatch(uuid);
-    await select.selectOption(secondDuplicateValue!);
-    await expect(
-      panel.getByText("Second duplicate recording", { exact: true }),
-    ).toBeVisible();
+    // Release builds omit playback; its picker is covered by test:e2e:playback.
+    if (playbackBuild()) {
+      await panel
+        .getByRole("button", { name: "자동 재생", exact: true })
+        .click();
+      const playback = panel.getByRole("region", { name: "자동 재생" });
+      const pickerButton = playback.getByRole("button", { name: "영상 선택" });
+      await expect(pickerButton).toBeEnabled();
+      const coursesBeforePicker = server.coursesCount();
+      await pickerButton.click();
+      const select = panel.getByLabel("과목 선택");
+      await expect(select.locator("option")).toHaveCount(5);
+      await expect(
+        select.locator("option", { hasText: "이름 없는 과목" }),
+      ).toHaveCount(1);
+      expect(server.coursesCount()).toBe(coursesBeforePicker);
+      const duplicateOptions = select.locator("option", {
+        hasText: "Duplicate Course",
+      });
+      const secondDuplicateValue = await duplicateOptions
+        .nth(1)
+        .getAttribute("value");
+      expect(secondDuplicateValue).toMatch(uuid);
+      await select.selectOption(secondDuplicateValue!);
+      await expect(
+        panel.getByText("Second duplicate recording", { exact: true }),
+      ).toBeVisible();
 
-    const captured = await panel.evaluate(
-      () =>
-        (window as typeof window & { capturedQueries: CapturedQuery[] })
-          .capturedQueries,
-    );
-    const courseQueries = captured.filter(
-      ({ message }) => message.request?.type === "COURSES_LIST",
-    );
-    expect(courseQueries).toHaveLength(2);
-    const playbackCourses = courseQueries[1]!.result.courses!;
-    expect(playbackCourses.map(({ name }) => name)).toEqual(
-      initialCourses!.result.courses!.map(({ name }) => name),
-    );
-    expect(
-      playbackCourses.map(({ courseSelector }) => courseSelector),
-    ).not.toEqual(
-      initialCourses!.result.courses!.map(
-        ({ courseSelector }) => courseSelector,
-      ),
-    );
-    expect(
-      playbackCourses.every(({ courseSelector }) => uuid.test(courseSelector)),
-    ).toBe(true);
-    const playbackRecordingQuery = captured.find(
-      ({ message }) =>
-        message.request?.type === "RECORDINGS_LIST" &&
-        message.request.courseSelector === secondDuplicateValue,
-    );
-    expect(playbackRecordingQuery).toBeTruthy();
+      const captured = await panel.evaluate(
+        () =>
+          (window as typeof window & { capturedQueries: CapturedQuery[] })
+            .capturedQueries,
+      );
+      const courseQueries = captured.filter(
+        ({ message }) => message.request?.type === "COURSES_LIST",
+      );
+      expect(courseQueries).toHaveLength(2);
+      const playbackCourses = courseQueries[1]!.result.courses!;
+      expect(playbackCourses.map(({ name }) => name)).toEqual(
+        initialCourses!.result.courses!.map(({ name }) => name),
+      );
+      expect(
+        playbackCourses.map(({ courseSelector }) => courseSelector),
+      ).not.toEqual(
+        initialCourses!.result.courses!.map(
+          ({ courseSelector }) => courseSelector,
+        ),
+      );
+      expect(
+        playbackCourses.every(({ courseSelector }) =>
+          uuid.test(courseSelector),
+        ),
+      ).toBe(true);
+      const playbackRecordingQuery = captured.find(
+        ({ message }) =>
+          message.request?.type === "RECORDINGS_LIST" &&
+          message.request.courseSelector === secondDuplicateValue,
+      );
+      expect(playbackRecordingQuery).toBeTruthy();
+    }
 
     const oldSelector = initialCourses!.result.courses![1]!.courseSelector;
     const requestsBeforeReloadCheck = server.coursesCount();

@@ -35,6 +35,7 @@ export function App() {
         break;
       }
       case "playback":
+        if (!__UNIDOCK_PLAYBACK__) return;
         model.clear();
         model.setView("PLAYBACK");
         break;
@@ -53,6 +54,7 @@ export function App() {
       <Rail
         section={model.section}
         onSelect={select}
+        playbackAvailable={__UNIDOCK_PLAYBACK__}
         onInfo={() => {
           model.downloads.cancel();
           infoTrigger.current = document.activeElement;
@@ -63,7 +65,9 @@ export function App() {
         <div hidden={info}>
           {model.section === "courses" && <CoursesScreen model={model} />}
           {model.section === "tasks" && <TasksScreen model={model} />}
-          {model.section === "playback" && <PlaybackPanel gate={gate} />}
+          {__UNIDOCK_PLAYBACK__ && model.section === "playback" && (
+            <PlaybackPanel gate={gate} />
+          )}
           {model.section === "captions" && <CaptionsPanel />}
         </div>
         {info && (

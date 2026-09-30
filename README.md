@@ -27,21 +27,21 @@ npm test
 npm run build      # 실제 세션 검증에는 production 산출물 사용
 ```
 
-브라우저 E2E 테스트는 로컬에서 최초 1회 `npx playwright install chromium`으로 Chromium을 설치한 뒤 `npm run test:e2e`로 실행합니다. 이 명령은 production build를 먼저 수행한 다음 `tests/e2e`의 Playwright 테스트를 실행합니다. CI에서는 `npx playwright install --with-deps chromium`으로 설치합니다.
+브라우저 E2E 테스트는 로컬에서 최초 1회 `npx playwright install chromium`으로 Chromium을 설치한 뒤 `npm run test:e2e`로 실행합니다. 이 명령은 production build(자동 재생 제외)를 먼저 수행한 다음 `tests/e2e`의 Playwright 테스트를 실행하며, 재생 빌드가 필요한 테스트는 건너뜁니다. 검토 중인 자동 재생까지 포함한 전체 E2E는 `npm run test:e2e:playback`으로 실행합니다. CI에서는 `npx playwright install --with-deps chromium`으로 설치합니다.
 
 개발용 HMR은 localhost 연결/개발 권한을 추가할 수 있습니다. 기존 로그인 세션 검증에는 production unpacked 확장을 사용하세요.
 
 ## 조회 기능
 
-| 화면                    | 입력                               | 조회 결과                                                                    |
-| ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
-| 내 과목                 | 없음                               | 활성 과목명, 과목 상세(과제 / 녹화 강의 / 수업 자료)                         |
-| 과제                    | 과목명                             | 제목, 마감, 제출 상태, 잠김·누락·지각 여부, 남은 후보                        |
-| 할 일·일정              | 할 일 / 일정 세그먼트, 선택적 날짜 | 전체 활성 과목의 미제출 과제 또는 Planner 일정; 보기 설정에서 정렬·기간 선택 |
-| 녹화 강의               | 과목명                             | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기                        |
-| 수업 자료               | 과목, 전체 또는 일부 선택          | 모듈 PDF 일괄 다운로드, 폴더 열기, 사용자 매개 ChatGPT 전달                  |
-| 자막 추출               | 사용자가 연 강의 탭                | DOM 우선, XML/VTT 대체 조회 및 시간 포함 TXT·JSON 다운로드                   |
-| 순차 자동 재생 (opt-in) | 선택 과목·영상 순서                | 선택 즉시 1x 순차 재생, ended/LMS credit 분리                                |
+| 화면                | 입력                               | 조회 결과                                                                    |
+| ------------------- | ---------------------------------- | ---------------------------------------------------------------------------- |
+| 내 과목             | 없음                               | 활성 과목명, 과목 상세(과제 / 녹화 강의 / 수업 자료)                         |
+| 과제                | 과목명                             | 제목, 마감, 제출 상태, 잠김·누락·지각 여부, 남은 후보                        |
+| 할 일·일정          | 할 일 / 일정 세그먼트, 선택적 날짜 | 전체 활성 과목의 미제출 과제 또는 Planner 일정; 보기 설정에서 정렬·기간 선택 |
+| 녹화 강의           | 과목명                             | 모듈별 강의 후보, LMS 모듈 보기, LMS 경유 LTI 탭 열기                        |
+| 수업 자료           | 과목, 전체 또는 일부 선택          | 모듈 PDF 일괄 다운로드, 폴더 열기, 사용자 매개 ChatGPT 전달                  |
+| 자막 추출           | 사용자가 연 강의 탭                | DOM 우선, XML/VTT 대체 조회 및 시간 포함 TXT·JSON 다운로드                   |
+| 자동 재생 (검토 중) | 없음                               | 배포 빌드에서는 비활성 메뉴와 “현재 검토 중인 기능입니다.” 안내만 표시       |
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
@@ -85,13 +85,13 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `storage`는 계정 구분과 opt-in 자동 재생의 최소 재생목록 상태에, `alarms`는 진행 중인 재생의 제한된 lease/watchdog 확인에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+배포 빌드의 Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`, 자막 읽기)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `storage`와 `alarms`는 검토 중인 자동 재생 빌드(`UNIDOCK_PLAYBACK=1`)에서만 추가됩니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. opt-in 예약 설정·최소 과목/영상 식별자·상태를 `chrome.storage.local`에 계정별로 저장하고 전용 탭 소유권은 `chrome.storage.session`에서 확인합니다. 쿠키, 토큰, 원본 API 응답 전체, 서명된 LTI URL은 저장하지 않습니다. 사용자가 설정에서 데이터를 즉시 삭제할 수 있습니다. IndexedDB와 telemetry는 사용하지 않습니다. Fetch는 `cache: no-store`입니다. 검증·투영된 과목 목록의 캐시 재사용 기한은 2분, 과제·마감·할 일·일정 목록은 30초입니다. 만료된 항목은 다시 표시하지 않고 다음 캐시 접근 또는 LMS 탭 이동·종료 때 메모리에서 제거합니다. 캐시를 읽기 전 현재 LMS 계정을 다시 확인하고 계정 변경·로그인 만료 시 전체를 폐기하며, 사용자가 누른 새로고침은 캐시를 우회합니다. 일회용 키가 포함된 녹화·PDF 목록과 원본 API 응답은 캐시하지 않습니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 `chrome.storage`, IndexedDB, Web Storage, telemetry를 사용하지 않으며 쿠키, 토큰, 원본 API 응답 전체, 서명된 LTI URL도 저장하지 않습니다. Fetch는 `cache: no-store`입니다. 검증·투영된 과목 목록의 캐시 재사용 기한은 2분, 과제·마감·할 일·일정 목록은 30초입니다. 만료된 항목은 다시 표시하지 않고 다음 캐시 접근 또는 LMS 탭 이동·종료 때 메모리에서 제거합니다. 캐시를 읽기 전 현재 LMS 계정을 다시 확인하고 계정 변경·로그인 만료 시 전체를 폐기하며, 사용자가 누른 새로고침은 캐시를 우회합니다. 일회용 키가 포함된 녹화·PDF 목록과 원본 API 응답은 캐시하지 않습니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
 
-과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. opt-in 자동 재생은 사용자가 직접 선택하고 시작한 영상만 정상(1x) 속도로 동작하며, 동의 없는 자동재생이나 배속 재생은 하지 않습니다. 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
+과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. 자동 재생은 배포 빌드에 포함되지 않습니다([자동 재생 (검토 중)](#자동-재생-검토-중)). 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
 
 ## 수업 자료 PDF 일괄 다운로드
 
@@ -120,7 +120,7 @@ Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `sto
 
 백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules` 또는 `/courses/{ID}/modules/items/{ID}` 주소만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않으므로 manifest 권한은 그대로입니다.
 
-동의 없는 자동재생, 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조는 없습니다. opt-in 자동 재생은 사용자가 선택한 강의를 체크 순서대로 정상(1x) 속도로 한 편씩 시작하며, PC가 꺼져 있거나 브라우저가 닫혀 있으면 진행되지 않습니다. 플레이어는 영상의 네이티브 종료(ended)만 감지하며, LMS 출석/시청 완료 인정과는 별개입니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
+배포 빌드에는 자동 재생, 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조가 없습니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
 
 ## 화면 자막 / 플레이어 VTT → TXT·JSON
 
@@ -156,9 +156,18 @@ KU 소스 근거: [공개 교육 영상](https://kucom.korea.ac.kr/em/6746b8bd75
 
 `npm run test:captions:live`는 공개 교육 영상의 XML/VTT에 실제 HTTP 요청을 보내 새 추출·변환·내보내기 함수를 검증하고 `output/ku-public-caption-test.txt`와 `.json`을 생성합니다. 공개 콘텐츠 XML로 단일 본편 설정을 구성하므로 로그인 세션, 실제 브라우저의 uniPlayerConfig, iframe 권한·CORS·다운로드 UI를 검증하는 테스트는 아닙니다.
 
-## 자동 재생 (opt-in)
+## 자동 재생 (검토 중)
 
-기본 비활성이며 사용자가 과목을 고른 뒤 영상을 직접 체크하고 `자동 재생`을 눌러야 동작합니다. 영상은 체크한 순서대로 즉시 정상(1x) 속도로 재생되며, 선택하지 않은 영상은 자동 재생하지 않습니다. 네이티브 `ended` 이벤트가 확인되면 다음 영상으로 이동합니다.
+순차 자동 재생은 현재 검토 중이며 **배포 빌드에서 코드 자체를 제외**합니다. 저장소에는 구현과 테스트를 유지하고, 빌드 시 `UNIDOCK_PLAYBACK` 환경변수로 포함 여부를 정합니다.
+
+| 빌드                                | 자동 재생                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build` / `npm run release` | 제외. `__UNIDOCK_PLAYBACK__`이 `false`로 치환되어 background 런타임·재생 탐색·패널이 tree-shaking되고, `player` 콘텐츠 스크립트와 `storage`·`alarms` 권한이 빠집니다. 메뉴의 `자동 재생`은 `aria-disabled` 버튼으로 남아 마우스를 올리거나 키보드로 포커스하면 “현재 검토 중인 기능입니다.”를 표시합니다. |
+| `npm run build:playback`            | 포함(`UNIDOCK_PLAYBACK=1`). 아래 동작 설명은 이 빌드 기준입니다. 배포용이 아닙니다.                                                                                                                                                                                                                       |
+
+`scripts/package-release.mjs`는 `UNIDOCK_PLAYBACK=1` 환경, `player` 스크립트, `storage`·`alarms` 권한, 설명의 “자동 재생” 문구, 재생 전용 문자열(`PLAYBACK_DISCOVER` 등)이 산출물에 있으면 실패합니다. 단위 테스트(`npm test`)는 재생 코드까지 포함해 실행합니다. 다시 배포하려면 이 표, 개인정보처리방침, 스토어 권한 사유를 함께 갱신해야 하며, 권한이 늘어나므로 기존 사용자에게 재승인 요청이 표시됩니다.
+
+**재생 빌드 동작:** 기본 비활성이며 사용자가 과목을 고른 뒤 영상을 직접 체크하고 `자동 재생`을 눌러야 동작합니다. 영상은 체크한 순서대로 즉시 정상(1x) 속도로 재생되며, 선택하지 않은 영상은 자동 재생하지 않습니다. 네이티브 `ended` 이벤트가 확인되면 다음 영상으로 이동합니다.
 
 **제한 사항과 경계:**
 
@@ -205,6 +214,8 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 10. 한국어 자막이 있는 강의에서 도구 모음 아이콘 → 자막 감지를 실행합니다. DOM 우선 적용, VTT 한국어 우선 선택, TXT 시간 보존, JSON 메타데이터와 항목 일치, 재생 상태가 바뀌지 않는지 확인합니다. 영문만 있는 강의·자막 미로딩·cross-origin iframe에서도 오류 안내를 확인합니다.
 11. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
 
+12. 상단 메뉴의 **자동 재생**이 흐리게 표시되고, 마우스를 올리거나 Tab으로 포커스하면 “현재 검토 중인 기능입니다.”가 보이며, 클릭해도 화면이 바뀌지 않는지 확인합니다.
+
 LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합니다. 실 서비스 API/SSO 변화와 Chrome Web Store 심사는 별도 검증이 필요합니다.
 
 ## 공식 참고 자료
@@ -220,13 +231,13 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `storage`와 `alarms`는 opt-in 자동 재생의 최소 상태와 제한된 lease/watchdog에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`와 기타 상시 외부 호스트 권한은 없음.
+- production manifest(0.1.1): `sidePanel`, `activeTab`, `scripting`, `downloads`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. 콘텐츠 스크립트는 `lms.js` 하나이며 자동 재생 코드와 `storage`·`alarms`는 포함하지 않습니다. `cookies`, `tabs`(광범위), `debugger`와 기타 상시 외부 호스트 권한은 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 합성 LMS를 사용한 production 확장 브라우저 UI 검증은 통과했습니다. 실제 LMS 세션에서의 UI와 플레이어 검증은 미실시이며 위 수동 절차로 확인이 필요합니다.
 
 ## Chrome Web Store 배포 준비
 
-`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.1-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
+`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴과 자동 재생 제외 여부를 검사합니다. 성공하면 `release/uniDock-0.1.1-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
 
 - [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
@@ -234,6 +245,8 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - `store/assets/`: 공개 fixture 기반 샘플 이미지 2개(1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 재생성하며 로컬 Chrome이 필요합니다.
 
 2026-09-11 배포 후보 검증: 전체 검사 통과, Python 계약 2종 일치, npm audit 알려진 취약점 0개, ZIP 허용 파일 12개 확인. 실제 계정 로그인·Chrome 114 및 최신 Chrome 통합 검증은 미실시입니다. 배포자 이름·지원 연락처·공개 정책 URL과 심사용 접근 방법을 확정한 후 체크리스트를 완료해야 합니다.
+
+2026-09-30 0.1.1 배포 후보 검증: lint·typecheck·단위 테스트 642개·format·pages 검사 통과, 자동 재생 제외 빌드 E2E 19개 통과(재생 전용 8개 skip), `build:playback` 빌드 E2E 27개 통과, npm audit 취약점 0개, ZIP 허용 파일 12개 확인. 자동 재생 제외로 background 30.1→4.9 kB, `lms.js` 45.8→40.6 kB이며 `player.js`가 빠졌습니다. 실제 계정·Chrome 114 검증은 여전히 미실시입니다.
 
 ## 과거 기록: 2026-09-12 UI 및 성능 개선 검증
 

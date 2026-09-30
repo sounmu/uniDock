@@ -261,6 +261,48 @@ p {
   background: var(--brand);
   font-weight: 600;
 }
+.rail-pending {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.rail-pending > button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.rail-pending > button[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.rail-tooltip {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 50%;
+  z-index: 10;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 12rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--surface);
+  background: var(--ink);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  word-break: keep-all;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.rail-pending:hover > .rail-tooltip,
+.rail-pending > button:focus-visible + .rail-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-tooltip {
+    transition: none;
+  }
+}
 .icon {
   width: var(--icon-size);
   height: var(--icon-size);

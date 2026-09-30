@@ -429,8 +429,9 @@ async function configurePanelAction() {
 
 export default defineBackground(() => {
   // Chrome 114 supports these APIs; baseline tests/older unsupported runtimes may not.
+  // Release builds compile playback out; the constant folds this to null.
   const playback =
-    chrome.storage?.local && chrome.alarms?.onAlarm
+    __UNIDOCK_PLAYBACK__ && chrome.storage?.local && chrome.alarms?.onAlarm
       ? createChromePlaybackRuntime()
       : null;
   const notifyPlayback = () => {
@@ -443,7 +444,7 @@ export default defineBackground(() => {
     }
   };
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
-    if (isPlaybackCommand(message)) {
+    if (__UNIDOCK_PLAYBACK__ && isPlaybackCommand(message)) {
       if (!panelSender(sender)) {
         respond({ status: "error", code: "POLICY" });
         return false;
@@ -462,6 +463,7 @@ export default defineBackground(() => {
       return true;
     }
     if (
+      __UNIDOCK_PLAYBACK__ &&
       playback &&
       object(message) &&
       message.version === 1 &&
@@ -529,7 +531,7 @@ export default defineBackground(() => {
     void openLmsTab(message, sender).then(respond);
     return true;
   });
-  if (playback) {
+  if (__UNIDOCK_PLAYBACK__ && playback) {
     const activationVersions = new Map<number, number>();
     // Recreate alarms on every worker boot as well as browser startup: Chrome does not guarantee persistence.
     const recover = () => {

@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
+import { playbackBuild } from "./build-shape";
 declare global {
   interface Window {
     downloadEvidence?: Promise<chrome.downloads.DownloadItem[]>;
@@ -361,18 +362,48 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       name: "자동 재생",
       exact: true,
     });
-    await playbackMenu.click();
-    await expect(playbackMenu).toHaveAttribute("aria-current", "page");
-    await expect(playbackMenu).toHaveCSS(
-      "background-color",
-      "rgb(135, 32, 56)",
-    );
-    await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
-    await expect(playbackMenu.locator("svg")).toHaveCSS(
-      "color",
-      "rgb(255, 255, 255)",
-    );
-    await capture(panel, "playback");
+    if (playbackBuild()) {
+      await playbackMenu.click();
+      await expect(playbackMenu).toHaveAttribute("aria-current", "page");
+      await expect(playbackMenu).toHaveCSS(
+        "background-color",
+        "rgb(135, 32, 56)",
+      );
+      await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(playbackMenu.locator("svg")).toHaveCSS(
+        "color",
+        "rgb(255, 255, 255)",
+      );
+      await capture(panel, "playback");
+    } else {
+      // Release builds keep the menu entry as a pending notice only.
+      const notice = panel.getByRole("tooltip", {
+        name: "현재 검토 중인 기능입니다.",
+      });
+      await expect(playbackMenu).toHaveAttribute("aria-disabled", "true");
+      await expect(playbackMenu).toHaveAccessibleDescription(
+        "현재 검토 중인 기능입니다.",
+      );
+      await expect(notice).toBeHidden();
+      await playbackMenu.hover();
+      await expect(notice).toBeVisible();
+      // Playwright treats aria-disabled as not actionable; a user's click
+      // still lands on the button and must be a no-op.
+      await playbackMenu.click({ force: true });
+      await expect(playbackMenu).not.toHaveAttribute("aria-current", "page");
+      await expect(
+        panel.getByRole("region", { name: "자동 재생" }),
+      ).toHaveCount(0);
+      await capture(panel, "playback-pending");
+      await panel.mouse.move(0, 0);
+      await expect(notice).toBeHidden();
+      // Keyboard focus (focus-visible) shows the same notice without hover.
+      await playbackMenu.focus();
+      await panel.keyboard.press("Tab");
+      await panel.keyboard.press("Shift+Tab");
+      await expect(playbackMenu).toBeFocused();
+      await expect(notice).toBeVisible();
+    }
     await panel.getByRole("button", { name: "정보", exact: true }).click();
     await expect(panel.getByRole("heading", { name: "정보" })).toBeVisible();
     await capture(panel, "info");

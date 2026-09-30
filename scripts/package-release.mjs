@@ -4,7 +4,14 @@ import crypto from "node:crypto";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import console from "node:console";
+import process from "node:process";
 const root = path.resolve(".output/chrome-mv3");
+// Sequential playback is under review and must never ship in a release ZIP.
+assert.notEqual(
+  process.env.UNIDOCK_PLAYBACK,
+  "1",
+  "Release packaging requires a build without UNIDOCK_PLAYBACK=1",
+);
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, "manifest.json"), "utf8"),
 );
@@ -16,14 +23,7 @@ const lmsHosts = [
 ];
 assert.deepEqual(
   [...manifest.permissions].sort(),
-  [
-    "activeTab",
-    "alarms",
-    "downloads",
-    "scripting",
-    "sidePanel",
-    "storage",
-  ].sort(),
+  ["activeTab", "downloads", "scripting", "sidePanel"].sort(),
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
@@ -40,21 +40,16 @@ for (const key of [
   assert.equal(manifest[key], undefined);
 assert.equal(manifest.side_panel.default_path, "sidepanel.html");
 assert.equal(manifest.background.service_worker, "background.js");
-assert.equal(manifest.content_scripts.length, 2);
+assert.equal(manifest.content_scripts.length, 1);
 const lmsContent = manifest.content_scripts.find((script) =>
   script.js.includes("content-scripts/lms.js"),
 );
-const playerContent = manifest.content_scripts.find((script) =>
-  script.js.includes("content-scripts/player.js"),
-);
 assert(lmsContent);
-assert(playerContent);
 assert.equal(lmsContent.all_frames, false);
 assert.deepEqual([...lmsContent.matches].sort(), lmsHosts);
-assert.equal(playerContent.all_frames, true);
-assert.deepEqual(
-  [...playerContent.matches].sort(),
-  [...lmsHosts, "https://kucom.korea.ac.kr/em/*"].sort(),
+assert(
+  !manifest.description.includes("자동 재생"),
+  "Release description must not advertise playback",
 );
 assert.equal(
   manifest.content_security_policy.extension_pages,
@@ -73,7 +68,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|player)\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -86,6 +81,16 @@ for (const file of files) {
       ),
       `Forbidden runtime pattern in ${file}`,
     );
+    // Markers unique to the playback runtime, player bridge, and panel. If one
+    // appears, the build flag failed to tree-shake the review-pending feature.
+    for (const marker of [
+      "unidock.playback.owned-tab",
+      "PLAYBACK_PLAYER_HELLO",
+      "PLAYBACK_DISCOVER",
+      "PLAYBACK_REFRESH",
+      "unidock-playback-v1",
+    ])
+      assert(!code.includes(marker), `Playback code leaked into ${file}`);
   }
 }
 for (const file of ["privacy.html", "THIRD_PARTY_NOTICES.txt", "icons/128.png"])

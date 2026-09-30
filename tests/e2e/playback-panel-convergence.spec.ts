@@ -3,8 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PLAYBACK_SKIP_REASON, playbackBuild } from "./build-shape";
 
 const extensionPath = path.resolve(".output/chrome-mv3");
+
+test.skip(!playbackBuild(), PLAYBACK_SKIP_REASON);
 const origin = "https://mylms.korea.ac.kr";
 const salt = "1".repeat(64);
 const accountKey = createHash("sha256")
