@@ -148,6 +148,18 @@ it("refuses a stale tab before requesting a download", async () => {
   expect(result).toEqual({ status: "error", code: "RELOAD_TAB" });
   expect(download).not.toHaveBeenCalled();
 });
+it("refuses a tab that navigated while the source check was pending", async () => {
+  const { download, get } = setup();
+  get
+    .mockResolvedValueOnce({ url: sender.url })
+    .mockResolvedValueOnce({ url: `${origin}/courses/202` });
+
+  expect(await downloadLmsFile(message, sender)).toEqual({
+    status: "error",
+    code: "RELOAD_TAB",
+  });
+  expect(download).not.toHaveBeenCalled();
+});
 it("drops browser error details when starting a download fails", async () => {
   // Given
   const { download } = setup();

@@ -75,6 +75,9 @@ export async function downloadLmsFile(
       ))
     )
       return { status: "error", code: "RELOAD_TAB" };
+    // Same-document navigation keeps the document ID; re-check the source URL.
+    if ((await chrome.tabs.get(sender.tab.id)).url !== sender.url)
+      return { status: "error", code: "RELOAD_TAB" };
     // The browser may finish a download after this deadline. We only forbid
     // initiating one after the originating panel operation has expired.
     if (!validDownloadDeadline(message.deadline))
