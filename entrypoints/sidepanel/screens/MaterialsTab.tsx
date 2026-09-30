@@ -202,6 +202,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
         <>
           <div role="status" className="download-progress">
             <progress
+              aria-label="PDF 다운로드 진행률"
               max={downloads.progress.total}
               value={downloads.progress.done}
             />

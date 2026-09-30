@@ -135,6 +135,28 @@ it.each(["할 일·일정", "취소"])(
       expect(chips()).toEqual(["요청됨", "취소됨", "LMS에서 확인"]);
   },
 );
+it("does not offer a restart until a cancelled request has drained", async () => {
+  await materials();
+  const first = deferred<Result>();
+  query
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  await click("취소");
+  const restart = () =>
+    [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "PDF 전체 다운로드",
+    );
+  expect(restart()).toBeUndefined();
+  await act(async () => first.resolve({ status: "success", downloaded: true }));
+  await click("PDF 전체 다운로드");
+  expect(query.mock.calls.slice(4).map(([request]) => request.handle)).toEqual([
+    documents[1]?.downloadHandle,
+  ]);
+  expect(
+    document.querySelector('progress[aria-label="PDF 다운로드 진행률"]'),
+  ).not.toBeNull();
+});
 it("requires refresh when the download capability has expired", async () => {
   // Given
   await materials();
@@ -188,6 +210,22 @@ it.each([
     expect(search).toHaveBeenCalledWith({ id: 42 });
   },
 );
+it("tracks a download that Chrome saved under a uniquified filename", async () => {
+  await materials();
+  query.mockResolvedValue({ status: "success", downloaded: true });
+  await click("PDF 전체 다운로드");
+  await act(async () => {
+    onCreated.addListener.mock.calls[0]?.[0]({
+      id: 42,
+      byExtensionId: "test",
+      url: `${target.url}courses/101/files/501/download?download_frd=1`,
+      filename: "/Downloads/uniDock/Course/Week/one (1).pdf",
+      state: "complete",
+      mime: "application/pdf",
+    });
+  });
+  expect(chips()).toEqual(["완료", "요청됨", "LMS에서 확인"]);
+});
 it.each([
   ["application/pdf", "완료"],
   ["text/html", "확인 필요"],

@@ -60,10 +60,15 @@ export function useDocumentDownloads(context: {
       )
         return;
       const path = item.filename.replace(/\\/g, "/");
+      // conflictAction "uniquify" saves a repeated file as "name (1).pdf".
+      const paths = [path, path.replace(/ \(\d+\)(?=(?:\.[^./]*)?$)/, "")];
       const matches = expected.current.filter(
         (entry) =>
           new URL(item.url).origin === entry.origin &&
-          (path === entry.path || path.endsWith(`/${entry.path}`)),
+          paths.some(
+            (candidate) =>
+              candidate === entry.path || candidate.endsWith(`/${entry.path}`),
+          ),
       );
       const handle =
         bindings.current.get(item.id) ??
@@ -251,7 +256,9 @@ export function useDocumentDownloads(context: {
           ]),
         ),
       );
-      setProgress((previous) => ({ ...previous, running: false }));
+      // The in-flight request still owns the batch; the loop clears running.
+      if (!running.current)
+        setProgress((previous) => ({ ...previous, running: false }));
     },
   };
 }
