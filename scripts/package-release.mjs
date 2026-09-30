@@ -90,12 +90,11 @@ for (const file of files) {
 }
 for (const file of ["privacy.html", "THIRD_PARTY_NOTICES.txt", "icons/128.png"])
   assert(files.includes(file));
-import { dependencyNotices } from "./dependency-notices.mjs";
-const notices = dependencyNotices();
+import { dependencyNoticesText } from "./dependency-notices.mjs";
 // Re-run build if installed dependency notices differ from bundled notices.
 assert.equal(
   fs.readFileSync(path.join(root, "THIRD_PARTY_NOTICES.txt"), "utf8"),
-  notices.join("\n\n---\n\n"),
+  dependencyNoticesText(),
 );
 fs.mkdirSync("release", { recursive: true });
 const zip = path.resolve(`release/uniDock-${manifest.version}-chrome-mv3.zip`);

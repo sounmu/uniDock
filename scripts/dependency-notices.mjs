@@ -26,3 +26,10 @@ export function dependencyNotices() {
   });
   return notices;
 }
+export function dependencyNoticesText() {
+  return (
+    dependencyNotices()
+      .map((notice) => notice.trimEnd())
+      .join("\n\n---\n\n") + "\n"
+  );
+}
