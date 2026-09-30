@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
+import { playbackBuild } from "./build-shape";
 
 const extensionPath = path.resolve(".output/chrome-mv3");
 const origin = "https://mylms.korea.ac.kr";
@@ -168,46 +169,49 @@ test("two production panel consumers retain independent capability catalogs", as
       "/courses/101/files/502/download",
     ]);
 
-    await lms.bringToFront();
-    const playbackRefresh = await panelB.evaluate(() =>
-      chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
-    );
-    if (playbackRefresh.status === "error")
-      throw new Error(`Playback refresh failed: ${playbackRefresh.code}`);
-    expect(playbackRefresh.status).toBe("success");
-    expect(playbackRefresh.snapshot.courses).toContainEqual(
-      expect.objectContaining({ name: "Synthetic Operating Systems" }),
-    );
-    await panelB
-      .getByRole("button", { name: "자동 재생", exact: true })
-      .click();
-    const playback = panelB.getByRole("region", { name: "자동 재생" });
-    await playback.getByRole("button", { name: "새로고침" }).click();
-    await expect(
-      panelB.getByRole("button", { name: "영상 선택" }),
-    ).toBeEnabled();
-    await panelB.getByRole("button", { name: "영상 선택" }).click();
-    await panelB
-      .getByLabel("과목 선택")
-      .selectOption({ label: "Synthetic Operating Systems" });
-    await expect(
-      panelB.getByText("Synthetic Lecture A", { exact: true }),
-    ).toBeVisible();
+    // Release builds omit playback; its catalog isolation is covered by test:e2e:playback.
+    if (playbackBuild()) {
+      await lms.bringToFront();
+      const playbackRefresh = await panelB.evaluate(() =>
+        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
+      );
+      if (playbackRefresh.status === "error")
+        throw new Error(`Playback refresh failed: ${playbackRefresh.code}`);
+      expect(playbackRefresh.status).toBe("success");
+      expect(playbackRefresh.snapshot.courses).toContainEqual(
+        expect.objectContaining({ name: "Synthetic Operating Systems" }),
+      );
+      await panelB
+        .getByRole("button", { name: "자동 재생", exact: true })
+        .click();
+      const playback = panelB.getByRole("region", { name: "자동 재생" });
+      await playback.getByRole("button", { name: "새로고침" }).click();
+      await expect(
+        panelB.getByRole("button", { name: "영상 선택" }),
+      ).toBeEnabled();
+      await panelB.getByRole("button", { name: "영상 선택" }).click();
+      await panelB
+        .getByLabel("과목 선택")
+        .selectOption({ label: "Synthetic Operating Systems" });
+      await expect(
+        panelB.getByText("Synthetic Lecture A", { exact: true }),
+      ).toBeVisible();
 
-    const finalB = await panelB.evaluate(
-      () =>
-        (window as typeof window & { capturedLists: CapturedList[] })
-          .capturedLists,
-    );
-    expect(
-      finalB.filter(({ request }) => request.type === "RECORDINGS_LIST"),
-    ).toHaveLength(2);
-    const playbackHandles = finalB
-      .filter(({ request }) => request.type === "RECORDINGS_LIST")[1]!
-      .result.recordings!.map(({ launchHandle }) => launchHandle);
-    expect(playbackHandles).not.toEqual(
-      handlesB.map(({ launchHandle }) => launchHandle),
-    );
+      const finalB = await panelB.evaluate(
+        () =>
+          (window as typeof window & { capturedLists: CapturedList[] })
+            .capturedLists,
+      );
+      expect(
+        finalB.filter(({ request }) => request.type === "RECORDINGS_LIST"),
+      ).toHaveLength(2);
+      const playbackHandles = finalB
+        .filter(({ request }) => request.type === "RECORDINGS_LIST")[1]!
+        .result.recordings!.map(({ launchHandle }) => launchHandle);
+      expect(playbackHandles).not.toEqual(
+        handlesB.map(({ launchHandle }) => launchHandle),
+      );
+    }
     expect(errors).toEqual([]);
   } finally {
     if (context) await context.close();

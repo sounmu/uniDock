@@ -682,6 +682,7 @@ export default defineContentScript({
           return false;
         }
         if (
+          __UNIDOCK_PLAYBACK__ &&
           object(message) &&
           message.version === 1 &&
           backgroundSender(sender) &&

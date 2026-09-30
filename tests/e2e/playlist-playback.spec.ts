@@ -2,8 +2,11 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PLAYBACK_SKIP_REASON, playbackBuild } from "./build-shape";
 
 const extensionPath = path.resolve(".output/chrome-mv3");
+
+test.skip(!playbackBuild(), PLAYBACK_SKIP_REASON);
 const origin = "https://mylms.korea.ac.kr";
 const kuPlayer = "https://kucom.korea.ac.kr";
 
