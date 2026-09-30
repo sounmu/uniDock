@@ -74,6 +74,16 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.resetAllMocks();
 });
+it("returns keyboard focus to the information trigger when closing it", async () => {
+  ui = await mount(<App />);
+  const trigger = [...document.querySelectorAll("button")].find(
+    (button) => button.textContent === "정보",
+  );
+  trigger?.focus();
+  await click("정보");
+  await click("← 목록");
+  expect(document.activeElement).toBe(trigger);
+});
 it("waits for the pending request then loads the last selected menu automatically", async () => {
   // Given
   const first = deferred<Result>();
