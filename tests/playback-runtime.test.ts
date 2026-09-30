@@ -164,6 +164,14 @@ async function playing(f: ReturnType<typeof fixture>) {
   return authorization.binding;
 }
 
+it("hands a lost player tab to close so its ownership record is dropped", async () => {
+  const f = fixture();
+  await playing(f);
+  await f.runtime.lost(9);
+  expect(f.runtime.dedicatedTabId).toBeNull();
+  expect(f.saved?.player).toBeNull();
+  expect(f.closed).toEqual([9]);
+});
 it("keeps active-run discovery pinned to the listing source", async () => {
   const f = fixture();
   await start(f);

@@ -862,6 +862,8 @@ export class PlaybackRuntime {
       if (this.run?.tabId !== tabId) return;
       this.run.tabId = null;
       this.saved.player = null;
+      // Drops the tab's ownership record; close() never removes a non-player page.
+      await this.ports.close(tabId);
     });
     await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
   }
