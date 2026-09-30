@@ -170,6 +170,7 @@ p {
 .playback-choice > span:last-child {
   display: grid;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .playback-choice small,
 .field small {
@@ -230,6 +231,7 @@ p {
   display: grid;
   min-width: 0;
   flex: 1;
+  overflow-wrap: anywhere;
 }
 .playback-queue small,
 .playback-current small {
