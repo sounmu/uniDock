@@ -28,6 +28,7 @@ export function PagedList<T>({
           <button
             className="btn-secondary"
             disabled={page === 0}
+            data-analytics-action="page_previous"
             onClick={() => setSelection({ resetKey, page: page - 1 })}
           >
             이전
@@ -38,6 +39,7 @@ export function PagedList<T>({
           <button
             className="btn-secondary"
             disabled={end === items.length}
+            data-analytics-action="page_next"
             onClick={() => setSelection({ resetKey, page: page + 1 })}
           >
             다음

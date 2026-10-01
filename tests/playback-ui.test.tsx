@@ -645,7 +645,7 @@ it("requires confirmation before deleting local playback data", async () => {
   ui = await mount(<PlaybackPanel />);
   await click("로컬 데이터 모두 삭제");
   expect(ui.host.textContent).toContain(
-    "저장된 재생목록과 상태를 모두 삭제합니다",
+    "저장된 재생목록·상태와 통계 공유 동의·식별자를 삭제하고 통계 수집을",
   );
   await click("삭제 확인");
   expect(command).toHaveBeenCalledWith({

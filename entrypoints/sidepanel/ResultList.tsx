@@ -76,6 +76,7 @@ export function ResultList({
                   recordingPending ||
                   usedRecordingHandles?.has(item.launchHandle)
                 }
+                data-analytics-action="recording_launch"
                 onClick={() => onRecording?.(item.launchHandle)}
               >
                 LTI 탭 열기 ↗
@@ -87,6 +88,7 @@ export function ResultList({
                   recordingPending ||
                   usedRecordingHandles?.has(item.lmsHandle)
                 }
+                data-analytics-action="recording_module"
                 onClick={() => onRecording?.(item.lmsHandle)}
               >
                 LMS 모듈에서 보기 ↗
@@ -109,6 +111,7 @@ export function ResultList({
               <li key={row.courseSelector}>
                 <ListRow
                   title={row.name}
+                  analyticsAction="course_select"
                   course="과제·녹화·자료"
                   onClick={() => onCourse(row)}
                 />

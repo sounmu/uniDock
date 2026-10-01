@@ -85,11 +85,11 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `storage`는 계정 구분과 opt-in 자동 재생의 최소 재생목록 상태에, `alarms`는 진행 중인 재생의 제한된 lease/watchdog 확인에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`입니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `storage`는 계정 구분과 opt-in 자동 재생의 최소 재생목록 상태 및 선택적 통계 공유 동의·설치 식별자에, `alarms`는 진행 중인 재생의 제한된 lease/watchdog 확인에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. opt-in 예약 설정·최소 과목/영상 식별자·상태를 `chrome.storage.local`에 계정별로 저장하고 전용 탭 소유권은 `chrome.storage.session`에서 확인합니다. 쿠키, 토큰, 원본 API 응답 전체, 서명된 LTI URL은 저장하지 않습니다. 사용자가 설정에서 데이터를 즉시 삭제할 수 있습니다. IndexedDB와 telemetry는 사용하지 않습니다. Fetch는 `cache: no-store`입니다. 검증·투영된 과목 목록의 캐시 재사용 기한은 2분, 과제·마감·할 일·일정 목록은 30초입니다. 만료된 항목은 다시 표시하지 않고 다음 캐시 접근 또는 LMS 탭 이동·종료 때 메모리에서 제거합니다. 캐시를 읽기 전 현재 LMS 계정을 다시 확인하고 계정 변경·로그인 만료 시 전체를 폐기하며, 사용자가 누른 새로고침은 캐시를 우회합니다. 일회용 키가 포함된 녹화·PDF 목록과 원본 API 응답은 캐시하지 않습니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. opt-in 재생 설정·최소 과목/영상 식별자·상태를 `chrome.storage.local`에 계정별로 저장하고 전용 탭 소유권은 `chrome.storage.session`에서 확인합니다. 쿠키, 토큰, 원본 API 응답 전체, 서명된 LTI URL은 저장하지 않습니다. 사용자가 설정에서 데이터를 즉시 삭제할 수 있습니다. IndexedDB는 사용하지 않으며 telemetry는 아래의 선택적 PostHog 사용 통계만 허용합니다. Fetch는 `cache: no-store`입니다. 검증·투영된 과목 목록의 캐시 재사용 기한은 2분, 과제·마감·할 일·일정 목록은 30초입니다. 만료된 항목은 다시 표시하지 않고 다음 캐시 접근 또는 LMS 탭 이동·종료 때 메모리에서 제거합니다. 캐시를 읽기 전 현재 LMS 계정을 다시 확인하고 계정 변경·로그인 만료 시 전체를 폐기하며, 사용자가 누른 새로고침은 캐시를 우회합니다. 일회용 키가 포함된 녹화·PDF 목록과 원본 API 응답은 캐시하지 않습니다. 브라우저 자체 네트워크 기록까지 제어하지는 않습니다.
 
 과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. opt-in 자동 재생은 사용자가 직접 선택하고 시작한 영상만 정상(1x) 속도로 동작하며, 동의 없는 자동재생이나 배속 재생은 하지 않습니다. 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
 
@@ -220,13 +220,13 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `storage`와 `alarms`는 opt-in 자동 재생의 최소 상태와 제한된 lease/watchdog에만 사용합니다. `cookies`, `tabs`(광범위), `debugger`와 기타 상시 외부 호스트 권한은 없음.
+- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`와 `https://mylms.korea.ac.kr/*`, `https://canvas.korea.ac.kr/*`, `https://kucom.korea.ac.kr/*` 호스트 권한, Chrome 114 minimum 유지. `storage`에는 통계 동의·설치 식별자도 저장합니다. PostHog EU ingestion만 CSP `connect-src`로 허용합니다. `cookies`, `tabs`(광범위), `debugger`와 기타 상시 외부 호스트 권한은 없음.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 합성 LMS를 사용한 production 확장 브라우저 UI 검증은 통과했습니다. 실제 LMS 세션에서의 UI와 플레이어 검증은 미실시이며 위 수동 절차로 확인이 필요합니다.
 
 ## Chrome Web Store 배포 준비
 
-`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.1-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
+`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.1.2-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
 
 - [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
@@ -242,6 +242,34 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - 날짜 포매터를 재사용하고 목록을 100개씩 표시합니다. 모듈 추가 조회는 최대 3개 병렬 처리하며 순서·공유 예산·실패 시 전체 중단을 검증했습니다.
 - `npm run check`: 13개 파일의 231개 테스트, lint, 타입 검사, production build 통과. `npm run contract:check`, `npm run format:check` 통과.
 - UI 상호작용은 Chrome API mock 기반 jsdom 테스트로 검증했습니다. 실제 로그인 세션과 확장 권한을 포함한 Chrome 통합 검증은 별도로 필요합니다.
+
+## 선택적 사용 통계 (PostHog)
+
+- **기본 비활성**. 패널의 **정보 → 사용 통계 공유 → 동의하고 통계 공유**를 누른 이후만 수집합니다. 기존 설치도 자동 동의 처리하지 않습니다. 거절·철회해도 학습 기능은 같습니다.
+- 정적 화면/버튼 종류, 기능 성공·실패, 표시·활성 시간, 확장 버전, 무작위 설치 ID 및 이벤트 시각/중복 구분 ID만 보냅니다. LMS 데이터·URL·페이지 제목·입력값·자막·파일·원본 오류는 제외합니다. 자동 DOM 수집·리플레이·히트맵·원격 설정은 사용하지 않습니다.
+- `@posthog/core`의 DOM 없는 stateless SDK를 번들하고 백그라운드 어댑터에서 EU `/batch/`로만 전송합니다. 콘텐츠 스크립트는 수집/설정 메시지를 보낼 수 없습니다. 디스크 이벤트 큐·재시도는 없으며 오프라인·종료·분당 한도 초과 시 이벤트를 버립니다.
+- 동의 철회 시 진행 중인 분석 요청을 취소하고 로컬 ID를 삭제합니다. **자동 재생 → 안내 및 로컬 데이터 → 로컬 데이터 모두 삭제**는 동의도 삭제합니다. 이미 서버에 도착한 이벤트는 소급 삭제되지 않습니다. 원격 삭제는 철회 전 정보 화면의 요청용 ID로 지원 연락처에 요청합니다.
+- 활성 시간은 패널이 표시되고 포커스가 있으며 최근 60초 이내 조작한 시간입니다. 5초 간격으로 확인하고 30초마다 초 단위로 전송합니다. 10초 초과 타이머 공백은 절전/스로틀링으로 간주해 제외합니다. 패널 표시 시간과 영상 재생 시간은 다릅니다.
+- 지표는 **동의한 브라우저 설치의 표본**입니다. 여러 기기는 여러 설치이며 재동의/재설치 후 ID는 달라집니다. 설치 총량은 Chrome Web Store 대시보드와 별도로 봅니다.
+
+운영 프로젝트 없이도 모든 기능을 실행할 수 있습니다. 키가 없으면 동의 버튼은 비활성화되고 분석 요청·ID 생성이 없습니다. 개발/HMR 빌드도 수집을 비활성화합니다.
+
+```sh
+# EU 리전 PostHog 프로젝트의 공개 수집 토큰만 사용 (개인/관리 API 키 금지)
+VITE_POSTHOG_KEY=phc_your_project_token npm run build
+```
+
+매번 토큰을 지정하지 않으려면 프로젝트 루트의 `.env.local`에 한 번 저장합니다(버전 관리 제외).
+
+```dotenv
+VITE_POSTHOG_KEY=phc_your_project_token
+```
+
+이후에는 `npm run build`만 실행하면 됩니다. 셸의 같은 이름 환경변수가 파일보다 우선합니다. 빌드 후 `chrome://extensions`에서 확장을 새로고침하고 패널을 다시 열어야 반영됩니다. 처음 사용하는 설치는 **정보 → 동의하고 통계 공유**도 필요합니다. 토큰 설정 전에 만든 배포 ZIP은 바뀌지 않으므로 배포할 때는 `npm run release`를 다시 실행합니다.
+
+토큰은 빌드 산출물에 포함되는 공개 수집용 값으로 비밀키가 아닙니다. US 프로젝트나 임의 호스트는 사용하지 않습니다. 실제 전송 활성화 전 IP 폐기, 이벤트 최대 90일 보관, 삭제 절차 및 공개 정책/스토어 고지를 적용해야 합니다. 서버 보관/삭제는 확장이 자동 설정하지 않습니다.
+
+PostHog에서 **Dashboards → New dashboard → Blank dashboard**로 그래프를 모을 수 있습니다. 현재 맞춤 이벤트를 사용하므로 웹사이트용 기본 Web Analytics 대신 직접 Insight를 구성합니다. 클릭은 `action_clicked`를 `action`별로, 활성 시간은 `panel_engagement.active_seconds`의 **합계**로 봅니다. 상세 설정·실패율/리텐션 정의·문제 해결·최신 확인 상태는 [분석 운영 안내](documentation/ANALYTICS.md)를 참고하세요.
 
 ## 개인정보처리방침 GitHub Pages 배포
 

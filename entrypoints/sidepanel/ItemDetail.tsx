@@ -82,6 +82,7 @@ export function ItemDetail({
         item.html_url && (
           <a
             className="btn-primary item-title-link"
+            data-analytics-action="lms_open"
             href={item.html_url}
             target="_blank"
             rel="noreferrer"

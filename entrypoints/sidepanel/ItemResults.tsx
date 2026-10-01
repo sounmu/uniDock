@@ -82,13 +82,14 @@ export function ItemResults({
       <div hidden={detail !== null}>
         {(deadlines || todo) && (
           <details className="view-settings">
-            <summary>보기 설정</summary>
+            <summary data-analytics-action="view_options">보기 설정</summary>
             <div className="view-settings-body">
               {deadlines && (
                 <label className="remaining-toggle">
                   <input
                     type="checkbox"
                     checked={remainingOnly}
+                    data-analytics-action="filter_remaining"
                     onChange={(e) => setRemainingOnly(e.target.checked)}
                   />
                   남은 과제만
@@ -100,6 +101,7 @@ export function ItemResults({
                     마감 기간
                     <select
                       value={period}
+                      data-analytics-action="filter_period"
                       onChange={(e) => {
                         const value = e.target.value;
                         if (
@@ -120,6 +122,7 @@ export function ItemResults({
                   정렬
                   <select
                     value={sort ? "due" : "original"}
+                    data-analytics-action="sort"
                     onChange={(e) => setSort(e.target.value === "due")}
                   >
                     <option value="original">LMS 순서</option>
