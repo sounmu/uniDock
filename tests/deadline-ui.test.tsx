@@ -83,7 +83,7 @@ it("sorts the whole response before pagination and returns to LMS order", async 
   });
   expect(document.querySelector("li strong")?.textContent).toBe("과제 0");
 });
-it("sorts Todo by due date on demand and restores LMS order", async () => {
+it("sorts Todo by due date by default and restores LMS order on demand", async () => {
   ui = await mount(
     <ResultList
       result={{
@@ -117,16 +117,10 @@ it("sorts Todo by due date on demand and restores LMS order", async () => {
   );
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
-  ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
+  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
   await click("보기 설정");
   const select = document.querySelector("select")!;
-  await act(async () => {
-    select.value = "due";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  expect(
-    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
-  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
+  expect(select.value).toBe("due");
   await act(async () => {
     select.value = "original";
     select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -134,4 +128,11 @@ it("sorts Todo by due date on demand and restores LMS order", async () => {
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
   ).toEqual(["마감 없음", "늦은 마감", "빠른 마감"]);
+  await act(async () => {
+    select.value = "due";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(
+    [...document.querySelectorAll("li strong")].map((node) => node.textContent),
+  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
 });

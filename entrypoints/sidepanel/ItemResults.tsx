@@ -72,7 +72,7 @@ export function ItemResults({
 }) {
   const [remainingOnly, setRemainingOnly] = useState(true);
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
-  const [sort, setSort] = useState(false);
+  const [sort, setSort] = useState(true);
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
   useEffect(() => {
