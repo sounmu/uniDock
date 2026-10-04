@@ -20,6 +20,7 @@ import { readUrl } from "../security/policy";
 import { nextPage } from "./pagination";
 import { collectRecordings } from "./recording-collection";
 import { collectDocuments } from "./document-collection";
+import { collectBoardDocuments } from "./board-collection";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -29,6 +30,8 @@ export async function listQuery(
   now = Date.now(),
   catalog?: NavigationCatalog,
   resolvedCourseId?: string,
+  /** Reads the LearningX board token at call time; omitted skips boards. */
+  boardToken?: () => string | null,
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
@@ -182,8 +185,23 @@ export async function listQuery(
             now,
             controller,
           };
+          const boards = boardToken
+            ? (seenFiles: Set<string>) =>
+                collectBoardDocuments({
+                  origin,
+                  courseId,
+                  token: boardToken(),
+                  fetcher,
+                  signal: controller.signal,
+                  seenFiles,
+                  now,
+                })
+            : undefined;
           return query.type === "DOCUMENTS_LIST"
-            ? { status: "success", documents: await collectDocuments(input) }
+            ? {
+                status: "success",
+                documents: await collectDocuments({ ...input, boards }),
+              }
             : { status: "success", recordings: await collectRecordings(input) };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;

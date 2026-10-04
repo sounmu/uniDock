@@ -70,7 +70,7 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 - `src/pdf/handoff.ts`: 질문 템플릿 복사와 ChatGPT 시작 페이지 열기만 수행.
 - `src/security/`: 출처/경로/쿼리 제한, redaction, 정적 이벤트 코드 로깅.
 
-패널 → `tabs.sendMessage` → LMS content script → 동일 출처 Fetch 순서입니다. `credentials: same-origin`으로 브라우저가 해당 세션 쿠키를 자동 첨부합니다. 쿠키를 직접 읽거나 저장하지 않습니다. 백그라운드 범용 HTTP proxy는 없습니다.
+패널 → `tabs.sendMessage` → LMS content script → 동일 출처 Fetch 순서입니다. `credentials: same-origin`으로 브라우저가 해당 세션 쿠키를 자동 첨부합니다. 쿠키를 저장하지 않으며, 직접 읽는 값은 LearningX 게시판 조회용 `xn_api_token` 하나뿐입니다(강의 자료 참고). 백그라운드 범용 HTTP proxy는 없습니다.
 
 허용되는 GET 목록 경로는 아래와 같습니다. 모듈의 인라인 항목이 누락되거나 일부만 있으면 module items API를 추가 조회합니다.
 
@@ -97,7 +97,9 @@ Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `sto
 
 **내 과목 → 과목 선택 → 강의 자료**에서 주차학습 모듈과 게시판·공지의 첨부파일(PDF·PPTX·PPT)을 형식 구분 없이 하나의 강의 자료 목록으로 조회합니다. 목록에는 교수자가 붙인 자료 제목과 실제 파일명을 함께 표시하고(같으면 한 번만), 저장 파일명은 실제 파일명을 따릅니다. 전체 다운로드는 목록의 다운로드 가능 자료 전체에 적용됩니다. 저장 위치는 `uniDock/<과목>/<출처>/<파일명>`이며 원래 확장자를 유지합니다. 이름 충돌은 Chrome이 구분합니다. 모듈 파일 ID는 검증된 `content_id`, 게시판 파일 ID는 첨부 메타데이터의 `id`에서만 얻습니다. 서명 URL이나 링크에서 ID를 추측하지 않습니다. ID가 없는 모듈 자료는 LMS에서 직접 확인합니다.
 
-Canvas `modules`와 `discussion_topics`(일반 게시판 및 `only_announcements=true`)를 사용합니다. 미공개·잠김·숨김 첨부는 제외하고 모든 조회에 기존 시간·페이지·개수 예산을 공유합니다. 게시판·공지는 보조 출처라서 첫 페이지가 401/403/404(탭 비활성·권한 없음)이면 그 출처만 건너뛰고 주차학습 자료는 그대로 표시합니다. 리다이렉트, 두 번째 이후 페이지 실패와 그 밖의 오류는 부분 결과 없이 전체 실패로 표시합니다. 학교 전용 외부 도구 게시판, 본문에만 삽입된 링크, 답글 첨부, 외부 저장소는 현재 인식 범위 밖이며 실제 LMS 화면과의 대응은 별도 검증이 필요합니다.
+Canvas `modules`와 `discussion_topics`(일반 게시판 및 `only_announcements=true`)를 사용합니다. 미공개·잠김·숨김 첨부는 제외하고 모든 조회에 기존 시간·페이지·개수 예산을 공유합니다. 게시판·공지는 보조 출처라서 첫 페이지가 401/403/404(탭 비활성·권한 없음)이면 그 출처만 건너뛰고 주차학습 자료는 그대로 표시합니다. 리다이렉트, 두 번째 이후 페이지 실패와 그 밖의 오류는 부분 결과 없이 전체 실패로 표시합니다. 본문에만 삽입된 링크와 외부 저장소는 현재 인식 범위 밖입니다.
+
+과목 메뉴의 **Board**처럼 LearningX 외부 도구로 된 게시판은 Canvas API에 나타나지 않습니다. 이 게시판은 LearningX API(`/learningx/api/v1/learningx_board/courses/{ID}/boards`, `.../posts?page=N`, `.../posts/{ID}`)로 읽습니다. 이 API는 LearningX가 페이지 쿠키에 둔 `xn_api_token`을 Bearer 헤더로 요구하므로, content script가 요청할 때만 읽어 이 세 경로에만 붙이고 저장·기록·전달하지 않습니다. 첨부의 `canvas_file_id`로 기존 Canvas 파일 다운로드 경로를 사용합니다. 토큰은 LMS에서 게시판을 열면 발급되고 약 4시간 유효합니다. 토큰이 없거나 만료됐으면 게시판 자료만 빠지고 나머지는 그대로 표시됩니다.
 
 패널은 5분 만료·일회용 다운로드 handle만 보내고 content script가 정규 `/courses/:cid/files/:fid/download?download_frd=1` 주소를 만듭니다. background가 출처, 경로, 쿼리, 발신자, 현재 탭과 안전한 상대경로를 재검증한 뒤 `chrome.downloads`로 요청합니다. 확장은 파일 내용을 fetch·파싱·업로드하지 않습니다. 화면 이동이나 취소는 아직 보내지 않은 요청만 중단하며 사용한 handle은 재사용하지 않습니다.
 
@@ -126,7 +128,7 @@ Chrome은 설치·업데이트 때 이미 열려 있던 탭에 manifest 콘텐�
 
 녹화 강의의 제목·모듈명은 내부 ID와 숫자가 일치한다는 이유만으로 치환하지 않습니다. 날짜·차시 번호를 보존하며, URL·이메일·토큰 패턴·8자리 이상 숫자에 대한 공통 마스킹은 적용합니다.
 
-백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules`, `/courses/{ID}/modules/items/{ID}`, 게시판 자료의 `/courses/{ID}/discussion_topics/{ID}`만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않습니다.
+백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules`, `/courses/{ID}/modules/items/{ID}`, 게시판 자료의 `/courses/{ID}/discussion_topics/{ID}`와 LearningX 게시판 도구 `/courses/{ID}/external_tools/{ID}`만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않습니다.
 
 배포 빌드에는 자동 재생, 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조가 없습니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
 

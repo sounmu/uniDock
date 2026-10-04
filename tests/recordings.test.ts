@@ -374,7 +374,10 @@ it.each([
   `${origin}/courses/101/modules?token=secret`,
   `${origin}/courses/101/modules/items/501#secret`,
   `${origin}/api/v1/courses/101`,
-  `${origin}/courses/101/external_tools/5`,
+  // Only the plain course tool tab is a destination; launch URLs stay blocked.
+  `${origin}/courses/101/external_tools/5?launch_type=course_navigation`,
+  `${origin}/courses/101/external_tools/retrieve`,
+  `${origin}/learningx/redirect/courses/101/external_tools/5`,
   "javascript:alert(1)",
 ])("blocks unsafe navigation %s", (value) =>
   expect(navigationUrl(value, origin)).toBeNull(),

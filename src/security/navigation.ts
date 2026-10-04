@@ -1,5 +1,6 @@
 import { allowedPage } from "./policy";
-// Tabs may open only clean, canonical LMS course/module-item routes. No LTI URL proxy.
+// Tabs may open only clean, canonical LMS course/module-item routes, including a
+// course tool tab (Canvas launches it). No LTI URL proxy.
 export function navigationUrl(value: unknown, source: string): string | null {
   if (typeof value !== "string" || value.length > 300 || !allowedPage(source))
     return null;
@@ -13,7 +14,7 @@ export function navigationUrl(value: unknown, source: string): string | null {
     )
       return null;
     if (
-      !/^\/courses\/[1-9]\d{0,19}\/(?:modules(?:\/items\/[1-9]\d{0,19})?|discussion_topics\/[1-9]\d{0,19})$/.test(
+      !/^\/courses\/[1-9]\d{0,19}\/(?:modules(?:\/items\/[1-9]\d{0,19})?|discussion_topics\/[1-9]\d{0,19}|external_tools\/[1-9]\d{0,19})$/.test(
         url.pathname,
       )
     )

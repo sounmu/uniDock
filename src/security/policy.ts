@@ -35,6 +35,21 @@ export function readUrl(
     /^\/api\/v1\/courses\/[1-9]\d*\/modules\/[1-9]\d*\/items$/.test(
       expectedPath,
     );
+  // LearningX boards: the course board list, one board's post pages, and one
+  // post. Only `page` is accepted, and only on the post list.
+  const boards =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards$/.test(
+      expectedPath,
+    );
+  const boardPosts =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards\/[1-9]\d*\/posts$/.test(
+      expectedPath,
+    );
+  const boardPost =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards\/[1-9]\d*\/posts\/[1-9]\d*$/.test(
+      expectedPath,
+    );
+  const learningx = boards || boardPosts || boardPost;
   const courses = expectedPath === "/api/v1/courses",
     planner = expectedPath === "/api/v1/planner/items",
     currentUser = expectedPath === "/api/v1/users/self";
@@ -43,6 +58,7 @@ export function readUrl(
     modules ||
     topics ||
     moduleItems ||
+    learningx ||
     courses ||
     planner ||
     currentUser
@@ -56,7 +72,8 @@ export function readUrl(
   )
     throw new Error("POLICY");
   const permitted = [
-    ...(!currentUser ? ["per_page", "page"] : []),
+    ...(boardPosts ? ["page"] : []),
+    ...(!currentUser && !learningx ? ["per_page", "page"] : []),
     ...(courses ? ["enrollment_state"] : []),
     ...(topics ? ["only_announcements"] : []),
     ...(assignments || modules || moduleItems ? ["include[]"] : []),

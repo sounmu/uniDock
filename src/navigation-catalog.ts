@@ -14,6 +14,8 @@ export interface DocumentTarget extends Omit<RecordingTarget, "itemId"> {
   itemId: string;
   filename: string;
   topicId?: string;
+  /** LearningX board course tool; the post lives inside that tool. */
+  boardToolId?: string;
   fileId?: string;
 }
 interface Entry {
@@ -129,9 +131,11 @@ export class NavigationCatalog {
     try {
       const result = targets.map((target) => {
         const url = navigationUrl(
-          target.topicId
-            ? `${origin}/courses/${target.courseId}/discussion_topics/${target.topicId}`
-            : `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
+          target.boardToolId
+            ? `${origin}/courses/${target.courseId}/external_tools/${target.boardToolId}`
+            : target.topicId
+              ? `${origin}/courses/${target.courseId}/discussion_topics/${target.topicId}`
+              : `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
           origin,
         );
         if (!url) throw new Error("POLICY");

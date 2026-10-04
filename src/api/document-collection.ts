@@ -25,6 +25,7 @@ export async function collectDocuments({
   catalog,
   now,
   controller,
+  boards,
 }: {
   origin: string;
   courseId: string;
@@ -34,6 +35,8 @@ export async function collectDocuments({
   catalog: NavigationCatalog;
   now: number;
   controller: AbortController;
+  /** LearningX board attachments, skipping files already listed. */
+  boards?: (seenFiles: Set<string>) => Promise<DocumentTarget[]>;
 }) {
   const byModule: DocumentTarget[][] = Array.from(
     { length: modules.length },
@@ -142,6 +145,13 @@ export async function collectDocuments({
         if (++total > 10000) throw new Error("LIMIT");
       }
     }
+  }
+  if (boards) {
+    const seenFiles = new Set(
+      targets.flatMap((target) => (target.fileId ? [target.fileId] : [])),
+    );
+    targets.push(...(await boards(seenFiles)));
+    if (targets.length > 10000) throw new Error("LIMIT");
   }
   return catalog.replaceDocuments(origin, targets, now);
 }

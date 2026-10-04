@@ -10,6 +10,7 @@ import {
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { listCourseIndex, listQuery } from "../src/api/client";
+import { learningxToken } from "../src/security/learningx-token";
 import {
   panelQuery,
   parseResult,
@@ -583,6 +584,7 @@ export default defineContentScript({
               Date.now(),
               staging,
               resolvedCourseId,
+              () => learningxToken(document.cookie),
             )
           : listQuery(
               location.origin,

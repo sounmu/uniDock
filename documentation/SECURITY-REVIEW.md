@@ -25,7 +25,7 @@
 - API 클라이언트는 내부에서 만든 GET 목록 endpoint만 허용하며 URL/메서드 프록시가 없습니다. 각 next Link는 동일 출처·동일 경로·허용 query만 통과합니다.
 - content script는 확장 자신의 Side Panel 발신자만 처리합니다. 백그라운드 탭 열기는 확장 ID, 최상위 LMS 프레임, 현재 탭 URL, canonical LMS 경로를 검사합니다. 외부 메시징/웹 접근 리소스는 선언하지 않습니다.
 - 원본 API 객체 대신 공개 필드만 전달합니다. React 텍스트 렌더링이며 innerHTML/eval/동적 원격 코드가 없습니다. extension CSP는 self 스크립트, object/connect/base/form 금지를 적용합니다. content script의 동일 출처 Fetch는 별도 실행 경계입니다.
-- 쿠키 값을 읽는 코드·credential 입력·storage·telemetry 없음. 정적 이벤트 코드 로깅 하나만 존재. 명시적 TXT 내보내기 이외 지속 저장 없음.
+- credential 입력 없음. 쿠키 값 읽기는 LearningX 게시판 토큰(`xn_api_token`) 하나로 한정합니다(아래 "LearningX 게시판" 참고). 정적 이벤트 코드 로깅 하나만 존재. 명시적 TXT 내보내기 이외 지속 저장 없음.
 - activeTab은 사용자가 아이콘을 누른 탭의 임시 권한입니다. 상시 호스트 권한은 두 LMS 출처뿐입니다. MAIN에서 읽은 값은 기능/코드로 실행하지 않고 다시 검증합니다.
 - 자동재생/seek/keepalive/출석/제출·수정 기능 없음. 사용자가 연 LMS/LTI 자체의 동작은 별개입니다.
 - production ZIP에는 runtime JS/CSS/HTML, 아이콘, 개인정보 페이지, 제3자 라이선스만 포함합니다. 소스·테스트·Python·env·개발 서버·source map·스토어 자료는 제외합니다.
@@ -139,6 +139,7 @@
 
 - 자료 후보 형식은 PDF/PPTX/PPT입니다. 모듈 `content_details.display_name`과 게시판 첨부 메타데이터의 파일명을 사용하며, 서명 URL에서 형식·ID를 추출하지 않습니다. 파일 내용은 읽지 않습니다.
 - `GET /api/v1/courses/:cid/discussion_topics`와 고정 `only_announcements=true`를 읽기 허용 목록에 추가했습니다. 기존 페이지·시간·응답 크기 예산을 공유합니다. 보조 출처인 게시판·공지의 첫 페이지가 401/403/404이면 해당 출처만 비어 있는 것으로 처리하고, 리다이렉트·이후 페이지 실패·기타 오류는 부분 결과를 공개하지 않습니다. 열기 경로는 같은 과목의 정규 `discussion_topics/:id`로 제한합니다.
+- LearningX 게시판(과목 메뉴의 외부 도구 게시판): `GET /learningx/api/v1/learningx_board/courses/:cid/boards`, `.../boards/:bid/posts?page=N`, `.../boards/:bid/posts/:pid`만 허용합니다. 이 API는 세션 쿠키가 아니라 `Authorization: Bearer`를 요구하므로, content script가 요청 순간 `document.cookie`에서 `xn_api_token`(JWT 형식·4KB 이하·단일 값만)을 읽어 이 세 경로에만 붙입니다. `cookies` 권한은 쓰지 않으며 토큰은 저장·로그·메시지·캐시에 남기지 않습니다. 첨부의 `canvas_file_id`만 사용해 기존 Canvas `/courses/:cid/files/:id/download?download_frd=1` 경로로 받습니다. LearningX의 다운로드 URL·`post_url` 원문은 사용하지 않고, `post_url`에서 같은 과목의 도구 ID만 추출해 `/courses/:cid/external_tools/:tid`를 엽니다. 별도 300요청 예산이 있으며, 토큰이 없거나 첫 게시판 목록이 401/403/404이면 이 출처만 건너뜁니다. 이후 실패는 계정 범위 초기화 없이 NETWORK 전체 실패로 처리합니다. 실측 결과 게시글 상세 GET은 조회수를 바꾸지 않았습니다(2026-10-04, 1개 과목). 토큰은 LMS에서 LearningX 게시판을 열 때 발급되고 약 4시간 유효하므로, 그 밖의 경우 게시판 자료는 표시되지 않습니다.
 - 다운로드는 기존 canonical 파일 경로·일회용 핸들·background 재검증을 유지하며 파일명 확장자와 MIME을 형식별로 확인합니다.
 - 기본 빌드에 분석용 `storage`를 추가하고 `alarms`·자동 재생 제외를 유지했습니다. 정보 화면의 로컬 삭제는 분석 요청 중단 후 저장소를 삭제합니다.
 - 운영 토큰의 실제 SDK 요청을 합성 프로필에서 전송해 EU `/batch/` HTTP 200을 확인했습니다. 90일 보관·원격 삭제 설정 검증과는 별개입니다.

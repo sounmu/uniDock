@@ -92,9 +92,10 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
         <details className="guidance">
           <summary data-analytics-action="guidance">안내</summary>
           <p className="hint">
-            주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다. 선택한
-            자료는 브라우저 다운로드 폴더에 저장합니다. 확장은 파일 내용을
-            읽거나 업로드하지 않습니다.
+            주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다.
+            LearningX 게시판(과목 메뉴의 Board) 자료는 LMS에서 게시판을 연 뒤 약
+            4시간 동안 함께 표시됩니다. 선택한 자료는 브라우저 다운로드 폴더에
+            저장합니다. 확장은 파일 내용을 읽거나 업로드하지 않습니다.
           </p>
         </details>
         {state.status === "loading" && (
