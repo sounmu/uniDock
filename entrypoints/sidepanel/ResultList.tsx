@@ -5,6 +5,7 @@ import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import type { Course } from "../../src/domain";
+import { newTab } from "./ui/a11y";
 export { dateLabel } from "./ItemResults";
 export function ResultList({
   result,
@@ -78,9 +79,8 @@ export function ResultList({
                 }
                 data-analytics-action="recording_launch"
                 onClick={() => onRecording?.(item.launchHandle)}
-              >
-                LTI 탭 열기 ↗
-              </button>
+                {...newTab("LTI 탭 열기")}
+              />
               <button
                 className="btn-secondary"
                 disabled={
@@ -90,9 +90,8 @@ export function ResultList({
                 }
                 data-analytics-action="recording_module"
                 onClick={() => onRecording?.(item.lmsHandle)}
-              >
-                LMS 모듈에서 보기 ↗
-              </button>
+                {...newTab("LMS 모듈에서 보기")}
+              />
             </div>
           </DetailView>
         )}

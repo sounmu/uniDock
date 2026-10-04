@@ -2,6 +2,7 @@ import { ResultList } from "../ResultList";
 import type { useSidepanelQuery } from "../useSidepanelQuery";
 import { messages } from "../query-messages";
 import { Notice } from "../ui/Notice";
+import { softDisabled } from "../ui/a11y";
 export type PanelModel = ReturnType<typeof useSidepanelQuery>;
 export function QueryResults({ model }: { readonly model: PanelModel }) {
   const { state, recordingAction } = model;
@@ -17,7 +18,12 @@ export function QueryResults({ model }: { readonly model: PanelModel }) {
           과제·녹화·자료를 확인할 수 있습니다.
         </Notice>
       )}
-      {state.status === "loading" && <Notice>목록을 불러오고 있습니다…</Notice>}
+      {state.status === "loading" && (
+        <>
+          <Notice>목록을 불러오고 있습니다…</Notice>
+          <Skeleton />
+        </>
+      )}
       {state.status === "error" && (
         <Notice error>
           <strong>
@@ -47,13 +53,27 @@ export function QueryResults({ model }: { readonly model: PanelModel }) {
     </section>
   );
 }
+export function Skeleton() {
+  return (
+    <ul aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5].map((row) => (
+        <li key={row} className="skeleton-row">
+          <span />
+          <span />
+        </li>
+      ))}
+    </ul>
+  );
+}
 export function Refresh({ model }: { readonly model: PanelModel }) {
   return (
     <button
       className="btn-primary"
-      disabled={model.state.status === "loading" || !model.isQueryValid}
       data-analytics-action="refresh"
-      onClick={() => void model.load(model.query, { refresh: true })}
+      {...softDisabled(
+        model.state.status === "loading" || !model.isQueryValid,
+        () => void model.load(model.query, { refresh: true }),
+      )}
     >
       {model.state.status === "loading" ? "조회 중…" : "새로고침"}
     </button>

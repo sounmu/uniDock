@@ -9,7 +9,8 @@ import { ScreenHeader } from "../ui/ScreenHeader";
 import { ListRow } from "../ui/ListRow";
 import { StatusChip } from "../ui/StatusChip";
 import { Notice } from "../ui/Notice";
-import type { PanelModel } from "./QueryResults";
+import { newTab } from "../ui/a11y";
+import { Skeleton, type PanelModel } from "./QueryResults";
 import { featureResult } from "../analytics";
 export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const { state, course, downloads, recordingAction } = model;
@@ -99,7 +100,10 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           </p>
         </details>
         {state.status === "loading" && (
-          <Notice>목록을 불러오고 있습니다…</Notice>
+          <>
+            <Notice>목록을 불러오고 있습니다…</Notice>
+            <Skeleton />
+          </>
         )}
         {state.status === "error" && (
           <Notice error>{messages[state.code]}</Notice>
@@ -138,29 +142,38 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                     </h3>
                   )}
                   <div className="selectable-row">
-                    <input
-                      type="checkbox"
-                      data-analytics-action="select_item"
-                      aria-label={`${item.title} 선택`}
-                      disabled={
-                        !available.includes(item) || downloads.progress.running
-                      }
-                      checked={selection.has(item.downloadHandle)}
-                      onChange={(e) =>
-                        setSelection((previous) => {
-                          const next = new Set(previous);
-                          if (e.target.checked) next.add(item.downloadHandle);
-                          else next.delete(item.downloadHandle);
-                          return next;
-                        })
-                      }
-                    />
+                    <label className="check-hit">
+                      <input
+                        type="checkbox"
+                        data-analytics-action="select_item"
+                        aria-label={`${item.title} 선택`}
+                        disabled={
+                          !available.includes(item) ||
+                          downloads.progress.running
+                        }
+                        checked={selection.has(item.downloadHandle)}
+                        onChange={(e) =>
+                          setSelection((previous) => {
+                            const next = new Set(previous);
+                            if (e.target.checked) next.add(item.downloadHandle);
+                            else next.delete(item.downloadHandle);
+                            return next;
+                          })
+                        }
+                      />
+                    </label>
                     <ListRow
                       title={item.title}
                       course={
                         item.filename !== item.title ? item.filename : course
                       }
-                      chip={<StatusChip>{label(item)}</StatusChip>}
+                      chip={
+                        <StatusChip
+                          done={label(item) === downloadLabels.complete}
+                        >
+                          {label(item)}
+                        </StatusChip>
+                      }
                       onClick={() => open(item)}
                     />
                   </div>
@@ -213,9 +226,8 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
               }
               onClick={() => void model.openDocument(detail.lmsHandle)}
               data-analytics-action="document_open"
-            >
-              LMS에서 열기 ↗
-            </button>
+              {...newTab("LMS에서 열기")}
+            />
           </div>
         </DetailView>
       )}
@@ -246,6 +258,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 <button
                   className="btn-secondary"
                   disabled={handoffPending}
+                  aria-label="ChatGPT에서 질문하기 (새 탭)"
                   data-analytics-action="ai_handoff"
                   onClick={() => {
                     if (handoffInFlight.current) return;
@@ -281,7 +294,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                       });
                   }}
                 >
-                  ChatGPT에서 질문하기 ↗
+                  ChatGPT에서 질문하기 <span aria-hidden="true">↗</span>
                 </button>
               </div>
               <p className="hint">

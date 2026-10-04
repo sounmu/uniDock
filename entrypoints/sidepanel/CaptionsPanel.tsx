@@ -10,6 +10,7 @@ import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import { Notice } from "./ui/Notice";
+import { softDisabled } from "./ui/a11y";
 import { featureResult } from "./analytics";
 const messages = {
   ACTIVATE_TAB:
@@ -189,8 +190,7 @@ export function CaptionsPanel() {
           action={
             <button
               className="btn-primary"
-              disabled={state.status === "loading"}
-              onClick={() => void detect()}
+              {...softDisabled(state.status === "loading", () => void detect())}
               data-analytics-action="captions_detect"
             >
               {state.status === "loading" ? "감지 중…" : "자막 감지"}

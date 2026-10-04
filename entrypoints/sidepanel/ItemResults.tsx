@@ -15,6 +15,7 @@ import {
 import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { useDetail } from "./ui/DetailView";
+import { rowKey } from "./ui/a11y";
 import { ItemDetail, isAssignment } from "./ItemDetail";
 type Item = Deadline | Upcoming | Todo;
 export { dateLabel } from "./ItemDetail";
@@ -52,12 +53,37 @@ function chip(item: Item, now: number): string {
     if (item.locked_for_user) return "잠김";
     if (["submitted", "graded"].includes(item.submission_workflow_state))
       return "제출됨";
-    return isoTime(item.due_at) <= now ? "마감 지남" : "남은 과제";
+    const delta = isoTime(item.due_at) - now;
+    if (delta <= 0) return "마감 지남";
+    return delta <= 86400000
+      ? `${Math.max(1, Math.ceil(delta / 3600000))}시간 남음`
+      : "남은 과제";
   }
   if ("type" in item && ["submitted", "graded"].includes(item.type))
     return "제출 완료";
   const delta = isoTime(item.due_at) - now;
   return delta <= 0 ? "마감 지남" : delta <= 86400000 ? "D-1" : "미제출";
+}
+function ItemChip({
+  item,
+  now,
+}: {
+  readonly item: Item;
+  readonly now: number;
+}) {
+  const label = chip(item, now);
+  const done = label.startsWith("제출");
+  const urgent =
+    !done &&
+    label !== "잠김" &&
+    "due_at" in item &&
+    isoTime(item.due_at) > now &&
+    isoTime(item.due_at) - now <= 86400000;
+  return (
+    <StatusChip urgent={urgent} done={done}>
+      {label}
+    </StatusChip>
+  );
 }
 export function ItemResults({
   items,
@@ -175,22 +201,12 @@ export function ItemResults({
           </div>
         ) : (
           <PagedList items={visible} resetKey={resetKey}>
-            {(item, index) => (
-              <li key={index}>
+            {(item) => (
+              <li key={rowKey(item)}>
                 <ListRow
                   title={item.title}
                   course={"course" in item ? item.course : course}
-                  chip={
-                    <StatusChip
-                      urgent={
-                        "due_at" in item &&
-                        isoTime(item.due_at) > now &&
-                        isoTime(item.due_at) - now <= 86400000
-                      }
-                    >
-                      {chip(item, now)}
-                    </StatusChip>
-                  }
+                  chip={<ItemChip item={item} now={now} />}
                   onClick={() => open(item)}
                 />
               </li>
