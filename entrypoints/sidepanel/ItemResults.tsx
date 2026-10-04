@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   filterDeadlines,
+  sortByDateDesc,
   sortByDue,
   type DeadlinePeriod,
 } from "../../src/deadline-view";
@@ -25,9 +26,28 @@ const shortFormatter = new Intl.DateTimeFormat("ko-KR", {
   hour12: false,
   timeZone: "Asia/Seoul",
 });
+const timeFormatter = new Intl.DateTimeFormat("ko-KR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Seoul",
+});
+const dayFormatter = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "short",
+  timeZone: "Asia/Seoul",
+});
+function scheduleChip(item: Upcoming, now: number): string {
+  const time = isoTime(item.date);
+  if (!Number.isFinite(time)) return item.submitted ? "제출됨" : "예정";
+  const when = shortFormatter.format(time);
+  if (item.submitted) return `제출됨 ${when}`;
+  if (time <= now) return `지남 ${when}`;
+  return dayFormatter.format(time) === dayFormatter.format(now)
+    ? `오늘 ${timeFormatter.format(time)}`
+    : `예정 ${when}`;
+}
 function chip(item: Item, now: number): string {
-  if ("date" in item)
-    return `예정${Number.isFinite(isoTime(item.date)) ? ` ${shortFormatter.format(isoTime(item.date))}` : ""}`;
+  if ("date" in item) return scheduleChip(item, now);
   if (isAssignment(item)) {
     if (item.locked_for_user) return "잠김";
     if (["submitted", "graded"].includes(item.submission_workflow_state))
@@ -56,7 +76,6 @@ export function ItemResults({
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
   useEffect(() => {
-    if (!deadlines && !todo) return;
     const update = () => setNow(Date.now());
     const timer = window.setInterval(update, 1000);
     window.addEventListener("focus", update);
@@ -64,7 +83,7 @@ export function ItemResults({
       window.clearInterval(timer);
       window.removeEventListener("focus", update);
     };
-  }, [deadlines, todo]);
+  }, []);
   const visible = useMemo(() => {
     if (deadlines)
       return filterDeadlines(
@@ -72,9 +91,14 @@ export function ItemResults({
         { remainingOnly, period, sort },
         now,
       );
-    return todo && sort
-      ? sortByDue(items.filter((item): item is Todo => "ignore" in item))
-      : items;
+    if (todo)
+      return sort
+        ? sortByDue(items.filter((item): item is Todo => "ignore" in item))
+        : items;
+    // Schedule rows show the most recent date first; undated rows go last.
+    return sortByDateDesc(
+      items.filter((item): item is Upcoming => "date" in item),
+    );
   }, [items, deadlines, todo, remainingOnly, period, sort, now]);
   const resetKey = useMemo(() => ({}), [items, remainingOnly, period, sort]);
   return (
