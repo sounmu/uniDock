@@ -6,7 +6,26 @@ A quiet Korean study desk: Todoist-like divided task rows, always-labelled top n
 
 ## 2. Color
 
-CSS tokens: `--ink:#24242b`, `--muted:#6b6269`, `--line:#e7e3df`, `--line-strong:#d8d0d3`, `--page:#f8f7f5`, `--surface:#fff`, `--brand:#872038`, `--brand-wash:#f4eaec`, `--danger-line:#dcb7bf`, `--danger:#b42318` (destructive action text only). Selection uses a wash, not an accent border. Status always has text.
+The panel follows the browser/OS theme through `prefers-color-scheme`; there is no in-panel theme switch. Components use tokens only, never raw hex values.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--ink` | `#24242b` | `#ece7ea` | Body text |
+| `--muted` | `#6b6269` | `#aaa0a6` | Secondary text |
+| `--line` | `#e7e3df` | `#36323a` | Separators |
+| `--line-strong` | `#d8d0d3` | `#524a54` | Secondary button and card borders |
+| `--line-input` | `#8a8186` | `#7d7480` | Input, select and checkbox borders (≥3:1) |
+| `--page` | `#f8f7f5` | `#18171b` | Document background |
+| `--surface` | `#fff` | `#222025` | Cards, notices, inputs |
+| `--brand` | `#872038` | `#f0a6b6` | Primary fill, links, focus, selected text |
+| `--on-brand` | `#fff` | `#4a1220` | Text on `--brand` fills |
+| `--brand-wash` | `#f4eaec` | `#3b2329` | Selection, hover, urgent chip |
+| `--success` | `#2e6b3c` | `#93d3a2` | Done chip text |
+| `--success-wash` | `#e7f0e9` | `#1f3327` | Done chip fill |
+| `--danger-line` | `#dcb7bf` | `#6b3a40` | Error notice border |
+| `--danger` | `#b42318` | `#ff9a8f` | Destructive action text only |
+
+Every text pair is at least 4.5:1 in both themes (lowest: muted on brand-wash, 4.98 light); input borders and the focus outline are at least 3:1 against their background. Dark mode is a tonal inversion, not a recolor: crimson becomes a light rose so it stays legible on dark paper, and primary buttons switch to dark text via `--on-brand`. Images and the brand icon are not inverted. Selection uses a wash, not an accent border. Status always has text; color only reinforces it.
 
 ## 3. Typography
 
@@ -14,9 +33,9 @@ CSS tokens: `--ink:#24242b`, `--muted:#6b6269`, `--line:#e7e3df`, `--line-strong
 
 ## 4. Spacing & Layout
 
-`--space-1:4px`, `--space-2:8px`, `--space-3:12px`, `--space-4:16px`, `--space-5:24px`; `--radius-sm:6px`, `--radius-md:10px`; `--control-h:32px`, `--control-h-lg:36px`; `--row-h:48px`, `--icon-size:20px`, `--focus-width:2px`, `--focus-offset:2px`.
+`--space-1:4px`, `--space-2:8px`, `--space-3:12px`, `--space-4:16px`, `--space-5:24px`; `--radius-sm:8px`, `--radius-md:12px`, `--radius-pill:999px`; `--control-h:32px`, `--control-h-lg:36px`; `--row-h:48px`, `--icon-size:20px`, `--focus-width:2px`, `--focus-offset:2px`.
 
-The root is a single column: compact navigation header followed by full-width main content. The document owns vertical scrolling; the header is in normal flow so it never covers a focused item or competes with playback's sticky toolbar. Four equal `minmax(0,1fr)` columns keep all primary buttons visible without horizontal scrolling. Each stacks its icon over its label; LMS/info/privacy utilities form one compact wrapping row below. Main retains `min-width:0` and 16px/12px padding. Target widths are 320–420px; no horizontal overflow or reserved sidebar width. Hidden lists stay mounted and restore scroll/focus when returning from details.
+The root is a single column: compact navigation header followed by full-width main content. The document owns vertical scrolling; the header is in normal flow so it never covers a focused item or competes with playback's sticky toolbar. Four equal `minmax(0,1fr)` columns keep all primary buttons visible without horizontal scrolling. Each stacks its icon over its label; LMS/info/privacy utilities form one compact wrapping row below. Main retains `min-width:0` and 16px/12px padding. Target widths are 320–420px; no horizontal overflow or reserved sidebar width. Every interactive target is at least 24×24px (WCAG 2.2 2.5.8); checkboxes sit inside a label or a padded hit area that meets this, and list rows remain at least 48px. Hidden lists stay mounted and restore scroll/focus when returning from details.
 
 ## 5. Components
 
@@ -24,19 +43,21 @@ The root is a single column: compact navigation header followed by full-width ma
 - **Pending navigation entry:** in release builds (`__UNIDOCK_PLAYBACK__` false) 자동 재생 keeps its grid slot as an `aria-disabled="true"` button (not `disabled`, so it stays focusable) at disabled opacity .5 with a default cursor and no hover wash. Clicking does nothing. A sibling `role="tooltip"` below the button, wired through `aria-describedby`, reads “현재 검토 중인 기능입니다.” on hover and `:focus-visible`: ink background, surface text, 12px type, `--radius-sm`, max 12rem, no pointer events, and its fade is removed under reduced motion.
 - **ScreenHeader:** title with one primary action and at most one muted subtitle. Longer policy copy lives in native 안내 details.
 - **ListRow:** full-row native button, two-line title, secondary course label and one trailing StatusChip. At least 48px, 12px horizontal padding, separator only. Material checkboxes are separate labelled inputs, never nested inside buttons.
-- **StatusChip:** visible neutral or urgent text; no color-only distinctions. Course rows have no chip.
+- **StatusChip:** pill (`--radius-pill`), 12px text, three tones: neutral (surface/muted), urgent (brand-wash/brand) and done (success-wash/success). The text alone must carry the meaning: an urgent chip says so in words (D-1, 오늘 HH:MM, n시간 남음), never only by tone. Course rows have no chip.
 - **DetailView:** ghost 목록 back button, heading, two-column semantic dl, contextual tools. Only its primary is visible while detail is open; list remains hidden/mounted. Keyboard focus moves to detail heading and returns to the selected row.
-- **Notice:** white surface, 1px line (danger-line for errors), 10px radius, 12px padding/type; status or alert role.
-- **Buttons:** primary brand/white, 36px; secondary surface/line-strong/brand, 32px; ghost transparent/muted, 32px. All 6px radius, 12px/600. Disabled opacity .5, default cursor. All interactive elements have 2px brand focus outline and 2px offset.
-- **Information screen:** app header (48px icon at 40px, name, version and unofficial note), then settings groups: muted 12px/600 label above a white card with 1px line and 10px radius. Rows are at least 48px with 12px padding and a separator; each has a 13px/500 title, optional 12px muted subtitle and trailing actions that wrap below on narrow panels. Links are full-row with a trailing external icon and hover wash. Long policy copy sits in native details rows. Destructive actions use `--danger` text on a secondary button.
+- **Notice:** surface, 1px line (danger-line for errors), 10px radius, 12px padding/type; status or alert role.
+- **Buttons:** primary brand/on-brand, 36px; secondary surface/line-strong/brand, 32px; ghost transparent/muted, 32px. All `--radius-sm`, 12px/600. Segmented subview toggles (과제/녹화 강의/강의 자료, 할 일/일정) use `--radius-pill`. Disabled opacity .5, default cursor. All interactive elements have 2px brand focus outline and 2px offset. A button that disables itself in response to its own activation (refresh, pagination edges, 자막 감지, download start) uses `aria-disabled="true"` and ignores clicks instead of the `disabled` attribute, so keyboard focus is not dropped to `body`. Purely external links add the arrow glyph as `aria-hidden` and announce “(새 탭)” in the accessible name.
+- **Information screen:** app header (48px icon at 40px, name, version and unofficial note), then settings groups: muted 12px/600 label above a surface card with 1px line and 10px radius. Rows are at least 48px with 12px padding and a separator; each has a 13px/500 title, optional 12px muted subtitle and trailing actions that wrap below on narrow panels. Links are full-row with a trailing external icon and hover wash. Long policy copy sits in native details rows. Destructive actions use `--danger` text on a secondary button.
 - **Settings:** native 보기 설정 details contain filters, sorting or date fields. Playback settings and manual confirmation each have a dedicated detail view, with deletion confirmation preserved.
 - **Pagination:** 100 rows per page, filter resets page, status/timer updates preserve page.
+- **Loading:** a first load with no previous result shows up to six skeleton rows at `--row-h` (line-height bars in `--line`, row separators kept) so the list does not jump when data arrives. Skeletons are `aria-hidden`; the existing text Notice (“목록을 불러오고 있습니다…”) remains the announced status. Refreshing an existing list keeps the old rows visible with `aria-busy` instead of skeletons.
+- **Focus restoration:** returning from a detail or the information screen focuses the originating control if it is still connected; otherwise it focuses the nearest stable equivalent (the row with the same item identity, else the screen heading). List rows are keyed by item identity, never by index.
 
 | Screen | Sole primary action |
 | --- | --- |
 | Courses / tasks | 새로고침 |
 | Course assignments / recordings | 새로고침 |
-| Materials | PDF 전체 다운로드 / 선택 다운로드 |
+| Materials | 자료 전체 다운로드 / 선택 다운로드 |
 | Playback (playback builds only) | 자동 재생 켜기 / 끄기 |
 | Captions | 자막 감지 |
 | Item details | Open LMS, open LTI, download PDF, cancel reservation, or download captions; assignment details have none |
@@ -47,11 +68,11 @@ Source-grouped material rows (PDF, PPTX and PPT in one list, no format filter or
 
 ## 6. Motion & Interaction
 
-`--motion-fast:150ms`. Only opacity transitions under `prefers-reduced-motion:no-preference`; hover wash changes immediately (avoids non-compositor background animation). No decorative motion. Native details and immediate state feedback preserve reduced-motion behavior.
+`--motion-fast:150ms`. Only opacity transitions under `prefers-reduced-motion:no-preference`; skeleton rows may pulse opacity (1.2s, .6–1) under the same condition and are static otherwise; hover wash changes immediately (avoids non-compositor background animation). No decorative motion. Native details and immediate state feedback preserve reduced-motion behavior.
 
 ## 7. Depth & Surface
 
-Borders-only warm paper. Rows have no card box or shadow. Forms and notices have restrained neutral borders. Only keyboard focus uses a colored edge.
+Borders-only warm paper (warm charcoal in dark mode). Rows have no card box or shadow. Forms and notices have restrained neutral borders. Only keyboard focus uses a colored edge.
 
 ## 8. Accessibility Constraints & Accepted Debt
 
