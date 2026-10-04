@@ -188,6 +188,15 @@ export class NavigationCatalog {
     now = Date.now(),
     kind?: "recording" | "document",
   ): string | null {
+    return this.takeOpen(handle, origin, now, kind)?.url ?? null;
+  }
+  /** Spends an open capability; `restore` returns it when the background refused it unused. */
+  takeOpen(
+    handle: string,
+    origin: string,
+    now = Date.now(),
+    kind?: "recording" | "document",
+  ): { url: string; restore: () => boolean } | null {
     if (this.revoked) return null;
     const entry = this.remove(handle);
     if (
@@ -199,7 +208,29 @@ export class NavigationCatalog {
       !accessible(entry.itemAccess, now)
     )
       return null;
-    return navigationUrl(entry.url, origin);
+    const url = navigationUrl(entry.url, origin);
+    return url ? { url, restore: this.restorer(handle, entry) } : null;
+  }
+  // One-shot: puts a spent capability back only if this catalog is still live
+  // and the entry has not expired. Nothing about it is extended.
+  private restorer(handle: string, entry: Entry): () => boolean {
+    let restored = false;
+    return () => {
+      if (
+        restored ||
+        this.revoked ||
+        this.entries.has(handle) ||
+        entry.expires <= Date.now()
+      )
+        return false;
+      try {
+        this.add(handle, entry);
+      } catch {
+        return false;
+      }
+      restored = true;
+      return true;
+    };
   }
   /** Validate and spend a playback selection as one operation. */
   takeRecordingBatch(
@@ -245,7 +276,12 @@ export class NavigationCatalog {
     handle: string,
     origin: string,
     now = Date.now(),
-  ): { url: string; module: string; title: string } | null {
+  ): {
+    url: string;
+    module: string;
+    title: string;
+    restore: () => boolean;
+  } | null {
     if (this.revoked) return null;
     const entry = this.remove(handle);
     if (
@@ -259,6 +295,13 @@ export class NavigationCatalog {
     )
       return null;
     const url = lmsFileDownloadUrl(entry.url, origin);
-    return url ? { url, module: entry.module, title: entry.title } : null;
+    return url
+      ? {
+          url,
+          module: entry.module,
+          title: entry.title,
+          restore: this.restorer(handle, entry),
+        }
+      : null;
   }
 }

@@ -22,4 +22,5 @@ export const messages: Record<ErrorCode, string> = {
   BUSY: "이전 조회를 처리하고 있습니다. 잠시 후 다시 조회하세요.",
   DOWNLOAD_FAILED:
     "자료 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
+  RATE_LIMITED: "짧은 시간에 요청이 많습니다. 1분 뒤 다시 시도하세요.",
 };

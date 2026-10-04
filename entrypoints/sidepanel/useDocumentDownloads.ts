@@ -210,8 +210,27 @@ export function useDocumentDownloads(context: {
       );
       inFlight.current = work;
       const result = await work.finally(lease.release);
-      report(result.status === "success");
       if (inFlight.current === work) inFlight.current = null;
+      if (
+        result.status === "error" &&
+        (result.code === "RATE_LIMITED" || result.code === "BUSY")
+      ) {
+        // Refused before use: the content script kept this handle. Stop the
+        // batch; it and the rest stay queued, end as cancelled, and remain
+        // selectable for a retry from this same list.
+        used.current.delete(handle);
+        expected.current = expected.current.filter(
+          (entry) => entry.handle !== handle,
+        );
+        if (current === generation.current)
+          setNotice(
+            result.code === "RATE_LIMITED"
+              ? "짧은 시간에 다운로드 요청이 많아 일시 중지했습니다. 1분 뒤 남은 자료를 다시 다운로드하세요."
+              : "이전 요청을 처리하고 있어 다운로드를 멈췄습니다. 잠시 후 남은 자료를 다시 다운로드하세요.",
+          );
+        break;
+      }
+      report(result.status === "success");
       done++;
       if (current !== generation.current) break;
       const observedState = observed.current.get(handle);

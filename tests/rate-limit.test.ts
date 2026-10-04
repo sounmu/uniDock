@@ -44,7 +44,7 @@ it("refuses tab opens beyond the per-tab budget without creating a tab", async (
     expect((await openLmsTab(message, sender)).status).toBe("success");
   expect(await openLmsTab(message, sender)).toEqual({
     status: "error",
-    code: "BUSY",
+    code: "RATE_LIMITED",
   });
   expect(create).toHaveBeenCalledTimes(30);
   // Another tab is unaffected, and the budget returns after the window.
@@ -90,7 +90,48 @@ it("refuses downloads beyond the per-tab budget without starting one", async () 
     expect((await downloadLmsFile(message(), sender)).status).toBe("success");
   expect(await downloadLmsFile(message(), sender)).toEqual({
     status: "error",
-    code: "BUSY",
+    code: "RATE_LIMITED",
   });
   expect(download).toHaveBeenCalledTimes(240);
+});
+
+it("restores a spent capability once, only while the catalog is live", async () => {
+  const { NavigationCatalog } = await import("../src/navigation-catalog");
+  const catalog = new NavigationCatalog();
+  const [document] = catalog.replaceDocuments(origin, [
+    {
+      module: "Week",
+      title: "file.pdf",
+      filename: "file.pdf",
+      courseId: "101",
+      itemId: "501",
+      fileId: "777",
+      moduleAccess: {},
+      itemAccess: {},
+    },
+  ]);
+  const handle = document!.downloadHandle;
+  const taken = catalog.takeDownload(handle, origin);
+  expect(catalog.takeDownload(handle, origin)).toBeNull();
+  expect(taken?.restore()).toBe(true);
+  expect(taken?.restore()).toBe(false);
+  const again = catalog.takeDownload(handle, origin);
+  expect(again?.url).toBe(taken?.url);
+  catalog.revoke();
+  expect(again?.restore()).toBe(false);
+  const open = new NavigationCatalog();
+  const [recording] = open.replace(origin, [
+    {
+      module: "Week",
+      title: "Lecture",
+      courseId: "101",
+      itemId: "501",
+      moduleAccess: {},
+      itemAccess: {},
+    },
+  ]);
+  const opened = open.takeOpen(recording!.launchHandle, origin);
+  expect(opened?.restore()).toBe(true);
+  expect(open.take(recording!.launchHandle, origin)).toBe(opened?.url);
+  open.clear();
 });

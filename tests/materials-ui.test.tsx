@@ -91,6 +91,27 @@ it("requests all downloadable files sequentially and marks a failed item without
   await click("자료 전체 다운로드");
   expect(query).toHaveBeenCalledTimes(5);
 });
+it("stops the batch on a rate limit and keeps the remaining files retryable", async () => {
+  // Given
+  await materials();
+  query
+    .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" })
+    .mockResolvedValueOnce({ status: "success", downloaded: true })
+    .mockResolvedValueOnce({ status: "success", downloaded: true });
+  // When
+  await click("자료 전체 다운로드");
+  // Then: only the refused request was sent, and nothing is marked failed.
+  expect(query).toHaveBeenCalledTimes(4);
+  expect(chips()).toEqual(["취소됨", "취소됨", "LMS에서 확인"]);
+  expect(document.body.textContent).toContain("1분 뒤 남은 자료를 다시");
+  // When: retrying from the same list
+  await click("자료 전체 다운로드");
+  // Then: both files are requested again with their original handles.
+  expect(query.mock.calls.slice(4).map(([request]) => request.handle)).toEqual(
+    documents.slice(0, 2).map((item) => item.downloadHandle),
+  );
+  expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
+});
 it("downloads only the checked subset and keeps selection when returning from details", async () => {
   // Given
   await materials();

@@ -2174,6 +2174,81 @@ it("routes document handles through the background LMS boundary and consumes the
   expect(sendMessage).toHaveBeenCalledTimes(2);
 });
 
+it("returns a rate-limited download handle to its catalog for a retry", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" })
+    .mockResolvedValueOnce({ status: "success", downloaded: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      documents: catalog.replaceDocuments(origin, [
+        {
+          module: "Week",
+          title: "file.pdf",
+          filename: "file.pdf",
+          courseId: "101",
+          itemId: "501",
+          fileId: "777",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  const listed = response();
+  listener(
+    capability({ version: 1, type: "DOCUMENTS_LIST", course: "Course" }),
+    sender,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("documents" in result))
+    throw new Error("missing documents");
+  const envelope = () => ({
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD_REQUEST",
+    deadline: Date.now() + 23_000,
+    request: {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD",
+      handle: result.documents[0]!.downloadHandle,
+      course: "Course",
+    },
+  });
+  // When: the background refuses the first request before acting.
+  const limited = response();
+  listener(envelope(), sender, limited.respond);
+  expect(await limited.done).toEqual({ status: "error", code: "RATE_LIMITED" });
+  // Then: the same handle still works once, and only once.
+  const retried = response();
+  listener(envelope(), sender, retried.respond);
+  expect(await retried.done).toEqual({ status: "success", downloaded: true });
+  const replay = response();
+  listener(envelope(), sender, replay.respond);
+  expect(await replay.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+});
+
 it("omits Canvas duration, due dates and module completion from playback discovery", async () => {
   const calls: string[] = [];
   const fetcher: typeof fetch = async (input, init) => {

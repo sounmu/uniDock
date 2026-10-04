@@ -86,7 +86,7 @@ export async function downloadLmsFile(
     if (!validDownloadDeadline(message.deadline))
       return { status: "error", code: "TIMEOUT" };
     if (!downloads.admit(sender.tab.id))
-      return { status: "error", code: "BUSY" };
+      return { status: "error", code: "RATE_LIMITED" };
     await chrome.downloads.download({
       url: message.url,
       filename: message.filename,

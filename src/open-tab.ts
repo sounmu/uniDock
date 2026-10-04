@@ -27,7 +27,8 @@ export async function openLmsTab(
     const current = await chrome.tabs.get(sender.tab.id);
     if (current.url !== sender.url)
       return { status: "error", code: "RELOAD_TAB" };
-    if (!opens.admit(sender.tab.id)) return { status: "error", code: "BUSY" };
+    if (!opens.admit(sender.tab.id))
+      return { status: "error", code: "RATE_LIMITED" };
     await chrome.tabs.create({ url, active: true });
     return { status: "success", opened: true };
   } catch {
