@@ -22,6 +22,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const [handoffPending, setHandoffPending] = useState(false);
   const { detail, open, back } = useDetail<Document>();
   useEffect(() => {
+    setSelection(new Set());
     handoffInFlight.current = false;
     setHandoffPending(false);
     setNotice("");
@@ -56,7 +57,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
     <>
       <div hidden={detail !== null}>
         <ScreenHeader
-          title={`수업 자료 · ${items.length}개 PDF`}
+          title={`강의 자료 · ${items.length}개`}
           action={
             downloads.progress.running ? (
               <button
@@ -75,7 +76,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
               >
                 {selected.length
                   ? `선택 다운로드 (${selected.length})`
-                  : "PDF 전체 다운로드"}
+                  : "자료 전체 다운로드"}
               </button>
             )
           }
@@ -91,8 +92,9 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
         <details className="guidance">
           <summary data-analytics-action="guidance">안내</summary>
           <p className="hint">
-            모듈에 공개된 PDF만 표시합니다. 선택한 자료는 브라우저 다운로드
-            폴더에 저장합니다. 확장은 PDF 내용을 읽거나 업로드하지 않습니다.
+            주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다. 선택한
+            자료는 브라우저 다운로드 폴더에 저장합니다. 확장은 파일 내용을
+            읽거나 업로드하지 않습니다.
           </p>
         </details>
         {state.status === "loading" && (
@@ -102,13 +104,14 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           <Notice error>{messages[state.code]}</Notice>
         )}
         {state.status === "success" && !items.length && (
-          <Notice>모듈에서 확인 가능한 PDF가 없습니다.</Notice>
+          <Notice>주차학습·게시판에서 확인 가능한 강의 자료가 없습니다.</Notice>
         )}
         {items.length > 0 && (
           <>
             <label className="remaining-toggle">
               <input
                 type="checkbox"
+                aria-label="전체 선택"
                 data-analytics-action="select_all"
                 disabled={!available.length || downloads.progress.running}
                 checked={
@@ -122,7 +125,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   )
                 }
               />
-              전체 선택
+              전체 선택 · {selected.length}개 선택됨
             </label>
             <PagedList items={items}>
               {(item, index) => (
@@ -153,7 +156,9 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                     />
                     <ListRow
                       title={item.title}
-                      course={course}
+                      course={
+                        item.filename !== item.title ? item.filename : course
+                      }
                       chip={<StatusChip>{label(item)}</StatusChip>}
                       onClick={() => open(item)}
                     />
@@ -169,8 +174,8 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           title={detail.title}
           onBack={back}
           meta={[
-            ["모듈", detail.module],
-            ["파일명", detail.title],
+            ["출처", detail.module],
+            ["파일명", detail.filename],
             ["상태", label(detail)],
           ]}
         >
@@ -195,7 +200,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                     : download([detail])
                 }
               >
-                {downloads.progress.running ? "취소" : "이 PDF 다운로드"}
+                {downloads.progress.running ? "취소" : "이 자료 다운로드"}
               </button>
             )}
             <button
@@ -217,7 +222,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
         <>
           <div role="status" className="download-progress">
             <progress
-              aria-label="PDF 다운로드 진행률"
+              aria-label="자료 다운로드 진행률"
               max={downloads.progress.total}
               value={downloads.progress.done}
             />
@@ -256,8 +261,8 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                           report(copied);
                           setNotice(
                             copied
-                              ? "질문을 복사했습니다. PDF를 직접 첨부하고 붙여넣으세요."
-                              : "질문을 복사하지 못했습니다. ChatGPT 창에서 직접 질문하고 PDF를 첨부하세요.",
+                              ? "질문을 복사했습니다. 자료를 직접 첨부하고 붙여넣으세요."
+                              : "질문을 복사하지 못했습니다. ChatGPT 창에서 직접 질문하고 자료를 첨부하세요.",
                           );
                         },
                         () => {
@@ -279,7 +284,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 </button>
               </div>
               <p className="hint">
-                다운로드/uniDock/{course}/의 PDF를 ChatGPT 창에 끌어다
+                다운로드/uniDock/{course}/의 자료를 ChatGPT 창에 끌어다
                 첨부하세요. uniDock은 파일을 업로드하지 않습니다.
               </p>
             </>
@@ -291,8 +296,8 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
       {notice && <Notice>{notice}</Notice>}
       {Object.values(downloads.statuses).includes("review") && (
         <Notice>
-          PDF 형식인지 확인이 필요합니다. 로그인 페이지가 저장되었을 수 있으니
-          파일과 LMS 로그인 상태를 확인하세요.
+          파일 형식이 맞는지 확인이 필요합니다. 로그인 페이지가 저장되었을 수
+          있으니 파일과 LMS 로그인 상태를 확인하세요.
         </Notice>
       )}
     </>

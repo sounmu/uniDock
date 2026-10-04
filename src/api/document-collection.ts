@@ -6,13 +6,14 @@ import {
   internalId,
   recordingLabel,
 } from "../recordings";
-import { documentCandidate } from "../documents";
+import { documentCandidate, documentFilename } from "../documents";
 
 type Row = Record<string, unknown>;
 type Collect = <T>(
   initial: string,
   path: string,
   project: (raw: unknown) => T[],
+  optional?: boolean,
 ) => Promise<T[]>;
 
 export async function collectDocuments({
@@ -72,10 +73,11 @@ export async function collectDocuments({
           if (!documentCandidate(item, now)) continue;
           const id = internalId(item.id);
           if (!id) continue;
-          const details = item.content_details as Row | undefined;
+          const filename = documentFilename(item)!;
           byModule[index]!.push({
             module: recordingLabel(module.name),
-            title: recordingLabel(item.title ?? details?.display_name),
+            title: recordingLabel(item.title).trim() || filename,
+            filename,
             courseId,
             itemId: id,
             fileId: internalId(item.content_id),
@@ -95,5 +97,51 @@ export async function collectDocuments({
   );
   if (failure) throw failure.error;
   if (controller.signal.aborted) throw new Error("TIMEOUT");
-  return catalog.replaceDocuments(origin, byModule.flat(), now);
+  const targets = byModule.flat();
+  const topicPath = `/api/v1/courses/${courseId}/discussion_topics`;
+  // Boards and announcements are supplementary: a course that hides or
+  // forbids them still lists its weekly module materials.
+  for (const announcements of [false, true]) {
+    const topics = await collect(
+      `${topicPath}?per_page=100${announcements ? "&only_announcements=true" : ""}`,
+      topicPath,
+      rows,
+      true,
+    );
+    for (const topic of topics) {
+      if (!accessible(topic, now)) continue;
+      const topicId = internalId(topic.id);
+      if (!topicId) continue;
+      const attachments = rows([
+        ...(topic.attachments == null ? [] : rows(topic.attachments)),
+        ...(topic.attachment == null ? [] : [topic.attachment]),
+      ]);
+      const seen = new Set<string>();
+      for (const attachment of attachments) {
+        if (
+          !accessible(attachment, now) ||
+          attachment.hidden ||
+          attachment.locked
+        )
+          continue;
+        const fileId = internalId(attachment.id);
+        const title = documentFilename(attachment);
+        if (!fileId || !title || seen.has(fileId)) continue;
+        seen.add(fileId);
+        targets.push({
+          module: `${announcements ? "공지" : "게시판"} · ${recordingLabel(topic.title)}`,
+          title,
+          filename: title,
+          courseId,
+          itemId: topicId,
+          topicId,
+          fileId,
+          moduleAccess: availabilitySnapshot(topic),
+          itemAccess: availabilitySnapshot(attachment),
+        });
+        if (++total > 10000) throw new Error("LIMIT");
+      }
+    }
+  }
+  return catalog.replaceDocuments(origin, targets, now);
 }

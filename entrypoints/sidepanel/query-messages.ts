@@ -4,7 +4,7 @@ export const messages: Record<ErrorCode, string> = {
     "LMS 로그인이 필요합니다. LMS에서 로그인한 뒤 다시 조회하세요.",
   OPEN_LMS: "로그인한 LMS 탭을 선택한 뒤 조회하세요.",
   RELOAD_TAB:
-    "LMS 탭을 새로고침한 뒤 다시 조회하세요. 확장 설치 직후에는 새로고침이 필요합니다.",
+    "LMS 탭과 연결되지 않았습니다. 잠시 후 다시 조회하고, 계속되면 LMS 탭을 새로고침하세요.",
   FORBIDDEN:
     "조회 권한이 없거나 세션이 만료되었습니다. LMS에서 로그인 상태를 확인하세요.",
   NETWORK: "LMS에 연결하지 못했습니다. 잠시 후 다시 시도하세요.",
@@ -21,5 +21,5 @@ export const messages: Record<ErrorCode, string> = {
   TAB_OPEN_FAILED: "새 탭을 열지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
   BUSY: "이전 조회를 처리하고 있습니다. 잠시 후 다시 조회하세요.",
   DOWNLOAD_FAILED:
-    "PDF 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
+    "자료 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
 };

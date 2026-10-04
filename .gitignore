@@ -10,3 +10,4 @@ release/
 store/assets/*.html
 output/
 .omo/
+.lazyweb/

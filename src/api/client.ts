@@ -38,10 +38,14 @@ export async function listQuery(
   }, 20000);
   // One budget covers course resolution plus all item pages.
   let pages = 0;
+  // `optional` marks a supplementary source: a first page the LMS refuses
+  // (disabled tab, no permission, missing) yields no rows instead of failing
+  // the whole list. Redirects, later pages and other errors stay fatal.
   async function collect<T>(
     initial: string,
     path: string,
     project: (raw: unknown) => T[],
+    optional = false,
   ): Promise<T[]> {
     let next: string | null = readUrl(initial, origin, path).href;
     const visited = new Set<string>();
@@ -59,6 +63,14 @@ export async function listQuery(
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
+      if (
+        optional &&
+        visited.size === 1 &&
+        [401, 403, 404].includes(response.status)
+      ) {
+        void response.body?.cancel().catch(() => {});
+        return [];
+      }
       if (
         response.type === "opaqueredirect" ||
         response.status === 401 ||

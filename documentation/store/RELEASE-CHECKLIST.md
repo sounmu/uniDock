@@ -37,6 +37,10 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 
 ## 제출 전 필수 (아직 완료되지 않음)
 
+2026-10-04 로컬 검증: `npm run check`(682 tests), 커버리지 80% 기준, production Chromium E2E 24 passed / 자동 재생 전용 8 skipped, analytics E2E, `npm run release`(audit 취약점 0, ZIP allowlist)를 통과했습니다. 아래의 실제 LMS·스토어 확인은 별도입니다. 업데이트 배지·버전 판정은 단위 테스트, 배지 → 패널 알림 1회 표시·소비는 실제 Chromium으로, 열린 LMS 탭 재주입은 CDP `Extensions.loadUnpacked`로 설치·재설치(업데이트) 경로를 실제 Chromium에서 검증했습니다. 스토어 업데이트 전달 자체를 재현한 것은 아닙니다.
+
+- [ ] 실제 주차학습·게시판/공지에서 PDF·PPTX·PPT 첨부파일이 하나의 강의 자료 목록에 표시되는지 확인. 학교 전용 외부 도구·본문 링크·답글 첨부는 이번 Canvas 첨부 메타데이터 범위와 구분
+- [ ] `entrypoints/updates/index.html`의 변경 사항과 배포 버전 일치 확인. 실제 스토어 업데이트 후 새 탭이 열리지 않고 아이콘 `NEW` 배지와 패널 알림이 한 번 표시되는지, 열려 있던 LMS 탭이 새로고침 없이 조회되는지 확인
 - [x] 2026-10-04 운영 토큰의 합성 SDK `/batch/` 요청 HTTP 200 확인 (`scripts/verify-analytics-live.mjs`)
 
 - [x] 로컬 `.env.local` 공개 수집 토큰 설정 및 production 빌드 반영 확인 (2026-10-01 문서 점검에 반영, 토큰 값 미기록)

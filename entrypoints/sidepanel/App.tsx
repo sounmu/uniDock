@@ -10,10 +10,13 @@ import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
+import { UpdateNotice } from "./UpdateNotice";
 export function App() {
   const gate = useRef(new QueryGate()).current;
   const model = useSidepanelQuery(gate);
   const [info, setInfo] = useState(false);
+  // "나중에" hides the consent reminder for this panel only; nothing is stored.
+  const [consentDeferred, setConsentDeferred] = useState(false);
   const analytics = useAnalytics(info ? "INFO" : model.view);
   const infoTrigger = useRef<Element | null>(null);
   function showInfo() {
@@ -67,14 +70,26 @@ export function App() {
         onInfo={showInfo}
       />
       <main>
-        {!info && analytics.available && analytics.choice === "undecided" && (
-          <aside className="notice">
-            <p>사용 통계 공유는 선택 사항입니다. 현재는 수집하지 않습니다.</p>
-            <button className="btn-secondary" onClick={showInfo}>
-              통계 공유 설정 보기
-            </button>
-          </aside>
-        )}
+        <UpdateNotice />
+        {!info &&
+          !consentDeferred &&
+          analytics.available &&
+          analytics.choice === "undecided" && (
+            <aside className="notice" aria-label="사용 통계 공유 안내">
+              <p>사용 통계 공유는 선택 사항입니다. 현재는 수집하지 않습니다.</p>
+              <div className="tools">
+                <button className="btn-secondary" onClick={showInfo}>
+                  통계 공유 설정 보기
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => setConsentDeferred(true)}
+                >
+                  나중에
+                </button>
+              </div>
+            </aside>
+          )}
         <div hidden={info}>
           {model.section === "courses" && <CoursesScreen model={model} />}
           {model.section === "tasks" && <TasksScreen model={model} />}
@@ -99,7 +114,7 @@ export function App() {
               기기에 저장합니다.{" "}
               {__UNIDOCK_PLAYBACK__
                 ? "재생 설정도 이 기기에 저장합니다."
-                : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·PDF는 기기에 저장됩니다."}
+                : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·자료는 기기에 저장됩니다."}
             </p>
             <a
               href="privacy.html"
@@ -110,6 +125,11 @@ export function App() {
               개인정보 처리방침
             </a>
             <p>고려대학교와 제휴하지 않은 비공식 도구입니다.</p>
+            <p>
+              <a href="updates.html" target="_blank" rel="noreferrer">
+                현재 버전 변경 사항
+              </a>
+            </p>
             <AnalyticsSettings status={analytics} />
             <LocalDataSettings />
           </DetailView>

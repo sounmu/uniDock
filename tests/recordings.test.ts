@@ -115,6 +115,7 @@ it("rejects duplicate, expired, and wrong-kind batches without partial consumpti
       {
         module: "Week",
         title: "Document",
+        filename: "Document",
         courseId: "101",
         itemId: "601",
         moduleAccess: {},

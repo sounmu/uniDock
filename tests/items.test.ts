@@ -25,7 +25,7 @@ it.each([
 ] as const)(
   "executes selector-resolved %s only against its bound course",
   async (type, path) => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json([]));
+    const fetcher = vi.fn<typeof fetch>(async () => json([]));
     const result = await listQuery(
       origin,
       {
@@ -41,7 +41,11 @@ it.each([
       "22",
     );
     expect(result.status).toBe("success");
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(type === "DOCUMENTS_LIST" ? 3 : 1);
+    for (const [input] of fetcher.mock.calls)
+      expect(new URL(String(input)).pathname).toMatch(
+        /^\/api\/v1\/courses\/22\//,
+      );
     expect(new URL(String(fetcher.mock.calls[0]![0])).pathname).toBe(path);
   },
 );

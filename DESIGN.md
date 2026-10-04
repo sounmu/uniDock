@@ -40,9 +40,9 @@ The root is a single column: compact navigation header followed by full-width ma
 | Captions | 자막 감지 |
 | Item details | Open LMS, open LTI, download PDF, cancel reservation, or download captions; assignment details have none |
 
-### 수업 자료 다운로드
+### 강의 자료 다운로드
 
-Module-grouped PDF rows with 전체 선택, per-file selection, and text progress n/N. During a batch the primary is replaced by secondary 취소; cancellation stops unsent requests, not browser downloads already started. One-use handles are never reused; refresh is required after expiry. States: 대기, 다운로드 중, 요청됨, 완료, 실패, 취소됨, 확인 필요. Missing content_id shows LMS에서 확인 with no checkbox/action for download. Folder and ChatGPT tools follow the batch; the latter copies a prompt and opens chatgpt.com only. The user must attach files themselves; no upload.
+Source-grouped material rows (PDF, PPTX and PPT in one list, no format filter or format label) with 전체 선택, per-file selection, and text progress n/N. During a batch the primary is replaced by secondary 취소; cancellation stops unsent requests, not browser downloads already started. One-use handles are never reused; refresh is required after expiry. States: 대기, 다운로드 중, 요청됨, 완료, 실패, 취소됨, 확인 필요. Missing content_id shows LMS에서 확인 with no checkbox/action for download. Folder and ChatGPT tools follow the batch; the latter copies a prompt and opens chatgpt.com only. The user must attach files themselves; no upload.
 
 ## 6. Motion & Interaction
 

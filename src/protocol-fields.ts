@@ -3,6 +3,7 @@ export const fields = {
   documents: {
     module: "text",
     title: "text",
+    filename: "text",
     type: "file",
     lmsHandle: "handle",
     downloadHandle: "optionalHandle",

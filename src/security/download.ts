@@ -1,5 +1,6 @@
 import { allowedPage } from "./policy";
 import { redactText } from "./redaction";
+import { documentExtension } from "../documents";
 
 // Downloads are capabilities for one canonical route, never a network proxy.
 export function lmsFileDownloadUrl(
@@ -42,7 +43,11 @@ export function safeDownloadPath(
         .replace(/[\s.]+$/g, "") || "_",
   );
   const name = segments[2] ?? "_";
-  segments[2] = /\.pdf$/i.test(name) ? name : `${name.slice(0, 76)}.pdf`;
+  const extension = documentExtension(title) ?? "pdf";
+  const stem = name.replace(/\.(?:pdf|pptx|ppt)$/i, "");
+  segments[2] = documentExtension(name) === extension
+    ? name
+    : `${stem.slice(0, 79 - extension.length)}.${extension}`;
   const path = `uniDock/${segments.join("/")}`;
   return validDownloadPath(path) ? path : null;
 }
@@ -58,7 +63,7 @@ export function validDownloadPath(value: unknown): value is string {
   const segments = value.split("/");
   return (
     segments.length === 4 &&
-    /\.pdf$/i.test(value) &&
+    /\.(?:pdf|pptx|ppt)$/i.test(value) &&
     segments.slice(1).every(
       (segment) =>
         segment.length > 0 &&

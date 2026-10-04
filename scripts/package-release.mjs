@@ -68,7 +68,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -93,7 +93,12 @@ for (const file of files) {
       assert(!code.includes(marker), `Playback code leaked into ${file}`);
   }
 }
-for (const file of ["privacy.html", "THIRD_PARTY_NOTICES.txt", "icons/128.png"])
+for (const file of [
+  "updates.html",
+  "privacy.html",
+  "THIRD_PARTY_NOTICES.txt",
+  "icons/128.png",
+])
   assert(files.includes(file));
 import { dependencyNoticesText } from "./dependency-notices.mjs";
 // Re-run build if installed dependency notices differ from bundled notices.

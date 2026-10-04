@@ -13,7 +13,7 @@ export function navigationUrl(value: unknown, source: string): string | null {
     )
       return null;
     if (
-      !/^\/courses\/[1-9]\d{0,19}\/modules(?:\/items\/[1-9]\d{0,19})?$/.test(
+      !/^\/courses\/[1-9]\d{0,19}\/(?:modules(?:\/items\/[1-9]\d{0,19})?|discussion_topics\/[1-9]\d{0,19})$/.test(
         url.pathname,
       )
     )

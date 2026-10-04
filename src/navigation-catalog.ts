@@ -12,6 +12,8 @@ export interface RecordingTarget {
 }
 export interface DocumentTarget extends Omit<RecordingTarget, "itemId"> {
   itemId: string;
+  filename: string;
+  topicId?: string;
   fileId?: string;
 }
 interface Entry {
@@ -127,7 +129,9 @@ export class NavigationCatalog {
     try {
       const result = targets.map((target) => {
         const url = navigationUrl(
-          `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
+          target.topicId
+            ? `${origin}/courses/${target.courseId}/discussion_topics/${target.topicId}`
+            : `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
           origin,
         );
         if (!url) throw new Error("POLICY");
@@ -151,7 +155,8 @@ export class NavigationCatalog {
             url: downloadUrl,
             kind: "download",
             module: target.module,
-            title: target.title,
+            // Downloads are saved under the actual file name, not the item title.
+            title: target.filename,
             expires: now + 300000,
             moduleAccess: target.moduleAccess,
             itemAccess: target.itemAccess,
@@ -160,6 +165,7 @@ export class NavigationCatalog {
         return {
           module: target.module,
           title: target.title,
+          filename: target.filename,
           type: "File" as const,
           lmsHandle,
           downloadHandle,

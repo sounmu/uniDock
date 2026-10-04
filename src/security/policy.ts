@@ -28,6 +28,9 @@ export function readUrl(
     expectedPath,
   );
   const modules = /^\/api\/v1\/courses\/[1-9]\d*\/modules$/.test(expectedPath);
+  const topics = /^\/api\/v1\/courses\/[1-9]\d*\/discussion_topics$/.test(
+    expectedPath,
+  );
   const moduleItems =
     /^\/api\/v1\/courses\/[1-9]\d*\/modules\/[1-9]\d*\/items$/.test(
       expectedPath,
@@ -38,6 +41,7 @@ export function readUrl(
   if (!(
     assignments ||
     modules ||
+    topics ||
     moduleItems ||
     courses ||
     planner ||
@@ -54,6 +58,7 @@ export function readUrl(
   const permitted = [
     ...(!currentUser ? ["per_page", "page"] : []),
     ...(courses ? ["enrollment_state"] : []),
+    ...(topics ? ["only_announcements"] : []),
     ...(assignments || modules || moduleItems ? ["include[]"] : []),
     ...(planner ? ["start_date", "end_date"] : []),
   ];
@@ -71,6 +76,8 @@ export function readUrl(
     if (key === "page" && !/^[1-9]\d{0,5}$/.test(val))
       throw new Error("POLICY");
     if (key === "enrollment_state" && val !== "active")
+      throw new Error("POLICY");
+    if (key === "only_announcements" && val !== "true")
       throw new Error("POLICY");
     if (key === "include[]") {
       const values = url.searchParams.getAll(key);

@@ -547,6 +547,12 @@ dd {
 .notice.error {
   border-color: var(--danger-line);
 }
+.notice > :first-child {
+  margin-top: 0;
+}
+.notice > :last-child {
+  margin-bottom: 0;
+}
 .field {
   display: flex;
   flex-direction: column;
