@@ -21,6 +21,9 @@ test("install and update reconnect an already open LMS tab without a reload", as
       "--headless=new",
       "--enable-unsafe-extension-debugging",
       "--no-first-run",
+      // Playwright adds this itself on Linux; a directly spawned Chromium on
+      // CI runners without unprivileged user namespaces exits immediately.
+      ...(process.platform === "linux" ? ["--no-sandbox"] : []),
       `--host-resolver-rules=MAP mylms.korea.ac.kr 127.0.0.1:${server.port}, MAP * ~NOTFOUND`,
       "--no-proxy-server",
       "--ignore-certificate-errors",
