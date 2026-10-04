@@ -41,7 +41,7 @@ test("renders bundled update notes from the information screen and closes the no
     const notice = await opened;
     notice.on("pageerror", (error) => errors.push(error.message));
     await expect(notice.getByRole("heading", { level: 1 })).toHaveText(
-      "강의 자료를 더 편하게 확인하세요",
+      "다크 모드와 더 편한 키보드 사용",
     );
     await expect(notice.locator("#version")).toHaveText(version);
     for (const width of [320, 720]) {

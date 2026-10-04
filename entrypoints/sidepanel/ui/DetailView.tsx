@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { restoreFocus } from "./a11y";
 export function useDetail<T>() {
   const [detail, setDetail] = useState<T | null>(null);
   const saved = useRef<{ top: number; element: Element | null } | null>(null);
@@ -7,8 +8,7 @@ export function useDetail<T>() {
       if (window.scrollY) window.scrollTo(0, 0);
     } else if (saved.current) {
       if (saved.current.top) window.scrollTo(0, saved.current.top);
-      if (saved.current.element instanceof HTMLElement)
-        saved.current.element.focus({ preventScroll: true });
+      restoreFocus(saved.current.element);
       saved.current = null;
     }
   }, [detail]);

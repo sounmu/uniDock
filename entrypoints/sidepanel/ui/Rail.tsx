@@ -63,7 +63,7 @@ export function Rail({
           href="https://mylms.korea.ac.kr/"
           target="_blank"
           rel="noreferrer"
-          aria-label="LMS 열기 ↗"
+          aria-label="LMS 열기 (새 탭)"
           data-analytics-action="lms_open"
         >
           <Icon name="external" />

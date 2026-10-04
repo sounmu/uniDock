@@ -71,7 +71,7 @@ export function useAnalytics(screen: AnalyticsScreen) {
       if (
         !element ||
         element.closest("[hidden]") ||
-        element.matches(":disabled")
+        element.matches(':disabled, [aria-disabled="true"]')
       )
         return;
       const isField = element.matches(

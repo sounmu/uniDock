@@ -15,16 +15,21 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
   --ink: #24242b;
   --muted: #6b6269;
   --line: #e7e3df;
   --line-strong: #d8d0d3;
+  --line-input: #8a8186;
   --page: #f8f7f5;
   --surface: #fff;
   --brand: #872038;
+  --on-brand: #fff;
   --brand-wash: #f4eaec;
+  --success: #2e6b3c;
+  --success-wash: #e7f0e9;
   --danger-line: #dcb7bf;
   --danger: #b42318;
   --control-h: 32px;
@@ -40,12 +45,32 @@
   font-synthesis: none;
   font-size: var(--fs-md);
   line-height: var(--lh-body);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ece7ea;
+    --muted: #aaa0a6;
+    --line: #36323a;
+    --line-strong: #524a54;
+    --line-input: #7d7480;
+    --page: #18171b;
+    --surface: #222025;
+    --brand: #f0a6b6;
+    --on-brand: #4a1220;
+    --brand-wash: #3b2329;
+    --success: #93d3a2;
+    --success-wash: #1f3327;
+    --danger-line: #6b3a40;
+    --danger: #ff9a8f;
+  }
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
+  background: var(--page);
 }
 #root {
   min-height: 100vh;
@@ -72,7 +97,8 @@ select {
 button {
   cursor: pointer;
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }
@@ -134,7 +160,7 @@ p {
 }
 .btn-primary {
   background: var(--brand);
-  color: var(--surface);
+  color: var(--on-brand);
   min-height: var(--control-h-lg);
 }
 .btn-secondary {
@@ -146,12 +172,12 @@ p {
   background: transparent;
   color: var(--muted);
 }
-.btn-secondary:hover:not(:disabled),
-.btn-ghost:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled, [aria-disabled="true"]),
+.btn-ghost:hover:not(:disabled, [aria-disabled="true"]),
 .list-row:hover:not(:disabled) {
   background: var(--brand-wash);
 }
-.btn-primary:hover:not(:disabled) {
+.btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
   opacity: 0.9;
 }
 .playback-choice {
@@ -258,8 +284,8 @@ p {
   word-break: keep-all;
 }
 .rail nav button.btn-ghost[aria-current="page"] {
-  color: var(--surface);
-  background: var(--brand);
+  color: var(--brand);
+  background: var(--brand-wash);
   font-weight: 600;
 }
 .rail-pending {
@@ -365,6 +391,10 @@ main:has(.detail-view) > div > .view-settings {
   border-bottom: 1px solid var(--line);
   padding-bottom: var(--space-2);
   margin-bottom: var(--space-4);
+}
+.subviews button {
+  border-radius: var(--radius-pill);
+  padding-inline: var(--space-3);
 }
 .subviews [aria-pressed="true"] {
   color: var(--brand);
@@ -488,8 +518,8 @@ li {
   max-width: 65%;
   font-size: var(--fs-xs);
   line-height: var(--lh-tight);
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -497,6 +527,10 @@ li {
 .status-chip.urgent {
   background: var(--brand-wash);
   color: var(--brand);
+}
+.status-chip.done {
+  background: var(--success-wash);
+  color: var(--success);
 }
 .detail-view {
   min-width: 0;
@@ -568,7 +602,7 @@ dd {
   min-width: 0;
   height: var(--control-h);
   padding: var(--space-1);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line-input);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--ink);
@@ -583,12 +617,57 @@ dd {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 24px;
   font-size: var(--fs-sm);
   margin: var(--space-3) 0;
 }
 input[type="checkbox"] {
   accent-color: var(--brand);
   flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+.check-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  min-width: 32px;
+  padding-left: var(--space-1);
+  cursor: pointer;
+}
+.skeleton-row {
+  display: grid;
+  align-content: center;
+  gap: var(--space-2);
+  min-height: var(--row-h);
+  padding: var(--space-3);
+}
+.skeleton-row span {
+  display: block;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--line);
+}
+.skeleton-row span:last-child {
+  width: 40%;
+}
+.skeleton-row span:first-child {
+  width: 75%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-row span {
+    animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
+  }
+}
+@keyframes skeleton-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.6;
+  }
 }
 .item-body {
   min-width: 0;

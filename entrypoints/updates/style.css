@@ -1,20 +1,31 @@
 :root {
   font: 16px/1.65 system-ui, sans-serif;
-  color: #28232a;
-  background: #faf8f7;
+  color-scheme: light dark;
+  --ink: #28232a;
+  --page: #faf8f7;
+  --surface: white;
+  --line: #e5dfdd;
+  --muted: #655d65;
+  --brand: #872038;
+  --on-brand: white;
+  color: var(--ink);
+  background: var(--page);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #ece7ea; --page: #18171b; --surface: #222025; --line: #36323a; --muted: #aaa0a6; --brand: #f0a6b6; --on-brand: #4a1220; }
 }
 * { box-sizing: border-box; }
 /* Chrome's extension-page stylesheet shrinks body text to 75%. */
 body { margin: 0; padding: 32px 16px; font-size: 1rem; word-break: keep-all; overflow-wrap: anywhere; }
-main { max-width: 620px; margin: 0 auto; padding: 32px; background: white; border: 1px solid #e5dfdd; border-radius: 16px; }
-.eyebrow, .version { color: #872038; font-weight: 600; }
+main { max-width: 620px; margin: 0 auto; padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.eyebrow, .version { color: var(--brand); font-weight: 600; }
 h1 { font-size: 1.8rem; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
 ul { list-style: none; padding: 0; margin: 28px 0; }
-li { padding: 16px 0; border-top: 1px solid #e5dfdd; }
+li { padding: 16px 0; border-top: 1px solid var(--line); }
 li p { margin: 6px 0 0; }
-.hint { color: #655d65; font-size: 0.875rem; }
+.hint { color: var(--muted); font-size: 0.875rem; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 24px; }
-button { background: #872038; color: white; border: 0; border-radius: 8px; padding: 12px 18px; min-height: 44px; font: inherit; cursor: pointer; }
-a { color: #872038; }
-:focus-visible { outline: 3px solid #872038; outline-offset: 4px; }
+button { background: var(--brand); color: var(--on-brand); border: 0; border-radius: 8px; padding: 12px 18px; min-height: 44px; font: inherit; cursor: pointer; }
+a { color: var(--brand); }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 4px; }
 @media (max-width: 400px) { main { padding: 20px; } h1 { font-size: 1.5rem; } }

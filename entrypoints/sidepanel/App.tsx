@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { PlaybackPanel } from "./PlaybackPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
 import { useSidepanelQuery } from "./useSidepanelQuery";
@@ -12,6 +12,7 @@ import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
 import { UpdateNotice } from "./UpdateNotice";
 import { Icon } from "./ui/icons";
+import { restoreFocus } from "./ui/a11y";
 
 function manifestVersion(): string {
   try {
@@ -29,6 +30,13 @@ export function App() {
   const analytics = useAnalytics(info ? "INFO" : model.view);
   const infoTrigger = useRef<Element | null>(null);
   const [version] = useState(manifestVersion);
+  const restoreInfoFocus = useRef(false);
+  // Runs after the list is unhidden, so a fallback heading can take focus.
+  useLayoutEffect(() => {
+    if (info || !restoreInfoFocus.current) return;
+    restoreInfoFocus.current = false;
+    restoreFocus(infoTrigger.current);
+  }, [info]);
   function showInfo() {
     model.downloads.cancel();
     infoTrigger.current = document.activeElement;
@@ -112,10 +120,8 @@ export function App() {
           <DetailView
             title="정보"
             onBack={() => {
+              restoreInfoFocus.current = true;
               setInfo(false);
-              // The rail stays mounted, so its trigger can take focus back.
-              if (infoTrigger.current instanceof HTMLElement)
-                infoTrigger.current.focus({ preventScroll: true });
             }}
           >
             <div className="about-app">
