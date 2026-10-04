@@ -11,6 +11,15 @@ import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
 import { UpdateNotice } from "./UpdateNotice";
+import { Icon } from "./ui/icons";
+
+function manifestVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return "";
+  }
+}
 export function App() {
   const gate = useRef(new QueryGate()).current;
   const model = useSidepanelQuery(gate);
@@ -19,6 +28,7 @@ export function App() {
   const [consentDeferred, setConsentDeferred] = useState(false);
   const analytics = useAnalytics(info ? "INFO" : model.view);
   const infoTrigger = useRef<Element | null>(null);
+  const [version] = useState(manifestVersion);
   function showInfo() {
     model.downloads.cancel();
     infoTrigger.current = document.activeElement;
@@ -108,30 +118,63 @@ export function App() {
                 infoTrigger.current.focus({ preventScroll: true });
             }}
           >
-            <p>조회 시 현재 LMS 세션의 정보를 이 기기에 표시합니다.</p>
-            <p>
-              LMS 정보는 분석 서비스로 전송하지 않습니다. 통계 공유 설정은 이
-              기기에 저장합니다.{" "}
-              {__UNIDOCK_PLAYBACK__
-                ? "재생 설정도 이 기기에 저장합니다."
-                : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·자료는 기기에 저장됩니다."}
-            </p>
-            <a
-              href="privacy.html"
-              target="_blank"
-              rel="noreferrer"
-              data-analytics-action="privacy_open"
-            >
-              개인정보 처리방침
-            </a>
-            <p>고려대학교와 제휴하지 않은 비공식 도구입니다.</p>
-            <p>
-              <a href="updates.html" target="_blank" rel="noreferrer">
-                현재 버전 변경 사항
-              </a>
-            </p>
+            <div className="about-app">
+              <img src="icons/48.png" alt="" width={40} height={40} />
+              <div>
+                <p className="about-name">uniDock</p>
+                <p className="about-meta">
+                  {version ? `버전 ${version} · ` : ""}고려대학교와 제휴하지
+                  않은 비공식 도구
+                </p>
+              </div>
+            </div>
+            <section className="settings-group" aria-labelledby="privacy-title">
+              <h3 id="privacy-title" className="settings-label">
+                개인정보
+              </h3>
+              <div className="settings-card">
+                <div className="settings-row">
+                  <div className="row-text">
+                    <p className="row-title">LMS 정보는 이 기기에서만 표시</p>
+                    <p className="row-sub">
+                      조회 시 현재 LMS 세션의 정보를 이 기기에 표시하며 분석
+                      서비스로 전송하지 않습니다.{" "}
+                      {__UNIDOCK_PLAYBACK__
+                        ? "통계 공유·재생 설정은 이 기기에 저장합니다."
+                        : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·자료와 통계 공유 설정은 기기에 저장됩니다."}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  className="settings-row settings-link"
+                  href="privacy.html"
+                  target="_blank"
+                  rel="noreferrer"
+                  data-analytics-action="privacy_open"
+                >
+                  <span className="row-title">개인정보 처리방침</span>
+                  <Icon name="external" />
+                </a>
+              </div>
+            </section>
             <AnalyticsSettings status={analytics} />
             <LocalDataSettings />
+            <section className="settings-group" aria-labelledby="about-title">
+              <h3 id="about-title" className="settings-label">
+                업데이트
+              </h3>
+              <div className="settings-card">
+                <a
+                  className="settings-row settings-link"
+                  href="updates.html"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="row-title">현재 버전 변경 사항</span>
+                  <Icon name="external" />
+                </a>
+              </div>
+            </section>
           </DetailView>
         )}
       </main>
