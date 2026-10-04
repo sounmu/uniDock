@@ -1,5 +1,8 @@
 import { type Result } from "./protocol";
 import { navigationUrl } from "./security/navigation";
+import { TabRateLimiter } from "./security/rate-limit";
+// A person opens lectures one click at a time.
+const opens = new TabRateLimiter(30, 60_000);
 // Only our top-frame LMS content script can request a canonical LMS navigation.
 export async function openLmsTab(
   message: unknown,
@@ -24,6 +27,8 @@ export async function openLmsTab(
     const current = await chrome.tabs.get(sender.tab.id);
     if (current.url !== sender.url)
       return { status: "error", code: "RELOAD_TAB" };
+    if (!opens.admit(sender.tab.id))
+      return { status: "error", code: "RATE_LIMITED" };
     await chrome.tabs.create({ url, active: true });
     return { status: "success", opened: true };
   } catch {

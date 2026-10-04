@@ -447,6 +447,15 @@ export default defineBackground(() => {
     void markUpdate(details);
     void reinjectLmsContentScripts(details);
   });
+  // Content scripts never read extension storage; lock it on every worker boot
+  // instead of waiting for the first consent or playback write.
+  try {
+    void chrome.storage?.local
+      ?.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" })
+      ?.catch(() => {});
+  } catch {
+    // Unsupported runtime: the consent path still sets the level before writing.
+  }
   const analytics = new AnalyticsRuntime(
     import.meta.env.PROD ? (import.meta.env.VITE_POSTHOG_KEY ?? "") : "",
     chrome.runtime.getManifest?.().version ?? "0",
