@@ -1,6 +1,6 @@
 import { defineConfig } from "wxt";
 // Sequential playback is under review. Release builds leave it out entirely:
-// no player content script, no playback runtime, and no alarms/storage grant.
+// no player content script, no playback runtime, and no alarms grant.
 const playback = process.env.UNIDOCK_PLAYBACK === "1";
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
@@ -22,7 +22,8 @@ export default defineConfig({
       "activeTab",
       "scripting",
       "downloads",
-      ...(playback ? ["storage", "alarms"] : []),
+      "storage",
+      ...(playback ? ["alarms"] : []),
     ],
     host_permissions: [
       "https://mylms.korea.ac.kr/*",
@@ -41,7 +42,7 @@ export default defineConfig({
     },
     content_security_policy: {
       extension_pages:
-        "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'",
+        "script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com; base-uri 'none'; form-action 'none'",
     },
   },
   vite: () => ({

@@ -38,7 +38,11 @@ export function DetailView({
   }, []);
   return (
     <section className="detail-view">
-      <button className="btn-ghost" onClick={onBack}>
+      <button
+        className="btn-ghost"
+        onClick={onBack}
+        data-analytics-action="back"
+      >
         ← 목록
       </button>
       <h2 ref={heading} tabIndex={-1}>

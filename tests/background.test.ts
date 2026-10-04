@@ -14,6 +14,48 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+it("rejects analytics messages from content scripts and accepts only the exact extension panel", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener },
+    },
+    action: actionMocks(),
+    storage: { local: { get: vi.fn().mockResolvedValue({}) } },
+  });
+  background.main();
+  const listener = addListener.mock.calls[0]![0];
+  const respond = vi.fn();
+  for (const url of [
+    "https://mylms.korea.ac.kr/",
+    "https://kucom.korea.ac.kr/em/test",
+    "chrome-extension://other/sidepanel.html",
+    "chrome-extension://test/privacy.html",
+  ]) {
+    expect(
+      listener(
+        { version: 1, type: "ANALYTICS_CONSENT", enabled: true },
+        { id: "test", url },
+        respond,
+      ),
+    ).toBe(false);
+    expect(respond).toHaveBeenLastCalledWith({ ok: false });
+  }
+  expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  const result = await new Promise((resolve) => {
+    expect(
+      listener(
+        { version: 1, type: "ANALYTICS_STATUS" },
+        { id: "test", url: "chrome-extension://test/sidepanel.html" },
+        resolve,
+      ),
+    ).toBe(true);
+  });
+  expect(result).toEqual({ available: false, choice: "undecided" });
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -414,6 +456,32 @@ it("does not broadcast rejected playback messages", () => {
   expect(respond).toHaveBeenCalledWith({ status: "error", code: "POLICY" });
   expect(f.command).not.toHaveBeenCalled();
   expect(f.sendMessage).not.toHaveBeenCalled();
+});
+
+it("erases analytics consent before the existing clear-data command and does not capture deletion", async () => {
+  const f = commandBroadcastFixture();
+  f.command.mockResolvedValue({ status: "error", code: "STORAGE" });
+  const order: string[] = [];
+  vi.mocked(chrome.storage.local.remove).mockImplementation(async () => {
+    order.push("erase");
+  });
+  f.command.mockImplementation(async () => {
+    order.push("playback");
+    return { status: "error", code: "STORAGE" };
+  });
+  await new Promise((resolve) => {
+    expect(
+      f.receive(
+        { version: 1, type: "LOCAL_DATA_DELETE_ALL" },
+        f.panel,
+        resolve,
+      ),
+    ).toBe(true);
+  });
+  expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+    "unidock.analytics.v1",
+  );
+  expect(order).toEqual(["erase", "playback"]);
 });
 
 function activationListenerFixture(

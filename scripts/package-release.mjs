@@ -23,7 +23,7 @@ const lmsHosts = [
 ];
 assert.deepEqual(
   [...manifest.permissions].sort(),
-  ["activeTab", "downloads", "scripting", "sidePanel"].sort(),
+  ["activeTab", "downloads", "scripting", "sidePanel", "storage"].sort(),
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
@@ -53,7 +53,7 @@ assert(
 );
 assert.equal(
   manifest.content_security_policy.extension_pages,
-  "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'",
+  "script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com; base-uri 'none'; form-action 'none'",
 );
 const files = [];
 function walk(dir) {

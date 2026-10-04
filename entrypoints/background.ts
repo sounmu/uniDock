@@ -24,6 +24,8 @@ import {
 import { validHandle } from "../src/protocol";
 import { allowedPage, LMS_MATCHES } from "../src/security/policy";
 import { navigationUrl } from "../src/security/navigation";
+import { AnalyticsRuntime } from "../src/analytics/runtime";
+import { isAnalyticsCommand } from "../src/analytics/contract";
 
 async function boundedMessage(
   tabId: number,
@@ -428,6 +430,10 @@ async function configurePanelAction() {
 }
 
 export default defineBackground(() => {
+  const analytics = new AnalyticsRuntime(
+    import.meta.env.PROD ? (import.meta.env.VITE_POSTHOG_KEY ?? "") : "",
+    chrome.runtime.getManifest?.().version ?? "0",
+  );
   // Chrome 114 supports these APIs; baseline tests/older unsupported runtimes may not.
   // Release builds compile playback out; the constant folds this to null.
   const playback =
@@ -444,6 +450,47 @@ export default defineBackground(() => {
     }
   };
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
+    if (isAnalyticsCommand(message)) {
+      if (!panelSender(sender)) {
+        respond({ ok: false });
+        return false;
+      }
+      void analytics
+        .command(message)
+        .then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (
+      object(message) &&
+      message.version === 1 &&
+      message.type === "LOCAL_DATA_DELETE_ALL" &&
+      Object.keys(message).length === 2
+    ) {
+      if (!panelSender(sender)) {
+        respond({ status: "error", code: "POLICY" });
+        return false;
+      }
+      void analytics
+        .erase()
+        .then(async () => {
+          if (!playback) {
+            await chrome.storage.local.clear();
+            return { status: "success" };
+          }
+          return playback.command({
+            version: 1,
+            type: "LOCAL_DATA_DELETE_ALL",
+          });
+        })
+        .then(
+          (result) => {
+            respond(result);
+            notifyPlayback();
+          },
+          () => respond({ status: "error", code: "STORAGE" }),
+        );
+      return true;
+    }
     if (__UNIDOCK_PLAYBACK__ && isPlaybackCommand(message)) {
       if (!panelSender(sender)) {
         respond({ status: "error", code: "POLICY" });

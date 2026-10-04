@@ -7,6 +7,7 @@ import {
   safeDownloadPath,
 } from "../../src/security/download";
 import type { QueryGate } from "./query-gate";
+import { featureResult } from "./analytics";
 
 export type DownloadStatus =
   "queued" | "requested" | "complete" | "failed" | "cancelled" | "review";
@@ -169,6 +170,7 @@ export function useDocumentDownloads(context: {
         !used.current.has(item.downloadHandle),
     );
     if (!selected.length) return;
+    const report = featureResult("download");
     const current = generation.current,
       token = ++batch.current;
     running.current = true;
@@ -203,6 +205,7 @@ export function useDocumentDownloads(context: {
       );
       inFlight.current = work;
       const result = await work.finally(lease.release);
+      report(result.status === "success");
       if (inFlight.current === work) inFlight.current = null;
       done++;
       if (current !== generation.current) break;

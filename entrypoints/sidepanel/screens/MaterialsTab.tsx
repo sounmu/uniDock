@@ -10,6 +10,7 @@ import { ListRow } from "../ui/ListRow";
 import { StatusChip } from "../ui/StatusChip";
 import { Notice } from "../ui/Notice";
 import type { PanelModel } from "./QueryResults";
+import { featureResult } from "../analytics";
 export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const { state, course, downloads, recordingAction } = model;
   const items =
@@ -58,7 +59,11 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           title={`수업 자료 · ${items.length}개 PDF`}
           action={
             downloads.progress.running ? (
-              <button className="btn-secondary" onClick={downloads.cancel}>
+              <button
+                className="btn-secondary"
+                onClick={downloads.cancel}
+                data-analytics-action="download_cancel"
+              >
                 취소
               </button>
             ) : (
@@ -66,6 +71,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 className="btn-primary"
                 disabled={!available.length || recordingAction.pending}
                 onClick={() => download(selected.length ? selected : available)}
+                data-analytics-action="download_batch"
               >
                 {selected.length
                   ? `선택 다운로드 (${selected.length})`
@@ -78,11 +84,12 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           className="btn-ghost"
           disabled={downloads.progress.running || state.status === "loading"}
           onClick={() => void model.load(model.query, { refresh: true })}
+          data-analytics-action="refresh"
         >
           목록 새로고침
         </button>
         <details className="guidance">
-          <summary>안내</summary>
+          <summary data-analytics-action="guidance">안내</summary>
           <p className="hint">
             모듈에 공개된 PDF만 표시합니다. 선택한 자료는 브라우저 다운로드
             폴더에 저장합니다. 확장은 PDF 내용을 읽거나 업로드하지 않습니다.
@@ -102,6 +109,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
             <label className="remaining-toggle">
               <input
                 type="checkbox"
+                data-analytics-action="select_all"
                 disabled={!available.length || downloads.progress.running}
                 checked={
                   available.length > 0 && selected.length === available.length
@@ -128,6 +136,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   <div className="selectable-row">
                     <input
                       type="checkbox"
+                      data-analytics-action="select_item"
                       aria-label={`${item.title} 선택`}
                       disabled={
                         !available.includes(item) || downloads.progress.running
@@ -175,6 +184,11 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   !downloads.progress.running &&
                   (!available.includes(detail) || recordingAction.pending)
                 }
+                data-analytics-action={
+                  downloads.progress.running
+                    ? "download_cancel"
+                    : "download_one"
+                }
                 onClick={() =>
                   downloads.progress.running
                     ? downloads.cancel()
@@ -192,6 +206,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 recordingAction.used.has(detail.lmsHandle)
               }
               onClick={() => void model.openDocument(detail.lmsHandle)}
+              data-analytics-action="document_open"
             >
               LMS에서 열기 ↗
             </button>
@@ -218,14 +233,17 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   onClick={() => {
                     chrome.downloads.showDefaultFolder();
                   }}
+                  data-analytics-action="download_folder"
                 >
                   다운로드 폴더 열기
                 </button>
                 <button
                   className="btn-secondary"
                   disabled={handoffPending}
+                  data-analytics-action="ai_handoff"
                   onClick={() => {
                     if (handoffInFlight.current) return;
+                    const report = featureResult("ai_handoff");
                     handoffInFlight.current = true;
                     const current = ++handoffGeneration.current;
                     const isCurrent = () =>
@@ -235,6 +253,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                       .then(
                         (copied) => {
                           if (!isCurrent()) return;
+                          report(copied);
                           setNotice(
                             copied
                               ? "질문을 복사했습니다. PDF를 직접 첨부하고 붙여넣으세요."
@@ -243,6 +262,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                         },
                         () => {
                           if (!isCurrent()) return;
+                          report(false);
                           setNotice(
                             "ChatGPT 탭을 열지 못했습니다. 직접 chatgpt.com을 열어주세요.",
                           );
