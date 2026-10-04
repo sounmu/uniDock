@@ -2,7 +2,7 @@
 
 ## 준비된 산출물
 
-- release/uniDock-0.1.1-chrome-mv3.zip: production 전용 배포 후보
+- release/uniDock-0.1.2-chrome-mv3.zip: production 전용 배포 후보
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
 - public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본
 - docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신)
@@ -24,7 +24,7 @@ npm run store:assets   # 개발용: macOS Chrome, sips 필요. 개인 프로필 
 
 ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행하고 해시를 갱신합니다. ZIP 루트에 manifest.json이 있어야 합니다. 소스 프로젝트 전체를 업로드하지 않습니다.
 
-## 0.1.1 업데이트 확인
+## 0.1.1 업데이트 확인 (과거 배포 기록)
 
 - [x] 자동 재생은 검토 중이므로 빌드에서 제외: `player.js`, 재생 런타임, `storage`·`alarms` 권한 없음 (`package-release.mjs`가 강제)
 - [x] 메뉴의 자동 재생은 비활성 항목과 “현재 검토 중인 기능입니다.” 안내만 표시 (합성 E2E 확인)
@@ -33,8 +33,24 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 - [ ] 대시보드 설명문·단일 목적·데이터 공개가 LISTING.md와 일치하고 자동 재생을 기능으로 소개하지 않는지 확인
 - [ ] 공개 GitHub Pages의 privacy.html이 기준일 2026-09-30 버전으로 갱신됐는지 비로그인 브라우저에서 확인
 - [ ] 실제 LMS에서 할 일(전체 활성 과목), PDF 일괄 다운로드 파일명, 긴 제목 줄바꿈, 정보 닫기 후 포커스 복귀 확인
+      분석 토큰은 루트 `.env.local`의 `VITE_POSTHOG_KEY`를 빌드 시 읽습니다. 이 파일은 CI/다른 개발 환경에 자동 전달되지 않습니다. `npm run build`는 `.output/`만 갱신하므로 토큰을 추가·변경한 후의 배포 ZIP은 `npm run release`로 다시 생성해야 합니다. 2026-09-30에 생성한 토큰 미설정 ZIP과 이후 토큰 포함 로컬 빌드를 혼동하지 않습니다.
 
 ## 제출 전 필수 (아직 완료되지 않음)
+
+2026-10-04 로컬 검증: `npm run check`(682 tests), 커버리지 80% 기준, production Chromium E2E 24 passed / 자동 재생 전용 8 skipped, analytics E2E, `npm run release`(audit 취약점 0, ZIP allowlist)를 통과했습니다. 아래의 실제 LMS·스토어 확인은 별도입니다. 업데이트 배지·버전 판정은 단위 테스트, 배지 → 패널 알림 1회 표시·소비는 실제 Chromium으로, 열린 LMS 탭 재주입은 CDP `Extensions.loadUnpacked`로 설치·재설치(업데이트) 경로를 실제 Chromium에서 검증했습니다. 스토어 업데이트 전달 자체를 재현한 것은 아닙니다.
+
+- [ ] 실제 주차학습·게시판/공지에서 PDF·PPTX·PPT 첨부파일이 하나의 강의 자료 목록에 표시되는지 확인. 학교 전용 외부 도구·본문 링크·답글 첨부는 이번 Canvas 첨부 메타데이터 범위와 구분
+- [ ] `entrypoints/updates/index.html`의 변경 사항과 배포 버전 일치 확인. 실제 스토어 업데이트 후 새 탭이 열리지 않고 아이콘 `NEW` 배지와 패널 알림이 한 번 표시되는지, 열려 있던 LMS 탭이 새로고침 없이 조회되는지 확인
+- [x] 2026-10-04 운영 토큰의 합성 SDK `/batch/` 요청 HTTP 200 확인 (`scripts/verify-analytics-live.mjs`)
+
+- [x] 로컬 `.env.local` 공개 수집 토큰 설정 및 production 빌드 반영 확인 (2026-10-01 문서 점검에 반영, 토큰 값 미기록)
+- [x] 실제 PostHog 이벤트 도착 확인 (사용자 확인). 보관 설정·전체 속성·그래프 검증을 뜻하지 않음
+- [ ] 최종 배포 ZIP을 해당 EU 프로젝트 토큰으로 재생성하고 재로드하여 수신 확인. 개인 API 키는 확장에 포함하지 않음
+- [ ] PostHog의 IP 폐기와 GeoIP/자동 기능 비활성 확인, 원시 이벤트 최대 90일 보관·삭제 정책 설정 및 검증. 해당 기능을 제공하지 않는 플랜이면 서버측 만료 삭제 운영을 마련하기 전 수집을 활성화하지 않음
+- [ ] 지원 연락처를 통한 설치 ID별 원격 이벤트 삭제 절차 확인. 로컬 삭제와 원격 삭제의 차이를 고지
+- [ ] 동의 전 네트워크/분석 ID 없음, 거절 후 기능 이용, 동의 후 고정 이벤트, 철회/재시작/모든 데이터 삭제 후 중단 확인
+- [ ] 실제 PostHog 프로젝트에서 가상 데이터로 속성·DAU/WAU/MAU·리텐션 대시보드 확인. [설정 안내](../ANALYTICS.md#대시보드-구성). 테스트용 토큰으로 배포하지 않음
+- [ ] 새 개인정보 처리방침 게시, 스토어 User activity·식별자·제3자 처리 고지 갱신. 기존 설치도 재동의 없이 수집하지 않는지 확인
 
 - [ ] 배포자 표시명, 공개 지원 이메일/지원 URL 결정 및 스토어 계정 연락처 등록
 - [ ] `public/privacy.html`에 배포자 연락처를 넣고 `npm run pages:sync` 실행. GitHub Pages를 `main`의 `/docs`로 설정하여 공개 HTTPS URL에 게시하고 비로그인 브라우저에서 접근 확인 ([배포 안내](../../README.md#개인정보처리방침-github-pages-배포))

@@ -47,6 +47,7 @@ export function Rail({
           ) : (
             <button
               key={value}
+              data-analytics-action={`nav_${value}`}
               className="btn-ghost"
               aria-current={section === value ? "page" : undefined}
               onClick={() => onSelect(value)}
@@ -63,14 +64,24 @@ export function Rail({
           target="_blank"
           rel="noreferrer"
           aria-label="LMS 열기 ↗"
+          data-analytics-action="lms_open"
         >
           <Icon name="external" />
           <span>LMS 열기</span>
         </a>
-        <button className="btn-ghost" onClick={onInfo}>
+        <button
+          className="btn-ghost"
+          onClick={onInfo}
+          data-analytics-action="info"
+        >
           정보
         </button>
-        <a href="privacy.html" target="_blank" rel="noreferrer">
+        <a
+          href="privacy.html"
+          target="_blank"
+          rel="noreferrer"
+          data-analytics-action="privacy_open"
+        >
           개인정보
         </a>
       </div>

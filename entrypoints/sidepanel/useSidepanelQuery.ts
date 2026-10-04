@@ -5,6 +5,18 @@ import { usePanelNavigation } from "./usePanelNavigation";
 import { useDocumentDownloads } from "./useDocumentDownloads";
 import { messages } from "./query-messages";
 import { QueryGate } from "./query-gate";
+import { featureResult } from "./analytics";
+import type { AnalyticsFeature } from "../../src/analytics/contract";
+
+const queryFeatures: Partial<Record<Request["type"], AnalyticsFeature>> = {
+  COURSES_LIST: "courses",
+  ASSIGNMENTS_LIST: "assignments",
+  DEADLINES_LIST: "assignments",
+  TODO_LIST: "tasks",
+  UPCOMING_LIST: "tasks",
+  RECORDINGS_LIST: "recordings",
+  DOCUMENTS_LIST: "documents",
+};
 
 export function useSidepanelQuery(sharedGate?: QueryGate) {
   const localGate = useRef(new QueryGate()).current;
@@ -71,6 +83,8 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       clear();
       return;
     }
+    const feature = queryFeatures[query.type];
+    const report = feature ? featureResult(feature) : undefined;
     if (
       "courseSelector" in query &&
       query.courseSelector &&
@@ -139,12 +153,16 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
         setCourse(null);
       }
       setState(result);
+      report?.(result.status === "success");
     }
   }
   async function openSelection(
     type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
     handle: string,
   ) {
+    const report = featureResult(
+      type === "RECORDING_OPEN" ? "recording_open" : "document_open",
+    );
     if (opening.current || recordingAction.used.has(handle)) return;
     const target = recordingTarget.current;
     if (!target) {
@@ -173,6 +191,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     if (inFlight.current === work) inFlight.current = null;
     opening.current = false;
     if (current !== generation.current) return;
+    report(result.status === "success");
     setRecordingAction((previous) => ({
       pending: false,
       used:
@@ -186,7 +205,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       notice:
         result.status === "success"
           ? type === "DOCUMENT_OPEN"
-            ? "새 LMS PDF 자료 탭을 열었습니다."
+            ? "새 LMS 자료 탭을 열었습니다."
             : "새 LMS/LTI 탭을 열었습니다."
           : messages[result.code],
     }));

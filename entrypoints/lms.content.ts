@@ -10,6 +10,7 @@ import {
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { listCourseIndex, listQuery } from "../src/api/client";
+import { learningxToken } from "../src/security/learningx-token";
 import {
   panelQuery,
   parseResult,
@@ -583,6 +584,7 @@ export default defineContentScript({
               Date.now(),
               staging,
               resolvedCourseId,
+              () => learningxToken(document.cookie),
             )
           : listQuery(
               location.origin,
@@ -665,6 +667,17 @@ export default defineContentScript({
     }
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        // Lets background skip re-injection where this extension copy is live.
+        if (
+          object(message) &&
+          message.version === 1 &&
+          message.type === "LMS_PRESENCE" &&
+          Object.keys(message).length === 2 &&
+          backgroundSender(sender)
+        ) {
+          respond({ version: 1, type: "LMS_PRESENT" });
+          return false;
+        }
         if (
           object(message) &&
           message.version === 1 &&

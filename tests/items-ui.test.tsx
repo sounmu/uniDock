@@ -109,3 +109,40 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
   expect(html).toContain("LTI 열기 가능");
   expect(html).not.toMatch(/href=|https:|\/courses\//);
 });
+it("labels schedule chips as past, today, upcoming, or submitted in Korea time", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-04T03:00:00Z")); // 12:00 KST
+  const row = (title: string, date: string, submitted = false) => ({
+    title,
+    date,
+    type: "assignment",
+    course: "국제법",
+    submitted,
+    new_activity: false,
+  });
+  const html = renderToStaticMarkup(
+    <ResultList
+      result={{
+        status: "success",
+        upcoming: [
+          row("지난 일정", "2026-09-22T12:53:00Z"),
+          row("오늘 일정", "2026-10-04T12:53:00Z"),
+          row("다음 일정", "2026-10-08T12:53:00Z"),
+          row("제출한 일정", "2026-09-22T12:53:00Z", true),
+          row("날짜 없음", ""),
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const chips = [...html.matchAll(/status-chip[^>]*>([^<]*)</g)].map(
+    (m) => m[1],
+  );
+  expect(chips).toEqual([
+    "예정 10. 8. 21:53",
+    "오늘 21:53",
+    "지남 9. 22. 21:53",
+    "제출됨 9. 22. 21:53",
+    "예정",
+  ]);
+});

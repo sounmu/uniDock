@@ -7,6 +7,7 @@ const catalog = new NavigationCatalog();
 const target = {
   module: "Week",
   title: "slides.pdf",
+  filename: "slides.pdf",
   courseId: "101",
   itemId: "501",
   fileId: "777",

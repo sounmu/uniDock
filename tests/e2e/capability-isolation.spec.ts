@@ -133,16 +133,16 @@ test("two production panel consumers retain independent capability catalogs", as
     await lms.bringToFront();
     await panelB.getByRole("button", { name: "← 목록" }).click();
     await panelB
-      .getByRole("button", { name: "수업 자료", exact: true })
+      .getByRole("button", { name: "강의 자료", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
     await panelB
       .getByRole("button", { name: "목록 새로고침", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
 
     await panelA.getByRole("button", { name: "← 목록" }).click();
@@ -162,7 +162,7 @@ test("two production panel consumers retain independent capability catalogs", as
     expect(documentPage.url()).toBe(`${origin}/courses/101/modules/items/900`);
     await documentPage.close();
     await panelB.getByRole("button", { name: "← 목록" }).click();
-    await panelB.getByRole("button", { name: "PDF 전체 다운로드" }).click();
+    await panelB.getByRole("button", { name: "자료 전체 다운로드" }).click();
     await expect.poll(() => server.downloads.length).toBe(2);
     expect(server.downloads).toEqual([
       "/courses/101/files/501/download",

@@ -20,6 +20,7 @@ export function PlaybackConfirmation({
         과목 선택
         <select
           value={m.course}
+          data-analytics-action="playback_course"
           disabled={m.pending}
           onChange={(event) => m.setCourse(event.target.value)}
         >
@@ -35,6 +36,7 @@ export function PlaybackConfirmation({
         className="btn-secondary"
         disabled={m.pending || !m.course}
         onClick={() => void m.loadRecordings()}
+        data-analytics-action="playback_load"
       >
         영상 불러오기
       </button>
@@ -44,6 +46,7 @@ export function PlaybackConfirmation({
             <label className="playback-choice">
               <input
                 type="checkbox"
+                data-analytics-action="select_item"
                 checked={item.order !== null}
                 disabled={
                   m.pending ||
@@ -74,6 +77,7 @@ export function PlaybackConfirmation({
           <button
             className="btn-secondary"
             disabled={m.stopPending}
+            data-analytics-action="playback_stop"
             onClick={() =>
               void m.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
             }
@@ -84,6 +88,7 @@ export function PlaybackConfirmation({
         <button
           className="btn-primary"
           disabled={m.pending || selected.length === 0 || selected.length > 100}
+          data-analytics-action="playback_start"
           onClick={() =>
             void m.startSelected().then((ok) => {
               if (ok) onComplete?.();

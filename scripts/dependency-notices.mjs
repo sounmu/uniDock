@@ -7,6 +7,8 @@ export function dependencyNotices() {
     "scheduler",
     "wxt",
     "@wxt-dev/browser",
+    "@posthog/core",
+    "@posthog/types",
   ].map((name) => {
     const base = path.resolve("node_modules", name);
     const pkg = JSON.parse(
@@ -29,7 +31,7 @@ export function dependencyNotices() {
 export function dependencyNoticesText() {
   return (
     dependencyNotices()
-      .map((notice) => notice.trimEnd())
+      .map((notice) => notice.replace(/[\t ]+$/gm, "").trimEnd())
       .join("\n\n---\n\n") + "\n"
   );
 }

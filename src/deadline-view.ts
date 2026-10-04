@@ -14,6 +14,16 @@ export function sortByDue<T extends Pick<Deadline, "due_at">>(items: T[]): T[] {
   });
 }
 
+export function sortByDateDesc<T extends { date: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const first = isoTime(a.date),
+      second = isoTime(b.date);
+    if (!Number.isFinite(first)) return Number.isFinite(second) ? 1 : 0;
+    if (!Number.isFinite(second)) return -1;
+    return second - first;
+  });
+}
+
 export function filterDeadlines<T extends Deadline>(
   items: T[],
   options: { remainingOnly: boolean; period: DeadlinePeriod; sort: boolean },

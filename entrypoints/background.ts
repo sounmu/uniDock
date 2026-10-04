@@ -24,6 +24,14 @@ import {
 import { validHandle } from "../src/protocol";
 import { allowedPage, LMS_MATCHES } from "../src/security/policy";
 import { navigationUrl } from "../src/security/navigation";
+import { AnalyticsRuntime } from "../src/analytics/runtime";
+import {
+  FALLBACK_BADGE,
+  markUpdate,
+  reinjectLmsContentScripts,
+  takeUpdateBadge,
+} from "../src/update-notice";
+import { isAnalyticsCommand } from "../src/analytics/contract";
 
 async function boundedMessage(
   tabId: number,
@@ -403,7 +411,7 @@ const FALLBACK_ACTION_TITLE = "uniDock — 사이드 패널 대신 팝업으로 
 async function usePopupFallback() {
   await Promise.all([
     chrome.action.setPopup({ popup: "sidepanel.html" }),
-    chrome.action.setBadgeText({ text: "!" }),
+    chrome.action.setBadgeText({ text: FALLBACK_BADGE }),
     chrome.action.setBadgeBackgroundColor({ color: "#872038" }),
     chrome.action.setTitle({ title: FALLBACK_ACTION_TITLE }),
   ]);
@@ -422,12 +430,27 @@ async function configurePanelAction() {
   }
   await Promise.all([
     chrome.action.setPopup({ popup: "" }),
-    chrome.action.setBadgeText({ text: "" }),
+    clearFallbackBadge(),
     chrome.action.setTitle({ title: DEFAULT_ACTION_TITLE }),
   ]);
 }
 
+// Runs on every worker boot: undo only an earlier popup fallback, never an
+// update badge the user has not seen yet.
+async function clearFallbackBadge() {
+  if ((await chrome.action.getBadgeText({})) === FALLBACK_BADGE)
+    await chrome.action.setBadgeText({ text: "" });
+}
+
 export default defineBackground(() => {
+  chrome.runtime.onInstalled?.addListener((details) => {
+    void markUpdate(details);
+    void reinjectLmsContentScripts(details);
+  });
+  const analytics = new AnalyticsRuntime(
+    import.meta.env.PROD ? (import.meta.env.VITE_POSTHOG_KEY ?? "") : "",
+    chrome.runtime.getManifest?.().version ?? "0",
+  );
   // Chrome 114 supports these APIs; baseline tests/older unsupported runtimes may not.
   // Release builds compile playback out; the constant folds this to null.
   const playback =
@@ -444,6 +467,60 @@ export default defineBackground(() => {
     }
   };
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
+    if (isAnalyticsCommand(message)) {
+      if (!panelSender(sender)) {
+        respond({ ok: false });
+        return false;
+      }
+      void analytics
+        .command(message)
+        .then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (
+      object(message) &&
+      message.version === 1 &&
+      message.type === "UPDATE_NOTICE_TAKE" &&
+      Object.keys(message).length === 2
+    ) {
+      if (!panelSender(sender)) {
+        respond({ updated: false });
+        return false;
+      }
+      void takeUpdateBadge().then((updated) => respond({ updated }));
+      return true;
+    }
+    if (
+      object(message) &&
+      message.version === 1 &&
+      message.type === "LOCAL_DATA_DELETE_ALL" &&
+      Object.keys(message).length === 2
+    ) {
+      if (!panelSender(sender)) {
+        respond({ status: "error", code: "POLICY" });
+        return false;
+      }
+      void analytics
+        .erase()
+        .then(async () => {
+          if (!playback) {
+            await chrome.storage.local.clear();
+            return { status: "success" };
+          }
+          return playback.command({
+            version: 1,
+            type: "LOCAL_DATA_DELETE_ALL",
+          });
+        })
+        .then(
+          (result) => {
+            respond(result);
+            notifyPlayback();
+          },
+          () => respond({ status: "error", code: "STORAGE" }),
+        );
+      return true;
+    }
     if (__UNIDOCK_PLAYBACK__ && isPlaybackCommand(message)) {
       if (!panelSender(sender)) {
         respond({ status: "error", code: "POLICY" });

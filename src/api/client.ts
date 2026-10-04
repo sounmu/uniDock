@@ -20,6 +20,7 @@ import { readUrl } from "../security/policy";
 import { nextPage } from "./pagination";
 import { collectRecordings } from "./recording-collection";
 import { collectDocuments } from "./document-collection";
+import { collectBoardDocuments } from "./board-collection";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -29,6 +30,8 @@ export async function listQuery(
   now = Date.now(),
   catalog?: NavigationCatalog,
   resolvedCourseId?: string,
+  /** Reads the LearningX board token at call time; omitted skips boards. */
+  boardToken?: () => string | null,
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
@@ -38,10 +41,14 @@ export async function listQuery(
   }, 20000);
   // One budget covers course resolution plus all item pages.
   let pages = 0;
+  // `optional` marks a supplementary source: a first page the LMS refuses
+  // (disabled tab, no permission, missing) yields no rows instead of failing
+  // the whole list. Redirects, later pages and other errors stay fatal.
   async function collect<T>(
     initial: string,
     path: string,
     project: (raw: unknown) => T[],
+    optional = false,
   ): Promise<T[]> {
     let next: string | null = readUrl(initial, origin, path).href;
     const visited = new Set<string>();
@@ -59,6 +66,14 @@ export async function listQuery(
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
+      if (
+        optional &&
+        visited.size === 1 &&
+        [401, 403, 404].includes(response.status)
+      ) {
+        void response.body?.cancel().catch(() => {});
+        return [];
+      }
       if (
         response.type === "opaqueredirect" ||
         response.status === 401 ||
@@ -170,8 +185,23 @@ export async function listQuery(
             now,
             controller,
           };
+          const boards = boardToken
+            ? (seenFiles: Set<string>) =>
+                collectBoardDocuments({
+                  origin,
+                  courseId,
+                  token: boardToken(),
+                  fetcher,
+                  signal: controller.signal,
+                  seenFiles,
+                  now,
+                })
+            : undefined;
           return query.type === "DOCUMENTS_LIST"
-            ? { status: "success", documents: await collectDocuments(input) }
+            ? {
+                status: "success",
+                documents: await collectDocuments({ ...input, boards }),
+              }
             : { status: "success", recordings: await collectRecordings(input) };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;

@@ -157,9 +157,9 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await expect(panel.locator(".detail-view dl")).toBeVisible();
     await capture(panel, "assignment-detail");
     await panel.getByRole("button", { name: "← 목록" }).click();
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
     await capture(panel, "materials-ready");
     await panel
@@ -405,7 +405,9 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       await expect(notice).toBeVisible();
     }
     await panel.getByRole("button", { name: "정보", exact: true }).click();
-    await expect(panel.getByRole("heading", { name: "정보" })).toBeVisible();
+    await expect(
+      panel.getByRole("heading", { name: "정보", exact: true }),
+    ).toBeVisible();
     await capture(panel, "info");
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(

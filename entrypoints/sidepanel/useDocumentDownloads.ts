@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Result } from "../../src/protocol";
 import type { Document } from "../../src/documents";
+import { documentMimeMatches } from "../../src/documents";
 import { queryActive, type QueryTarget } from "../../src/transport";
 import {
   lmsFileDownloadUrl,
   safeDownloadPath,
 } from "../../src/security/download";
 import type { QueryGate } from "./query-gate";
+import { featureResult } from "./analytics";
 
 export type DownloadStatus =
   "queued" | "requested" | "complete" | "failed" | "cancelled" | "review";
@@ -86,7 +88,11 @@ export function useDocumentDownloads(context: {
         item.state === "interrupted"
           ? "failed"
           : item.state === "complete"
-            ? item.mime === "application/pdf"
+            ? documentMimeMatches(
+                expected.current.find((entry) => entry.handle === handle)
+                  ?.path ?? "",
+                item.mime,
+              )
               ? "complete"
               : "review"
             : "requested";
@@ -169,6 +175,7 @@ export function useDocumentDownloads(context: {
         !used.current.has(item.downloadHandle),
     );
     if (!selected.length) return;
+    const report = featureResult("download");
     const current = generation.current,
       token = ++batch.current;
     running.current = true;
@@ -190,7 +197,7 @@ export function useDocumentDownloads(context: {
       }
       const handle = item.downloadHandle;
       used.current.add(handle);
-      const path = safeDownloadPath(course, item.module, item.title);
+      const path = safeDownloadPath(course, item.module, item.filename);
       if (path)
         expected.current.push({
           handle,
@@ -203,6 +210,7 @@ export function useDocumentDownloads(context: {
       );
       inFlight.current = work;
       const result = await work.finally(lease.release);
+      report(result.status === "success");
       if (inFlight.current === work) inFlight.current = null;
       done++;
       if (current !== generation.current) break;
@@ -220,7 +228,7 @@ export function useDocumentDownloads(context: {
         setNotice(
           result.code === "STALE_SELECTION"
             ? "목록을 새로고침한 뒤 다시 다운로드하세요."
-            : "PDF 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
+            : "자료 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
         );
       setProgress({ running: true, done, total: selected.length });
     }

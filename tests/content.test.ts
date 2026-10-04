@@ -1271,6 +1271,7 @@ it("isolates identical capability lists while general queries and another issuer
               {
                 module: "Week",
                 title: "Notes",
+                filename: "Notes.pdf",
                 courseId: "101",
                 itemId: "900",
                 fileId: "501",
@@ -2072,6 +2073,7 @@ it("routes document handles through the background LMS boundary and consumes the
         {
           module: "Week",
           title: "file.pdf",
+          filename: "file.pdf",
           courseId: "101",
           itemId: "501",
           fileId: "777",
@@ -2605,4 +2607,40 @@ it("rejects forged background discovery, raw endpoint input and panel account qu
       vi.fn(),
     ),
   ).toBe(false);
+});
+
+it("answers the background presence check so re-injection skips a live copy", () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path = "") => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const message = { version: 1, type: "LMS_PRESENCE" };
+  const background = { id: "fixture-extension" };
+  const respond = vi.fn();
+  expect(listener(message, background, respond)).toBe(false);
+  expect(respond).toHaveBeenCalledExactlyOnceWith({
+    version: 1,
+    type: "LMS_PRESENT",
+  });
+  // Only the extension's own background may probe; extra fields are refused.
+  const refused = vi.fn();
+  listener(
+    message,
+    {
+      id: "fixture-extension",
+      url: "chrome-extension://fixture-extension/sidepanel.html",
+      tab: { id: 1 },
+    },
+    refused,
+  );
+  listener({ ...message, extra: true }, background, refused);
+  listener(message, { id: "other-extension" }, refused);
+  expect(refused).not.toHaveBeenCalledWith({ version: 1, type: "LMS_PRESENT" });
 });

@@ -6,7 +6,11 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
     <>
       {model.course && (
         <section className="course-context">
-          <button className="btn-ghost" onClick={model.showCourses}>
+          <button
+            className="btn-ghost"
+            onClick={model.showCourses}
+            data-analytics-action="back"
+          >
             ← 과목 선택
           </button>
           <h2>{model.course}</h2>
@@ -15,11 +19,18 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
               [
                 ["ASSIGNMENTS_LIST", "과제"],
                 ["RECORDINGS_LIST", "녹화 강의"],
-                ["DOCUMENTS_LIST", "수업 자료"],
+                ["DOCUMENTS_LIST", "강의 자료"],
               ] as const
             ).map(([type, label]) => (
               <button
                 key={type}
+                data-analytics-action={
+                  type === "ASSIGNMENTS_LIST"
+                    ? "tab_assignments"
+                    : type === "RECORDINGS_LIST"
+                      ? "tab_recordings"
+                      : "tab_materials"
+                }
                 className="btn-ghost"
                 aria-pressed={model.view === type}
                 onClick={() => {
@@ -61,7 +72,7 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           />
           {model.course && (
             <details className="guidance">
-              <summary>안내</summary>
+              <summary data-analytics-action="guidance">안내</summary>
               <p className="hint">
                 {model.view === "RECORDINGS_LIST"
                   ? "외부 도구 항목 중 녹화 강의 후보를 표시합니다. LTI 탭은 LMS를 거쳐 열립니다. 재생은 열린 LMS에서 직접 조작하세요. LMS 자체 재생으로 시청·출석 기록이 반영될 수 있습니다."

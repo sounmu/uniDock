@@ -23,7 +23,7 @@ const lmsHosts = [
 ];
 assert.deepEqual(
   [...manifest.permissions].sort(),
-  ["activeTab", "downloads", "scripting", "sidePanel"].sort(),
+  ["activeTab", "downloads", "scripting", "sidePanel", "storage"].sort(),
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
@@ -53,7 +53,7 @@ assert(
 );
 assert.equal(
   manifest.content_security_policy.extension_pages,
-  "script-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'",
+  "script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com; base-uri 'none'; form-action 'none'",
 );
 const files = [];
 function walk(dir) {
@@ -68,7 +68,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -93,7 +93,12 @@ for (const file of files) {
       assert(!code.includes(marker), `Playback code leaked into ${file}`);
   }
 }
-for (const file of ["privacy.html", "THIRD_PARTY_NOTICES.txt", "icons/128.png"])
+for (const file of [
+  "updates.html",
+  "privacy.html",
+  "THIRD_PARTY_NOTICES.txt",
+  "icons/128.png",
+])
   assert(files.includes(file));
 import { dependencyNoticesText } from "./dependency-notices.mjs";
 // Re-run build if installed dependency notices differ from bundled notices.

@@ -28,17 +28,37 @@ export function readUrl(
     expectedPath,
   );
   const modules = /^\/api\/v1\/courses\/[1-9]\d*\/modules$/.test(expectedPath);
+  const topics = /^\/api\/v1\/courses\/[1-9]\d*\/discussion_topics$/.test(
+    expectedPath,
+  );
   const moduleItems =
     /^\/api\/v1\/courses\/[1-9]\d*\/modules\/[1-9]\d*\/items$/.test(
       expectedPath,
     );
+  // LearningX boards: the course board list, one board's post pages, and one
+  // post. Only `page` is accepted, and only on the post list.
+  const boards =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards$/.test(
+      expectedPath,
+    );
+  const boardPosts =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards\/[1-9]\d*\/posts$/.test(
+      expectedPath,
+    );
+  const boardPost =
+    /^\/learningx\/api\/v1\/learningx_board\/courses\/[1-9]\d*\/boards\/[1-9]\d*\/posts\/[1-9]\d*$/.test(
+      expectedPath,
+    );
+  const learningx = boards || boardPosts || boardPost;
   const courses = expectedPath === "/api/v1/courses",
     planner = expectedPath === "/api/v1/planner/items",
     currentUser = expectedPath === "/api/v1/users/self";
   if (!(
     assignments ||
     modules ||
+    topics ||
     moduleItems ||
+    learningx ||
     courses ||
     planner ||
     currentUser
@@ -52,8 +72,10 @@ export function readUrl(
   )
     throw new Error("POLICY");
   const permitted = [
-    ...(!currentUser ? ["per_page", "page"] : []),
+    ...(boardPosts ? ["page"] : []),
+    ...(!currentUser && !learningx ? ["per_page", "page"] : []),
     ...(courses ? ["enrollment_state"] : []),
+    ...(topics ? ["only_announcements"] : []),
     ...(assignments || modules || moduleItems ? ["include[]"] : []),
     ...(planner ? ["start_date", "end_date"] : []),
   ];
@@ -71,6 +93,8 @@ export function readUrl(
     if (key === "page" && !/^[1-9]\d{0,5}$/.test(val))
       throw new Error("POLICY");
     if (key === "enrollment_state" && val !== "active")
+      throw new Error("POLICY");
+    if (key === "only_announcements" && val !== "true")
       throw new Error("POLICY");
     if (key === "include[]") {
       const values = url.searchParams.getAll(key);

@@ -14,6 +14,48 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+it("rejects analytics messages from content scripts and accepts only the exact extension panel", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener },
+    },
+    action: actionMocks(),
+    storage: { local: { get: vi.fn().mockResolvedValue({}) } },
+  });
+  background.main();
+  const listener = addListener.mock.calls[0]![0];
+  const respond = vi.fn();
+  for (const url of [
+    "https://mylms.korea.ac.kr/",
+    "https://kucom.korea.ac.kr/em/test",
+    "chrome-extension://other/sidepanel.html",
+    "chrome-extension://test/privacy.html",
+  ]) {
+    expect(
+      listener(
+        { version: 1, type: "ANALYTICS_CONSENT", enabled: true },
+        { id: "test", url },
+        respond,
+      ),
+    ).toBe(false);
+    expect(respond).toHaveBeenLastCalledWith({ ok: false });
+  }
+  expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  const result = await new Promise((resolve) => {
+    expect(
+      listener(
+        { version: 1, type: "ANALYTICS_STATUS" },
+        { id: "test", url: "chrome-extension://test/sidepanel.html" },
+        resolve,
+      ),
+    ).toBe(true);
+  });
+  expect(result).toEqual({ available: false, choice: "undecided" });
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -24,9 +66,92 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+it("registers Chrome install events to badge upgrades and reconnect open LMS tabs", async () => {
+  const installed = vi.fn();
+  const create = vi.fn();
+  const executeScript = vi.fn().mockResolvedValue([]);
+  const action = {
+    ...actionMocks(),
+    getBadgeText: vi.fn().mockResolvedValue(""),
+  };
+  vi.stubGlobal("chrome", {
+    runtime: {
+      getManifest: () => ({ version: "0.1.2" }),
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onInstalled: { addListener: installed },
+      onMessage: { addListener: vi.fn() },
+    },
+    tabs: {
+      create,
+      query: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 7, status: "complete", url: "https://mylms.korea.ac.kr/" },
+        ]),
+      sendMessage: vi.fn().mockRejectedValue(new Error("no receiver")),
+    },
+    scripting: { executeScript },
+    action,
+  });
+  background.main();
+  expect(installed).toHaveBeenCalledOnce();
+  const listener = installed.mock.calls[0]![0];
+  listener({ reason: "update", previousVersion: "0.1.1" });
+  await vi.waitFor(() =>
+    expect(action.setBadgeText).toHaveBeenCalledWith({ text: "NEW" }),
+  );
+  await vi.waitFor(() =>
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 7 },
+      files: ["content-scripts/lms.js"],
+    }),
+  );
+  expect(create).not.toHaveBeenCalled();
+});
+
+it("spends the update badge only for the extension panel", async () => {
+  const addListener = vi.fn();
+  const action = {
+    ...actionMocks(),
+    getBadgeText: vi.fn().mockResolvedValue("NEW"),
+  };
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener },
+    },
+    action,
+  });
+  background.main();
+  const listener = addListener.mock.calls[0]![0];
+  const message = { version: 1, type: "UPDATE_NOTICE_TAKE" };
+  const respond = vi.fn();
+  expect(
+    listener(
+      message,
+      { id: "test", url: "https://mylms.korea.ac.kr/" },
+      respond,
+    ),
+  ).toBe(false);
+  expect(respond).toHaveBeenLastCalledWith({ updated: false });
+  expect(
+    listener(
+      message,
+      { id: "test", url: "chrome-extension://test/sidepanel.html" },
+      respond,
+    ),
+  ).toBe(true);
+  await vi.waitFor(() =>
+    expect(respond).toHaveBeenLastCalledWith({ updated: true }),
+  );
+  expect(action.setBadgeText).toHaveBeenCalledWith({ text: "" });
+});
+
 function actionMocks() {
   const setPopup = vi.fn().mockResolvedValue(undefined);
   const setBadgeText = vi.fn().mockResolvedValue(undefined);
+  const getBadgeText = vi.fn().mockResolvedValue("!");
   const setBadgeBackgroundColor = vi.fn().mockResolvedValue(undefined);
   let configured!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -35,7 +160,14 @@ function actionMocks() {
   const setTitle = vi.fn(async () => {
     configured();
   });
-  return { setPopup, setBadgeText, setBadgeBackgroundColor, setTitle, done };
+  return {
+    setPopup,
+    setBadgeText,
+    getBadgeText,
+    setBadgeBackgroundColor,
+    setTitle,
+    done,
+  };
 }
 
 it("opens the sidepanel page as a popup when the side panel API is unavailable", async () => {
@@ -87,8 +219,25 @@ it("restores direct side panel opening after support becomes available", async (
   expect(setPanelBehavior).toHaveBeenCalledWith({
     openPanelOnActionClick: true,
   });
-  expect(action.setBadgeText).toHaveBeenCalledWith({ text: "" });
+  await vi.waitFor(() =>
+    expect(action.setBadgeText).toHaveBeenCalledWith({ text: "" }),
+  );
   expect(action.setTitle).toHaveBeenCalledWith({ title: "uniDock 열기" });
+});
+
+it("keeps an unseen update badge when side panel setup runs on worker boot", async () => {
+  const action = actionMocks();
+  action.getBadgeText.mockResolvedValue("NEW");
+  vi.stubGlobal("chrome", {
+    runtime: { onMessage: { addListener: vi.fn() } },
+    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined) },
+    action,
+  });
+  background.main();
+  await action.done;
+  await vi.waitFor(() => expect(action.getBadgeText).toHaveBeenCalled());
+  await Promise.resolve();
+  expect(action.setBadgeText).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -414,6 +563,32 @@ it("does not broadcast rejected playback messages", () => {
   expect(respond).toHaveBeenCalledWith({ status: "error", code: "POLICY" });
   expect(f.command).not.toHaveBeenCalled();
   expect(f.sendMessage).not.toHaveBeenCalled();
+});
+
+it("erases analytics consent before the existing clear-data command and does not capture deletion", async () => {
+  const f = commandBroadcastFixture();
+  f.command.mockResolvedValue({ status: "error", code: "STORAGE" });
+  const order: string[] = [];
+  vi.mocked(chrome.storage.local.remove).mockImplementation(async () => {
+    order.push("erase");
+  });
+  f.command.mockImplementation(async () => {
+    order.push("playback");
+    return { status: "error", code: "STORAGE" };
+  });
+  await new Promise((resolve) => {
+    expect(
+      f.receive(
+        { version: 1, type: "LOCAL_DATA_DELETE_ALL" },
+        f.panel,
+        resolve,
+      ),
+    ).toBe(true);
+  });
+  expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+    "unidock.analytics.v1",
+  );
+  expect(order).toEqual(["erase", "playback"]);
 });
 
 function activationListenerFixture(

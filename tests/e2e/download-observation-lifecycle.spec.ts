@@ -74,9 +74,9 @@ test("a stale native download lookup cannot complete a refreshed matching row", 
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
 
     // Hold every hook lookup for the first real Chrome download ID. Calls to

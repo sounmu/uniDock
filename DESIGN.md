@@ -6,7 +6,7 @@ A quiet Korean study desk: Todoist-like divided task rows, always-labelled top n
 
 ## 2. Color
 
-CSS tokens: `--ink:#24242b`, `--muted:#6b6269`, `--line:#e7e3df`, `--line-strong:#d8d0d3`, `--page:#f8f7f5`, `--surface:#fff`, `--brand:#872038`, `--brand-wash:#f4eaec`, `--danger-line:#dcb7bf`. Selection uses a wash, not an accent border. Status always has text.
+CSS tokens: `--ink:#24242b`, `--muted:#6b6269`, `--line:#e7e3df`, `--line-strong:#d8d0d3`, `--page:#f8f7f5`, `--surface:#fff`, `--brand:#872038`, `--brand-wash:#f4eaec`, `--danger-line:#dcb7bf`, `--danger:#b42318` (destructive action text only). Selection uses a wash, not an accent border. Status always has text.
 
 ## 3. Typography
 
@@ -28,6 +28,7 @@ The root is a single column: compact navigation header followed by full-width ma
 - **DetailView:** ghost 목록 back button, heading, two-column semantic dl, contextual tools. Only its primary is visible while detail is open; list remains hidden/mounted. Keyboard focus moves to detail heading and returns to the selected row.
 - **Notice:** white surface, 1px line (danger-line for errors), 10px radius, 12px padding/type; status or alert role.
 - **Buttons:** primary brand/white, 36px; secondary surface/line-strong/brand, 32px; ghost transparent/muted, 32px. All 6px radius, 12px/600. Disabled opacity .5, default cursor. All interactive elements have 2px brand focus outline and 2px offset.
+- **Information screen:** app header (48px icon at 40px, name, version and unofficial note), then settings groups: muted 12px/600 label above a white card with 1px line and 10px radius. Rows are at least 48px with 12px padding and a separator; each has a 13px/500 title, optional 12px muted subtitle and trailing actions that wrap below on narrow panels. Links are full-row with a trailing external icon and hover wash. Long policy copy sits in native details rows. Destructive actions use `--danger` text on a secondary button.
 - **Settings:** native 보기 설정 details contain filters, sorting or date fields. Playback settings and manual confirmation each have a dedicated detail view, with deletion confirmation preserved.
 - **Pagination:** 100 rows per page, filter resets page, status/timer updates preserve page.
 
@@ -40,9 +41,9 @@ The root is a single column: compact navigation header followed by full-width ma
 | Captions | 자막 감지 |
 | Item details | Open LMS, open LTI, download PDF, cancel reservation, or download captions; assignment details have none |
 
-### 수업 자료 다운로드
+### 강의 자료 다운로드
 
-Module-grouped PDF rows with 전체 선택, per-file selection, and text progress n/N. During a batch the primary is replaced by secondary 취소; cancellation stops unsent requests, not browser downloads already started. One-use handles are never reused; refresh is required after expiry. States: 대기, 다운로드 중, 요청됨, 완료, 실패, 취소됨, 확인 필요. Missing content_id shows LMS에서 확인 with no checkbox/action for download. Folder and ChatGPT tools follow the batch; the latter copies a prompt and opens chatgpt.com only. The user must attach files themselves; no upload.
+Source-grouped material rows (PDF, PPTX and PPT in one list, no format filter or format label) with 전체 선택, per-file selection, and text progress n/N. During a batch the primary is replaced by secondary 취소; cancellation stops unsent requests, not browser downloads already started. One-use handles are never reused; refresh is required after expiry. States: 대기, 다운로드 중, 요청됨, 완료, 실패, 취소됨, 확인 필요. Missing content_id shows LMS에서 확인 with no checkbox/action for download. Folder and ChatGPT tools follow the batch; the latter copies a prompt and opens chatgpt.com only. The user must attach files themselves; no upload.
 
 ## 6. Motion & Interaction
 

@@ -194,7 +194,7 @@ it("opens the selected course materials view through the four-item rail", async 
   // When
   await click("새로고침");
   await click("과목");
-  await click("수업 자료");
+  await click("강의 자료");
   // Then
   expect(query).toHaveBeenLastCalledWith(
     { version: 1, type: "DOCUMENTS_LIST", courseSelector },
@@ -204,7 +204,7 @@ it("opens the selected course materials view through the four-item rail", async 
     ui.host.querySelectorAll('nav[aria-label="주 메뉴"] button'),
   ).toHaveLength(4);
   expect(document.body.textContent).toContain(
-    "모듈에서 확인 가능한 PDF가 없습니다.",
+    "주차학습·게시판에서 확인 가능한 강의 자료가 없습니다.",
   );
 });
 it("selects duplicate course names by opaque selector and keeps the listing source", async () => {
@@ -360,4 +360,32 @@ it("links task and schedule details to their LMS posts", async () => {
     await click("← 목록");
     if (title === "할 일 게시글") await click("일정");
   }
+});
+it("hides the undecided analytics reminder for this panel when 나중에 is chosen", async () => {
+  // Given: analytics is configured but the user has not decided yet.
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValue({ available: true, choice: "undecided" });
+  vi.stubGlobal("chrome", {
+    runtime: { sendMessage },
+    storage: {
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
+    downloads: {
+      onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
+  });
+  ui = await mount(<App />);
+  await act(async () => {});
+  const reminder = () =>
+    document.querySelector('[aria-label="사용 통계 공유 안내"]');
+  expect(reminder()).not.toBeNull();
+  // When
+  await click("나중에");
+  // Then: hidden without recording a choice.
+  expect(reminder()).toBeNull();
+  expect(sendMessage).not.toHaveBeenCalledWith(
+    expect.objectContaining({ type: "ANALYTICS_CONSENT" }),
+  );
 });

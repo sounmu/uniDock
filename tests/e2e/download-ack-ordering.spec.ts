@@ -78,9 +78,9 @@ test("a completed native PDF is not overwritten by a late timeout acknowledgemen
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
 
     // Delay only the content-script result seen by the panel. Chrome's native
@@ -149,7 +149,7 @@ test("a completed native PDF is not overwritten by a late timeout acknowledgemen
       panel.locator(".status-chip").filter({ hasText: /^완료$/ }),
     ).toHaveCount(1);
     await expect(
-      panel.getByText("PDF 다운로드를 시작하지 못했습니다", { exact: false }),
+      panel.getByText("자료 다운로드를 시작하지 못했습니다", { exact: false }),
     ).toHaveCount(0);
     await expect(
       panel.getByRole("checkbox", { name: "lecture.pdf 선택" }),

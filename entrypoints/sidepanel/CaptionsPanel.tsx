@@ -10,6 +10,7 @@ import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import { Notice } from "./ui/Notice";
+import { featureResult } from "./analytics";
 const messages = {
   ACTIVATE_TAB:
     "강의 플레이어 탭을 선택하고 도구 모음의 uniDock 아이콘을 누른 뒤 다시 감지하세요.",
@@ -105,6 +106,7 @@ export function CaptionsPanel() {
     return () => clearTimeout(timer);
   }, [state]);
   async function detect() {
+    const report = featureResult("captions_detect");
     back();
     detection.current?.abort();
     exportController.current?.abort();
@@ -131,11 +133,13 @@ export function CaptionsPanel() {
     );
     if (isCurrent()) {
       detection.current = null;
+      report(result.status === "success");
       setState(result);
     }
   }
   async function download() {
     if (!selected || exportLocked.current) return;
+    const report = featureResult("captions_export");
     exportLocked.current = true;
     const controller = new AbortController();
     exportController.current = controller;
@@ -151,6 +155,7 @@ export function CaptionsPanel() {
         isCurrent,
       });
       if (!isCurrent()) return;
+      report(result.status === "complete");
       if (result.status === "complete") {
         setNotice(
           "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
@@ -163,6 +168,7 @@ export function CaptionsPanel() {
         setNotice("다운로드를 요청하지 못했습니다. 다시 시도하세요.");
       }
     } catch {
+      if (isCurrent()) report(false);
       if (isCurrent())
         setNotice(
           "다운로드 요청을 완료하지 못했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
@@ -185,13 +191,14 @@ export function CaptionsPanel() {
               className="btn-primary"
               disabled={state.status === "loading"}
               onClick={() => void detect()}
+              data-analytics-action="captions_detect"
             >
               {state.status === "loading" ? "감지 중…" : "자막 감지"}
             </button>
           }
         />
         <details className="guidance">
-          <summary>안내</summary>
+          <summary data-analytics-action="guidance">안내</summary>
           <p className="hint">
             강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를
             누르면 화면의 자막 목록을 먼저 읽고, 없으면 KU 플레이어의 XML·VTT
@@ -259,6 +266,7 @@ export function CaptionsPanel() {
             className="btn-primary"
             disabled={exportPending}
             onClick={() => void download()}
+            data-analytics-action="captions_export"
           >
             TXT·JSON 다운로드
           </button>
