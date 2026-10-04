@@ -149,7 +149,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toHaveValue("all");
     await expect(
       panel.getByRole("combobox", { name: "정렬", exact: true }),
-    ).toHaveValue("original");
+    ).toHaveValue("due");
     await capture(panel, "assignments-settings");
     await panel
       .getByRole("button", { name: /Synthetic Final Project/ })
@@ -309,7 +309,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toHaveCount(3);
     await panel.getByText("보기 설정", { exact: true }).click();
     const sort = panel.getByRole("combobox", { name: "정렬", exact: true });
-    await sort.selectOption("due");
+    await expect(sort).toHaveValue("due");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Early Deadline",
     );
@@ -317,6 +317,10 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await sort.selectOption("original");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Final Project",
+    );
+    await sort.selectOption("due");
+    await expect(panel.locator("li strong").first()).toHaveText(
+      "Synthetic Early Deadline",
     );
     await capture(panel, "tasks");
     await panel.getByRole("button", { name: "일정", exact: true }).click();
