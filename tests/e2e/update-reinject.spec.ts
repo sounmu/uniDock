@@ -1,5 +1,6 @@
 import { test, expect, chromium, type Browser } from "@playwright/test";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -94,8 +95,19 @@ test("install and update reconnect an already open LMS tab without a reload", as
     expect(errors).toEqual([]);
   } finally {
     await browser?.close().catch(() => {});
+    // Chromium keeps writing its profile until the process is gone.
+    const exited =
+      chrome.exitCode !== null || chrome.signalCode !== null
+        ? Promise.resolve()
+        : once(chrome, "exit");
     chrome.kill();
+    await exited;
     await server.close();
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200,
+    });
   }
 });
