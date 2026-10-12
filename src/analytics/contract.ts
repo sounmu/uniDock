@@ -47,6 +47,7 @@ export const actions = [
   "date_start",
   "date_end",
   "view_options",
+  "toggle_overdue",
   "guidance",
   "captions_detect",
   "captions_export",

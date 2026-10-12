@@ -18,6 +18,7 @@ import { useDetail } from "./ui/DetailView";
 import { rowKey } from "./ui/a11y";
 import { ItemDetail, isAssignment } from "./ItemDetail";
 type Item = Deadline | Upcoming | Todo;
+type SortOrder = "original" | "due" | "due-desc";
 export { dateLabel } from "./ItemDetail";
 const shortFormatter = new Intl.DateTimeFormat("ko-KR", {
   month: "numeric",
@@ -64,6 +65,11 @@ function chip(item: Item, now: number): string {
   const delta = isoTime(item.due_at) - now;
   return delta <= 0 ? "마감 지남" : delta <= 86400000 ? "D-1" : "미제출";
 }
+function isOverdueTodo(item: Todo, now: number): boolean {
+  return (
+    !["submitted", "graded"].includes(item.type) && isoTime(item.due_at) <= now
+  );
+}
 function ItemChip({
   item,
   now,
@@ -98,7 +104,7 @@ export function ItemResults({
 }) {
   const [remainingOnly, setRemainingOnly] = useState(true);
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
-  const [sort, setSort] = useState(true);
+  const [sort, setSort] = useState<SortOrder>(todo ? "due-desc" : "due");
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
   useEffect(() => {
@@ -114,19 +120,38 @@ export function ItemResults({
     if (deadlines)
       return filterDeadlines(
         items.filter((item): item is Deadline => "remaining_candidate" in item),
-        { remainingOnly, period, sort },
+        { remainingOnly, period, sort: sort !== "original" },
         now,
       );
-    if (todo)
-      return sort
-        ? sortByDue(items.filter((item): item is Todo => "ignore" in item))
-        : items;
+    if (todo) {
+      const rows = items.filter((item): item is Todo => "ignore" in item);
+      return sort === "original" ? rows : sortByDue(rows, sort === "due-desc");
+    }
     // Schedule rows show the most recent date first; undated rows go last.
     return sortByDateDesc(
       items.filter((item): item is Upcoming => "date" in item),
     );
   }, [items, deadlines, todo, remainingOnly, period, sort, now]);
+  // Unsubmitted Todo rows past their due time collapse into a trailing group.
+  const [current, overdue] = useMemo(() => {
+    if (!todo) return [visible, []];
+    const rows = visible as Todo[];
+    return [
+      rows.filter((item) => !isOverdueTodo(item, now)),
+      rows.filter((item) => isOverdueTodo(item, now)),
+    ];
+  }, [visible, todo, now]);
   const resetKey = useMemo(() => ({}), [items, remainingOnly, period, sort]);
+  const row = (item: Item) => (
+    <li key={rowKey(item)}>
+      <ListRow
+        title={item.title}
+        course={"course" in item ? item.course : course}
+        chip={<ItemChip item={item} now={now} />}
+        onClick={() => open(item)}
+      />
+    </li>
+  );
   return (
     <>
       <div hidden={detail !== null}>
@@ -171,12 +196,21 @@ export function ItemResults({
                 <label className="field">
                   정렬
                   <select
-                    value={sort ? "due" : "original"}
+                    value={sort}
                     data-analytics-action="sort"
-                    onChange={(e) => setSort(e.target.value === "due")}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (
+                        value === "original" ||
+                        value === "due" ||
+                        value === "due-desc"
+                      )
+                        setSort(value);
+                    }}
                   >
                     <option value="original">LMS 순서</option>
                     <option value="due">마감 빠른 순</option>
+                    {todo && <option value="due-desc">마감 늦은 순</option>}
                   </select>
                 </label>
               </div>
@@ -193,25 +227,33 @@ export function ItemResults({
           조회 완료 · {items.length}개 항목
           {deadlines && ` 중 ${visible.length}개 표시`} · 한국 시간
         </p>
-        {visible.length === 0 ? (
+        {current.length === 0 ? (
           <div className="notice">
             {items.length === 0
               ? "조회된 항목이 없습니다."
-              : "조건에 맞는 과제가 없습니다."}
+              : overdue.length > 0
+                ? "마감 전인 할 일이 없습니다."
+                : "조건에 맞는 과제가 없습니다."}
           </div>
         ) : (
-          <PagedList items={visible} resetKey={resetKey}>
-            {(item) => (
-              <li key={rowKey(item)}>
-                <ListRow
-                  title={item.title}
-                  course={"course" in item ? item.course : course}
-                  chip={<ItemChip item={item} now={now} />}
-                  onClick={() => open(item)}
-                />
-              </li>
-            )}
+          <PagedList items={current} resetKey={resetKey}>
+            {row}
           </PagedList>
+        )}
+        {overdue.length > 0 && (
+          <details className="overdue-group">
+            <summary data-analytics-action="toggle_overdue">
+              마감 지남
+              <span className="overdue-count">{overdue.length}개</span>
+            </summary>
+            <p className="hint">
+              제출하지 않은 채 마감이 지난 항목입니다. 지각 제출 가능 여부는
+              LMS에서 확인하세요.
+            </p>
+            <PagedList items={overdue} resetKey={resetKey}>
+              {row}
+            </PagedList>
+          </details>
         )}
       </div>
       {detail && (

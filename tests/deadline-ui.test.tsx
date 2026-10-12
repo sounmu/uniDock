@@ -83,7 +83,7 @@ it("sorts the whole response before pagination and returns to LMS order", async 
   });
   expect(document.querySelector("li strong")?.textContent).toBe("과제 0");
 });
-it("sorts Todo by due date by default and restores LMS order on demand", async () => {
+it("sorts Todo latest due first by default and offers other orders", async () => {
   ui = await mount(
     <ResultList
       result={{
@@ -117,10 +117,10 @@ it("sorts Todo by due date by default and restores LMS order on demand", async (
   );
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
-  ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
+  ).toEqual(["늦은 마감", "빠른 마감", "마감 없음"]);
   await click("보기 설정");
   const select = document.querySelector("select")!;
-  expect(select.value).toBe("due");
+  expect(select.value).toBe("due-desc");
   await act(async () => {
     select.value = "original";
     select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -135,4 +135,43 @@ it("sorts Todo by due date by default and restores LMS order on demand", async (
   expect(
     [...document.querySelectorAll("li strong")].map((node) => node.textContent),
   ).toEqual(["빠른 마감", "늦은 마감", "마감 없음"]);
+});
+it("collapses unsubmitted overdue Todo rows into a trailing group", async () => {
+  vi.useFakeTimers();
+  const now = Date.parse("2026-10-12T00:00:00Z");
+  vi.setSystemTime(now);
+  const todo = (title: string, offset: number, type = "unsubmitted") => ({
+    title,
+    due_at: new Date(now + offset).toISOString(),
+    type,
+    course: "A",
+    ignore: false,
+  });
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          todo("오래 지남", -2 * 86400000),
+          todo("남은 과제", 86400000 * 3),
+          todo("방금 지남", -60000),
+          todo("제출 완료", -86400000, "submitted"),
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const group = document.querySelector<HTMLDetailsElement>(".overdue-group")!;
+  expect(group.open).toBe(false);
+  expect(group.querySelector("summary")?.textContent).toBe("마감 지남2개");
+  const titles = (root: ParentNode) =>
+    [...root.querySelectorAll("li strong")].map((node) => node.textContent);
+  expect(titles(group)).toEqual(["방금 지남", "오래 지남"]);
+  expect(
+    titles(document).filter((title) => !titles(group).includes(title)),
+  ).toEqual(["남은 과제", "제출 완료"]);
+  await act(async () => group.querySelector("summary")!.click());
+  expect(group.open).toBe(true);
+  await act(async () => vi.advanceTimersByTime(3 * 86400000));
+  expect(titles(group)).toEqual(["남은 과제", "방금 지남", "오래 지남"]);
 });
