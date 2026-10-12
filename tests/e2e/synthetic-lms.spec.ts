@@ -369,14 +369,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     if (playbackBuild()) {
       await playbackMenu.click();
       await expect(playbackMenu).toHaveAttribute("aria-current", "page");
+      // Selection is a brand wash with brand text (DESIGN.md), light theme.
       await expect(playbackMenu).toHaveCSS(
         "background-color",
-        "rgb(135, 32, 56)",
+        "rgb(244, 234, 236)",
       );
-      await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(playbackMenu).toHaveCSS("color", "rgb(135, 32, 56)");
       await expect(playbackMenu.locator("svg")).toHaveCSS(
         "color",
-        "rgb(255, 255, 255)",
+        "rgb(135, 32, 56)",
       );
       await capture(panel, "playback");
     } else {
