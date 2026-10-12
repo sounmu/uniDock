@@ -6,6 +6,7 @@ import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import type { Course } from "../../src/domain";
 import { newTab } from "./ui/a11y";
+import { Icon } from "./ui/icons";
 export { dateLabel } from "./ItemResults";
 export function ResultList({
   result,
@@ -13,6 +14,7 @@ export function ResultList({
   onRecording,
   recordingPending = false,
   usedRecordingHandles,
+  openedRecordingHandles,
   course = "",
 }: {
   readonly result: Extract<Result, { status: "success" }>;
@@ -20,6 +22,7 @@ export function ResultList({
   readonly onRecording?: (handle: string) => void;
   readonly recordingPending?: boolean;
   readonly usedRecordingHandles?: ReadonlySet<string>;
+  readonly openedRecordingHandles?: ReadonlySet<string>;
   readonly course?: string;
 }) {
   const { detail, open, back } = useDetail<number>();
@@ -38,17 +41,31 @@ export function ResultList({
           ) : (
             <PagedList items={result.recordings}>
               {(row, index) => (
-                <li key={row.lmsHandle}>
+                <li key={row.lmsHandle} className="action-row">
                   <ListRow
                     title={row.title}
                     course={course || row.module}
                     chip={
-                      <StatusChip>
-                        {row.launchHandle ? "LTI 열기 가능" : "LMS에서 확인"}
-                      </StatusChip>
+                      row.launchHandle ? undefined : (
+                        <StatusChip>LMS에서 확인</StatusChip>
+                      )
                     }
                     onClick={() => open(index)}
                   />
+                  {row.launchHandle && (
+                    <RowLaunch
+                      title={row.title}
+                      state={
+                        openedRecordingHandles?.has(row.launchHandle)
+                          ? "opened"
+                          : usedRecordingHandles?.has(row.launchHandle)
+                            ? "expired"
+                            : "ready"
+                      }
+                      disabled={!onRecording || recordingPending}
+                      onClick={() => onRecording?.(row.launchHandle)}
+                    />
+                  )}
                 </li>
               )}
             </PagedList>
@@ -135,5 +152,49 @@ export function ResultList({
       todo={"todo" in result}
       course={course}
     />
+  );
+}
+// A sibling of the row button, since buttons cannot nest. Launch handles are
+// one-use: a consumed row says whether it opened or now needs a fresh list
+// (expired, timed out or failed to open), instead of looking merely disabled.
+function RowLaunch({
+  title,
+  state,
+  disabled,
+  onClick,
+}: {
+  readonly title: string;
+  readonly state: "ready" | "opened" | "expired";
+  readonly disabled: boolean;
+  readonly onClick: () => void;
+}) {
+  const name = title || "제목 없음";
+  const label = {
+    ready: "LTI 열기",
+    opened: "열었음",
+    expired: "새로고침 필요",
+  }[state];
+  return (
+    <button
+      className={`row-action${state === "ready" ? "" : ` ${state}`}`}
+      disabled={state !== "ready" || disabled}
+      data-analytics-action="recording_launch"
+      onClick={onClick}
+      aria-label={
+        state === "ready"
+          ? `${name} LTI 열기 (새 탭)`
+          : state === "opened"
+            ? `${name} LTI 열었음`
+            : `${name} LTI 열 수 없음, 목록을 새로고침하세요`
+      }
+    >
+      {label}
+      {state === "ready" && (
+        <>
+          {" "}
+          <Icon name="external" />
+        </>
+      )}
+    </button>
   );
 }

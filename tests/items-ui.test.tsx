@@ -106,7 +106,8 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
     />,
   );
   expect(html).toContain("1차시");
-  expect(html).toContain("LTI 열기 가능");
+  expect(html).toContain("1차시 LTI 열기 (새 탭)");
+  expect(html).not.toContain("LMS에서 확인");
   expect(html).not.toMatch(/href=|https:|\/courses\//);
 });
 it("labels schedule chips as past, today, upcoming, or submitted in Korea time", () => {

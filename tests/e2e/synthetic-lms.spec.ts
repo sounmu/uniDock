@@ -309,18 +309,18 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toHaveCount(3);
     await panel.getByText("보기 설정", { exact: true }).click();
     const sort = panel.getByRole("combobox", { name: "정렬", exact: true });
-    await expect(sort).toHaveValue("due");
-    await expect(panel.locator("li strong").first()).toHaveText(
-      "Synthetic Early Deadline",
-    );
-    await capture(panel, "tasks-settings");
-    await sort.selectOption("original");
+    await expect(sort).toHaveValue("due-desc");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Final Project",
     );
+    await capture(panel, "tasks-settings");
     await sort.selectOption("due");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Early Deadline",
+    );
+    await sort.selectOption("original");
+    await expect(panel.locator("li strong").first()).toHaveText(
+      "Synthetic Final Project",
     );
     await capture(panel, "tasks");
     await panel.getByRole("button", { name: "일정", exact: true }).click();
@@ -369,14 +369,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     if (playbackBuild()) {
       await playbackMenu.click();
       await expect(playbackMenu).toHaveAttribute("aria-current", "page");
+      // Selection is a brand wash with brand text (DESIGN.md), light theme.
       await expect(playbackMenu).toHaveCSS(
         "background-color",
-        "rgb(135, 32, 56)",
+        "rgb(244, 234, 236)",
       );
-      await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(playbackMenu).toHaveCSS("color", "rgb(135, 32, 56)");
       await expect(playbackMenu.locator("svg")).toHaveCSS(
         "color",
-        "rgb(255, 255, 255)",
+        "rgb(135, 32, 56)",
       );
       await capture(panel, "playback");
     } else {
