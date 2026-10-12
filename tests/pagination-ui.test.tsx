@@ -143,3 +143,46 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
     expect(document.body.textContent).toContain("1–100 / 10000개");
   },
 );
+it("opens LTI straight from a recording row and only for launchable rows", async () => {
+  const onRecording = vi.fn();
+  const recordings = [
+    {
+      title: "강의 A",
+      module: "주차",
+      type: "ExternalTool" as const,
+      lmsHandle: crypto.randomUUID(),
+      launchHandle: crypto.randomUUID(),
+    },
+    {
+      title: "강의 B",
+      module: "주차",
+      type: "ExternalTool" as const,
+      lmsHandle: crypto.randomUUID(),
+      launchHandle: "",
+    },
+  ];
+  const render = (used = new Set<string>()) => (
+    <ResultList
+      result={{ status: "success", recordings }}
+      onCourse={() => {}}
+      onRecording={onRecording}
+      usedRecordingHandles={used}
+    />
+  );
+  ui = await mount(render());
+  const actions = () => [
+    ...document.querySelectorAll<HTMLButtonElement>(".row-action"),
+  ];
+  expect(actions().map((b) => b.getAttribute("aria-label"))).toEqual([
+    "강의 A LTI 열기 (새 탭)",
+  ]);
+  expect(document.body.textContent).toContain("LMS에서 확인");
+  await act(async () => actions()[0]!.click());
+  expect(onRecording).toHaveBeenCalledExactlyOnceWith(
+    recordings[0]!.launchHandle,
+  );
+  expect(document.querySelector(".detail-view")).toBeNull();
+  await ui.render(render(new Set([recordings[0]!.launchHandle])));
+  expect(actions()[0]!.disabled).toBe(true);
+  expect(actions()[0]!.textContent).toBe("열었음");
+});

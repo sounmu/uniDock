@@ -6,6 +6,7 @@ import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import type { Course } from "../../src/domain";
 import { newTab } from "./ui/a11y";
+import { Icon } from "./ui/icons";
 export { dateLabel } from "./ItemResults";
 export function ResultList({
   result,
@@ -38,17 +39,25 @@ export function ResultList({
           ) : (
             <PagedList items={result.recordings}>
               {(row, index) => (
-                <li key={row.lmsHandle}>
+                <li key={row.lmsHandle} className="action-row">
                   <ListRow
                     title={row.title}
                     course={course || row.module}
                     chip={
-                      <StatusChip>
-                        {row.launchHandle ? "LTI 열기 가능" : "LMS에서 확인"}
-                      </StatusChip>
+                      row.launchHandle ? undefined : (
+                        <StatusChip>LMS에서 확인</StatusChip>
+                      )
                     }
                     onClick={() => open(index)}
                   />
+                  {row.launchHandle && (
+                    <RowLaunch
+                      title={row.title}
+                      used={!!usedRecordingHandles?.has(row.launchHandle)}
+                      disabled={!onRecording || recordingPending}
+                      onClick={() => onRecording?.(row.launchHandle)}
+                    />
+                  )}
                 </li>
               )}
             </PagedList>
@@ -135,5 +144,37 @@ export function ResultList({
       todo={"todo" in result}
       course={course}
     />
+  );
+}
+// A sibling of the row button, since buttons cannot nest. Launch handles are
+// one-use, so a consumed row says so instead of looking merely unavailable.
+function RowLaunch({
+  title,
+  used,
+  disabled,
+  onClick,
+}: {
+  readonly title: string;
+  readonly used: boolean;
+  readonly disabled: boolean;
+  readonly onClick: () => void;
+}) {
+  const name = title || "제목 없음";
+  return (
+    <button
+      className="row-action"
+      disabled={used || disabled}
+      data-analytics-action="recording_launch"
+      onClick={onClick}
+      aria-label={used ? `${name} LTI 열었음` : `${name} LTI 열기 (새 탭)`}
+    >
+      {used ? (
+        "열었음"
+      ) : (
+        <>
+          LTI 열기 <Icon name="external" />
+        </>
+      )}
+    </button>
   );
 }

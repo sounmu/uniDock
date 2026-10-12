@@ -48,7 +48,7 @@ async function openRecording(
   context: BrowserContext,
   title: string,
 ) {
-  await panel.getByRole("button", { name: new RegExp(title) }).click();
+  await panel.locator("button.list-row", { hasText: title }).click();
   const opened = context.waitForEvent("page");
   await panel.getByRole("button", { name: "LTI 탭 열기 (새 탭)" }).click();
   const page = await opened;
