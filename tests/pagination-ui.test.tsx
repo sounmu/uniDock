@@ -161,12 +161,13 @@ it("opens LTI straight from a recording row and only for launchable rows", async
       launchHandle: "",
     },
   ];
-  const render = (used = new Set<string>()) => (
+  const render = (used = new Set<string>(), opened = new Set<string>()) => (
     <ResultList
       result={{ status: "success", recordings }}
       onCourse={() => {}}
       onRecording={onRecording}
       usedRecordingHandles={used}
+      openedRecordingHandles={opened}
     />
   );
   ui = await mount(render());
@@ -182,7 +183,16 @@ it("opens LTI straight from a recording row and only for launchable rows", async
     recordings[0]!.launchHandle,
   );
   expect(document.querySelector(".detail-view")).toBeNull();
-  await ui.render(render(new Set([recordings[0]!.launchHandle])));
+  const consumed = new Set([recordings[0]!.launchHandle]);
+  // Consumed by an expired, timed-out or failed open: not a success.
+  await ui.render(render(consumed));
+  expect(actions()[0]!.disabled).toBe(true);
+  expect(actions()[0]!.textContent).toBe("새로고침 필요");
+  expect(actions()[0]!.getAttribute("aria-label")).toBe(
+    "강의 A LTI 열 수 없음, 목록을 새로고침하세요",
+  );
+  await ui.render(render(consumed, consumed));
   expect(actions()[0]!.disabled).toBe(true);
   expect(actions()[0]!.textContent).toBe("열었음");
+  expect(actions()[0]!.classList.contains("opened")).toBe(true);
 });

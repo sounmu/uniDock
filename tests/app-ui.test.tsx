@@ -244,6 +244,8 @@ const recordings = ["첫 강의", "두 번째 강의"].map((title) => ({
   lmsHandle: crypto.randomUUID(),
   launchHandle: crypto.randomUUID(),
 }));
+const rowActionLabels = () =>
+  [...ui.host.querySelectorAll(".row-action")].map((b) => b.textContent);
 async function showRecordings() {
   query
     .mockImplementationOnce(courseQuery)
@@ -270,6 +272,7 @@ it("keeps recordings visible and opens subsequent selections in the original LMS
       ?.disabled,
   ).toBe(true);
   await click("← 목록");
+  expect(rowActionLabels()).toEqual(["열었음", "LTI 열기 "]);
   await click("두 번째 강의");
   expect(
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
@@ -301,6 +304,9 @@ it("prevents duplicate opens and preserves the list on a retryable failure", asy
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
       ?.disabled,
   ).toBe(true);
+  // A consumed but failed handle must not read as a successful open.
+  await click("← 목록");
+  expect(rowActionLabels()).toEqual(["새로고침 필요", "LTI 열기 "]);
 });
 it("does not replace the next menu when an open finishes late", async () => {
   // Given

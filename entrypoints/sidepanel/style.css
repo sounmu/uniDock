@@ -326,8 +326,7 @@ p {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  .rail-tooltip,
-  .row-action {
+  .rail-tooltip {
     transition: none;
   }
 }
@@ -739,10 +738,14 @@ input[type="checkbox"] {
   font-size: var(--fs-sm);
   font-weight: 600;
   white-space: nowrap;
-  transition:
-    background var(--motion-fast),
-    color var(--motion-fast),
-    border-color var(--motion-fast);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .row-action {
+    transition:
+      background var(--motion-fast),
+      color var(--motion-fast),
+      border-color var(--motion-fast);
+  }
 }
 .row-action .icon {
   width: 16px;
@@ -758,6 +761,11 @@ input[type="checkbox"] {
   border-color: var(--line);
   color: var(--muted);
   opacity: 1;
+}
+.row-action.opened {
+  background: var(--success-wash);
+  border-color: transparent;
+  color: var(--success);
 }
 .module-heading {
   color: var(--muted);

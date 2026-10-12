@@ -52,12 +52,19 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   const opening = useRef(false);
   const [recordingAction, setRecordingAction] = useState({
     pending: false,
+    // `used` holds every consumed one-use handle; `opened` only successes.
     used: new Set<string>(),
+    opened: new Set<string>(),
     notice: "",
   });
   function resetRecordingAction() {
     recordingTarget.current = null;
-    setRecordingAction({ pending: false, used: new Set(), notice: "" });
+    setRecordingAction({
+      pending: false,
+      used: new Set(),
+      opened: new Set(),
+      notice: "",
+    });
   }
   function clear() {
     generation.current++;
@@ -202,6 +209,10 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
           ))
           ? new Set([...previous.used, handle])
           : previous.used,
+      opened:
+        result.status === "success"
+          ? new Set([...previous.opened, handle])
+          : previous.opened,
       notice:
         result.status === "success"
           ? type === "DOCUMENT_OPEN"

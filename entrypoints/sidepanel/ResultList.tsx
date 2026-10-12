@@ -14,6 +14,7 @@ export function ResultList({
   onRecording,
   recordingPending = false,
   usedRecordingHandles,
+  openedRecordingHandles,
   course = "",
 }: {
   readonly result: Extract<Result, { status: "success" }>;
@@ -21,6 +22,7 @@ export function ResultList({
   readonly onRecording?: (handle: string) => void;
   readonly recordingPending?: boolean;
   readonly usedRecordingHandles?: ReadonlySet<string>;
+  readonly openedRecordingHandles?: ReadonlySet<string>;
   readonly course?: string;
 }) {
   const { detail, open, back } = useDetail<number>();
@@ -53,7 +55,13 @@ export function ResultList({
                   {row.launchHandle && (
                     <RowLaunch
                       title={row.title}
-                      used={!!usedRecordingHandles?.has(row.launchHandle)}
+                      state={
+                        openedRecordingHandles?.has(row.launchHandle)
+                          ? "opened"
+                          : usedRecordingHandles?.has(row.launchHandle)
+                            ? "expired"
+                            : "ready"
+                      }
                       disabled={!onRecording || recordingPending}
                       onClick={() => onRecording?.(row.launchHandle)}
                     />
@@ -147,32 +155,44 @@ export function ResultList({
   );
 }
 // A sibling of the row button, since buttons cannot nest. Launch handles are
-// one-use, so a consumed row says so instead of looking merely unavailable.
+// one-use: a consumed row says whether it opened or now needs a fresh list
+// (expired, timed out or failed to open), instead of looking merely disabled.
 function RowLaunch({
   title,
-  used,
+  state,
   disabled,
   onClick,
 }: {
   readonly title: string;
-  readonly used: boolean;
+  readonly state: "ready" | "opened" | "expired";
   readonly disabled: boolean;
   readonly onClick: () => void;
 }) {
   const name = title || "제목 없음";
+  const label = {
+    ready: "LTI 열기",
+    opened: "열었음",
+    expired: "새로고침 필요",
+  }[state];
   return (
     <button
-      className="row-action"
-      disabled={used || disabled}
+      className={`row-action${state === "ready" ? "" : ` ${state}`}`}
+      disabled={state !== "ready" || disabled}
       data-analytics-action="recording_launch"
       onClick={onClick}
-      aria-label={used ? `${name} LTI 열었음` : `${name} LTI 열기 (새 탭)`}
+      aria-label={
+        state === "ready"
+          ? `${name} LTI 열기 (새 탭)`
+          : state === "opened"
+            ? `${name} LTI 열었음`
+            : `${name} LTI 열 수 없음, 목록을 새로고침하세요`
+      }
     >
-      {used ? (
-        "열었음"
-      ) : (
+      {label}
+      {state === "ready" && (
         <>
-          LTI 열기 <Icon name="external" />
+          {" "}
+          <Icon name="external" />
         </>
       )}
     </button>

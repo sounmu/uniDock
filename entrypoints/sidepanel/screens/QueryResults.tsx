@@ -48,6 +48,7 @@ export function QueryResults({ model }: { readonly model: PanelModel }) {
           onRecording={(handle) => void model.openRecording(handle)}
           recordingPending={recordingAction.pending}
           usedRecordingHandles={recordingAction.used}
+          openedRecordingHandles={recordingAction.opened}
         />
       )}
     </section>
