@@ -10,6 +10,7 @@ import {
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { listCourseIndex, listQuery } from "../src/api/client";
+import { learningxToken } from "../src/security/learningx-token";
 import {
   panelQuery,
   parseResult,
@@ -315,6 +316,20 @@ export default defineContentScript({
       courseSelectors.revokeAll();
     };
     globalThis.addEventListener?.("pagehide", clearCachedState);
+    // The background rate limit refuses before acting, so the one-use handle
+    // goes back to its catalog for a later retry. If it cannot (revoked,
+    // expired, unpublished), the panel must re-list instead.
+    function refused(
+      result: Result,
+      catalog: NavigationCatalog,
+      restore: () => boolean,
+    ): Result {
+      if (result.status !== "error" || result.code !== "RATE_LIMITED")
+        return result;
+      return restore() && catalogs.isPublished(catalog)
+        ? result
+        : { status: "error", code: "STALE_SELECTION" };
+    }
     async function open(
       handle: string,
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
@@ -338,25 +353,29 @@ export default defineContentScript({
         invalidateScope(epoch);
         return { status: "error", code: "LOGIN_REQUIRED" };
       }
-      const url = catalog.take(
+      const taken = catalog.takeOpen(
         handle,
         location.origin,
         Date.now(),
         type === "DOCUMENT_OPEN" ? "document" : "recording",
       );
-      if (!url) return { status: "error", code: "STALE_SELECTION" };
+      if (!taken) return { status: "error", code: "STALE_SELECTION" };
       try {
         const dispatched = chrome.runtime.sendMessage({
           version: 1,
           type: "OPEN_LMS_TARGET",
-          url,
+          url: taken.url,
         });
         const result: unknown = await dispatched;
-        return parseResult(result, {
-          version: 1,
-          type,
-          handle,
-        });
+        return refused(
+          parseResult(result, {
+            version: 1,
+            type,
+            handle,
+          }),
+          catalog,
+          taken.restore,
+        );
       } catch {
         return { status: "error", code: "TAB_OPEN_FAILED" };
       }
@@ -405,7 +424,7 @@ export default defineContentScript({
           filename,
         });
         const result: unknown = await dispatched;
-        return parseResult(result, message);
+        return refused(parseResult(result, message), catalog, entry.restore);
       } catch {
         return { status: "error", code: "DOWNLOAD_FAILED" };
       }
@@ -583,6 +602,7 @@ export default defineContentScript({
               Date.now(),
               staging,
               resolvedCourseId,
+              () => learningxToken(document.cookie),
             )
           : listQuery(
               location.origin,
@@ -665,6 +685,17 @@ export default defineContentScript({
     }
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        // Lets background skip re-injection where this extension copy is live.
+        if (
+          object(message) &&
+          message.version === 1 &&
+          message.type === "LMS_PRESENCE" &&
+          Object.keys(message).length === 2 &&
+          backgroundSender(sender)
+        ) {
+          respond({ version: 1, type: "LMS_PRESENT" });
+          return false;
+        }
         if (
           object(message) &&
           message.version === 1 &&

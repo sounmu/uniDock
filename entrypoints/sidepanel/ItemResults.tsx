@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   filterDeadlines,
+  sortByDateDesc,
   sortByDue,
   type DeadlinePeriod,
 } from "../../src/deadline-view";
@@ -14,8 +15,10 @@ import {
 import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { useDetail } from "./ui/DetailView";
+import { rowKey } from "./ui/a11y";
 import { ItemDetail, isAssignment } from "./ItemDetail";
 type Item = Deadline | Upcoming | Todo;
+type SortOrder = "original" | "due" | "due-desc";
 export { dateLabel } from "./ItemDetail";
 const shortFormatter = new Intl.DateTimeFormat("ko-KR", {
   month: "numeric",
@@ -25,19 +28,68 @@ const shortFormatter = new Intl.DateTimeFormat("ko-KR", {
   hour12: false,
   timeZone: "Asia/Seoul",
 });
+const timeFormatter = new Intl.DateTimeFormat("ko-KR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Seoul",
+});
+const dayFormatter = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "short",
+  timeZone: "Asia/Seoul",
+});
+function scheduleChip(item: Upcoming, now: number): string {
+  const time = isoTime(item.date);
+  if (!Number.isFinite(time)) return item.submitted ? "제출됨" : "예정";
+  const when = shortFormatter.format(time);
+  if (item.submitted) return `제출됨 ${when}`;
+  if (time <= now) return `지남 ${when}`;
+  return dayFormatter.format(time) === dayFormatter.format(now)
+    ? `오늘 ${timeFormatter.format(time)}`
+    : `예정 ${when}`;
+}
 function chip(item: Item, now: number): string {
-  if ("date" in item)
-    return `예정${Number.isFinite(isoTime(item.date)) ? ` ${shortFormatter.format(isoTime(item.date))}` : ""}`;
+  if ("date" in item) return scheduleChip(item, now);
   if (isAssignment(item)) {
     if (item.locked_for_user) return "잠김";
     if (["submitted", "graded"].includes(item.submission_workflow_state))
       return "제출됨";
-    return isoTime(item.due_at) <= now ? "마감 지남" : "남은 과제";
+    const delta = isoTime(item.due_at) - now;
+    if (delta <= 0) return "마감 지남";
+    return delta <= 86400000
+      ? `${Math.max(1, Math.ceil(delta / 3600000))}시간 남음`
+      : "남은 과제";
   }
   if ("type" in item && ["submitted", "graded"].includes(item.type))
     return "제출 완료";
   const delta = isoTime(item.due_at) - now;
   return delta <= 0 ? "마감 지남" : delta <= 86400000 ? "D-1" : "미제출";
+}
+function isOverdueTodo(item: Todo, now: number): boolean {
+  return (
+    !["submitted", "graded"].includes(item.type) && isoTime(item.due_at) <= now
+  );
+}
+function ItemChip({
+  item,
+  now,
+}: {
+  readonly item: Item;
+  readonly now: number;
+}) {
+  const label = chip(item, now);
+  const done = label.startsWith("제출");
+  const urgent =
+    !done &&
+    label !== "잠김" &&
+    "due_at" in item &&
+    isoTime(item.due_at) > now &&
+    isoTime(item.due_at) - now <= 86400000;
+  return (
+    <StatusChip urgent={urgent} done={done}>
+      {label}
+    </StatusChip>
+  );
 }
 export function ItemResults({
   items,
@@ -52,11 +104,10 @@ export function ItemResults({
 }) {
   const [remainingOnly, setRemainingOnly] = useState(true);
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
-  const [sort, setSort] = useState(false);
+  const [sort, setSort] = useState<SortOrder>(todo ? "due-desc" : "due");
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
   useEffect(() => {
-    if (!deadlines && !todo) return;
     const update = () => setNow(Date.now());
     const timer = window.setInterval(update, 1000);
     window.addEventListener("focus", update);
@@ -64,19 +115,43 @@ export function ItemResults({
       window.clearInterval(timer);
       window.removeEventListener("focus", update);
     };
-  }, [deadlines, todo]);
+  }, []);
   const visible = useMemo(() => {
     if (deadlines)
       return filterDeadlines(
         items.filter((item): item is Deadline => "remaining_candidate" in item),
-        { remainingOnly, period, sort },
+        { remainingOnly, period, sort: sort !== "original" },
         now,
       );
-    return todo && sort
-      ? sortByDue(items.filter((item): item is Todo => "ignore" in item))
-      : items;
+    if (todo) {
+      const rows = items.filter((item): item is Todo => "ignore" in item);
+      return sort === "original" ? rows : sortByDue(rows, sort === "due-desc");
+    }
+    // Schedule rows show the most recent date first; undated rows go last.
+    return sortByDateDesc(
+      items.filter((item): item is Upcoming => "date" in item),
+    );
   }, [items, deadlines, todo, remainingOnly, period, sort, now]);
+  // Unsubmitted Todo rows past their due time collapse into a trailing group.
+  const [current, overdue] = useMemo(() => {
+    if (!todo) return [visible, []];
+    const rows = visible as Todo[];
+    return [
+      rows.filter((item) => !isOverdueTodo(item, now)),
+      rows.filter((item) => isOverdueTodo(item, now)),
+    ];
+  }, [visible, todo, now]);
   const resetKey = useMemo(() => ({}), [items, remainingOnly, period, sort]);
+  const row = (item: Item) => (
+    <li key={rowKey(item)}>
+      <ListRow
+        title={item.title}
+        course={"course" in item ? item.course : course}
+        chip={<ItemChip item={item} now={now} />}
+        onClick={() => open(item)}
+      />
+    </li>
+  );
   return (
     <>
       <div hidden={detail !== null}>
@@ -121,12 +196,21 @@ export function ItemResults({
                 <label className="field">
                   정렬
                   <select
-                    value={sort ? "due" : "original"}
+                    value={sort}
                     data-analytics-action="sort"
-                    onChange={(e) => setSort(e.target.value === "due")}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (
+                        value === "original" ||
+                        value === "due" ||
+                        value === "due-desc"
+                      )
+                        setSort(value);
+                    }}
                   >
                     <option value="original">LMS 순서</option>
                     <option value="due">마감 빠른 순</option>
+                    {todo && <option value="due-desc">마감 늦은 순</option>}
                   </select>
                 </label>
               </div>
@@ -143,35 +227,33 @@ export function ItemResults({
           조회 완료 · {items.length}개 항목
           {deadlines && ` 중 ${visible.length}개 표시`} · 한국 시간
         </p>
-        {visible.length === 0 ? (
+        {current.length === 0 ? (
           <div className="notice">
             {items.length === 0
               ? "조회된 항목이 없습니다."
-              : "조건에 맞는 과제가 없습니다."}
+              : overdue.length > 0
+                ? "마감 전인 할 일이 없습니다."
+                : "조건에 맞는 과제가 없습니다."}
           </div>
         ) : (
-          <PagedList items={visible} resetKey={resetKey}>
-            {(item, index) => (
-              <li key={index}>
-                <ListRow
-                  title={item.title}
-                  course={"course" in item ? item.course : course}
-                  chip={
-                    <StatusChip
-                      urgent={
-                        "due_at" in item &&
-                        isoTime(item.due_at) > now &&
-                        isoTime(item.due_at) - now <= 86400000
-                      }
-                    >
-                      {chip(item, now)}
-                    </StatusChip>
-                  }
-                  onClick={() => open(item)}
-                />
-              </li>
-            )}
+          <PagedList items={current} resetKey={resetKey}>
+            {row}
           </PagedList>
+        )}
+        {overdue.length > 0 && (
+          <details className="overdue-group">
+            <summary data-analytics-action="toggle_overdue">
+              마감 지남
+              <span className="overdue-count">{overdue.length}개</span>
+            </summary>
+            <p className="hint">
+              제출하지 않은 채 마감이 지난 항목입니다. 지각 제출 가능 여부는
+              LMS에서 확인하세요.
+            </p>
+            <PagedList items={overdue} resetKey={resetKey}>
+              {row}
+            </PagedList>
+          </details>
         )}
       </div>
       {detail && (

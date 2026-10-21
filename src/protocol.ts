@@ -27,6 +27,7 @@ export const errors = [
   "STALE_SELECTION",
   "TAB_OPEN_FAILED",
   "DOWNLOAD_FAILED",
+  "RATE_LIMITED",
 ] as const;
 export type ErrorCode = (typeof errors)[number];
 export type ListRequest =

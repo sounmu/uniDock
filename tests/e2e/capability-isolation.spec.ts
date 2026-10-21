@@ -48,9 +48,9 @@ async function openRecording(
   context: BrowserContext,
   title: string,
 ) {
-  await panel.getByRole("button", { name: new RegExp(title) }).click();
+  await panel.locator("button.list-row", { hasText: title }).click();
   const opened = context.waitForEvent("page");
-  await panel.getByRole("button", { name: "LTI 탭 열기 ↗" }).click();
+  await panel.getByRole("button", { name: "LTI 탭 열기 (새 탭)" }).click();
   const page = await opened;
   await page.waitForLoadState("domcontentloaded");
   return page;
@@ -133,16 +133,16 @@ test("two production panel consumers retain independent capability catalogs", as
     await lms.bringToFront();
     await panelB.getByRole("button", { name: "← 목록" }).click();
     await panelB
-      .getByRole("button", { name: "수업 자료", exact: true })
+      .getByRole("button", { name: "강의 자료", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
     await panelB
       .getByRole("button", { name: "목록 새로고침", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
 
     await panelA.getByRole("button", { name: "← 목록" }).click();
@@ -162,7 +162,7 @@ test("two production panel consumers retain independent capability catalogs", as
     expect(documentPage.url()).toBe(`${origin}/courses/101/modules/items/900`);
     await documentPage.close();
     await panelB.getByRole("button", { name: "← 목록" }).click();
-    await panelB.getByRole("button", { name: "PDF 전체 다운로드" }).click();
+    await panelB.getByRole("button", { name: "자료 전체 다운로드" }).click();
     await expect.poll(() => server.downloads.length).toBe(2);
     expect(server.downloads).toEqual([
       "/courses/101/files/501/download",

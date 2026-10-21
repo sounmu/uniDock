@@ -61,6 +61,7 @@ it("hydrates truncated lists, keeps module and page order, and exposes only clea
   const c = store();
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
     const u = new URL(String(input));
+    if (u.pathname.endsWith("/discussion_topics")) return json([]);
     expect(init).toMatchObject({
       method: "GET",
       credentials: "same-origin",
@@ -104,6 +105,7 @@ it("hydrates truncated lists, keeps module and page order, and exposes only clea
   expect(Object.keys(result.documents[0]!)).toEqual([
     "module",
     "title",
+    "filename",
     "type",
     "lmsHandle",
     "downloadHandle",
@@ -119,7 +121,7 @@ it("hydrates truncated lists, keeps module and page order, and exposes only clea
   expect(
     c.take(result.documents[1]!.lmsHandle, origin, now + 300000),
   ).toBeNull();
-  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(fetcher).toHaveBeenCalledTimes(6);
 });
 
 it("rechecks recorded availability at take and never navigates outside the same-origin item route", () => {
@@ -130,6 +132,7 @@ it("rechecks recorded availability at take and never navigates outside the same-
       {
         module: "Week",
         title: "file.pdf",
+        filename: "file.pdf",
         courseId: "101",
         itemId: "501",
         moduleAccess: { lock_at: "2026-09-11T00:00:01Z" },
@@ -146,6 +149,7 @@ it("rechecks recorded availability at take and never navigates outside the same-
         {
           module: "X",
           title: "X",
+          filename: "X",
           courseId: "101",
           itemId: "501?token=secret",
           moduleAccess: {},
@@ -204,6 +208,7 @@ it("enforces a three-worker hydration limit without timing assumptions", async (
   const fourth = Promise.withResolvers<void>();
   const fetcher: typeof fetch = async (input) => {
     const u = new URL(String(input));
+    if (u.pathname.endsWith("/discussion_topics")) return json([]);
     if (u.pathname === "/api/v1/courses")
       return json([{ id: 101, name: "Course" }]);
     if (u.pathname.endsWith("/modules"))
@@ -247,6 +252,7 @@ it("accepts 1001 hydrated items across valid pages and publishes every PDF handl
   const replace = vi.spyOn(c, "replaceDocuments");
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const u = new URL(String(input));
+    if (u.pathname.endsWith("/discussion_topics")) return json([]);
     if (u.pathname === "/api/v1/courses")
       return json([{ id: 101, name: "Course" }]);
     if (u.pathname.endsWith("/modules"))
@@ -286,7 +292,7 @@ it("accepts 1001 hydrated items across valid pages and publishes every PDF handl
     ),
   ).toBe(true);
   expect(replace).toHaveBeenCalledTimes(1);
-  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(fetcher).toHaveBeenCalledTimes(6);
 });
 
 it("rejects a single 1001-row item page without publishing handles", async () => {
@@ -377,6 +383,7 @@ it("validates closed requests and strips untrusted response fields", () => {
           {
             module: "X",
             title: "file.pdf",
+            filename: "file.pdf",
             type: "File",
             lmsHandle: handle,
             downloadHandle: "",
@@ -393,6 +400,7 @@ it("validates closed requests and strips untrusted response fields", () => {
       {
         module: "X",
         title: "file.pdf",
+        filename: "file.pdf",
         type: "File",
         lmsHandle: handle,
         downloadHandle: "",

@@ -168,9 +168,9 @@ test("production pickers keep duplicate and redacted courses bound to opaque sel
     ).toBeVisible();
     await expect(panel.getByText("First duplicate assignment")).toHaveCount(0);
 
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 1개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 1개" }),
     ).toBeVisible();
     await expect(panel.getByText("second-duplicate.pdf")).toBeVisible();
     expect(

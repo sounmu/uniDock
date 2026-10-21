@@ -149,7 +149,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toHaveValue("all");
     await expect(
       panel.getByRole("combobox", { name: "정렬", exact: true }),
-    ).toHaveValue("original");
+    ).toHaveValue("due");
     await capture(panel, "assignments-settings");
     await panel
       .getByRole("button", { name: /Synthetic Final Project/ })
@@ -157,9 +157,9 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await expect(panel.locator(".detail-view dl")).toBeVisible();
     await capture(panel, "assignment-detail");
     await panel.getByRole("button", { name: "← 목록" }).click();
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
     await capture(panel, "materials-ready");
     await panel
@@ -309,11 +309,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     ).toHaveCount(3);
     await panel.getByText("보기 설정", { exact: true }).click();
     const sort = panel.getByRole("combobox", { name: "정렬", exact: true });
+    await expect(sort).toHaveValue("due-desc");
+    await expect(panel.locator("li strong").first()).toHaveText(
+      "Synthetic Final Project",
+    );
+    await capture(panel, "tasks-settings");
     await sort.selectOption("due");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Early Deadline",
     );
-    await capture(panel, "tasks-settings");
     await sort.selectOption("original");
     await expect(panel.locator("li strong").first()).toHaveText(
       "Synthetic Final Project",
@@ -365,14 +369,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     if (playbackBuild()) {
       await playbackMenu.click();
       await expect(playbackMenu).toHaveAttribute("aria-current", "page");
+      // Selection is a brand wash with brand text (DESIGN.md), light theme.
       await expect(playbackMenu).toHaveCSS(
         "background-color",
-        "rgb(135, 32, 56)",
+        "rgb(244, 234, 236)",
       );
-      await expect(playbackMenu).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(playbackMenu).toHaveCSS("color", "rgb(135, 32, 56)");
       await expect(playbackMenu.locator("svg")).toHaveCSS(
         "color",
-        "rgb(255, 255, 255)",
+        "rgb(135, 32, 56)",
       );
       await capture(panel, "playback");
     } else {
@@ -405,7 +410,9 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       await expect(notice).toBeVisible();
     }
     await panel.getByRole("button", { name: "정보", exact: true }).click();
-    await expect(panel.getByRole("heading", { name: "정보" })).toBeVisible();
+    await expect(
+      panel.getByRole("heading", { name: "정보", exact: true }),
+    ).toBeVisible();
     await capture(panel, "info");
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(

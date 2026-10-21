@@ -219,6 +219,11 @@ export async function syntheticServer(
         response.end();
         return;
       }
+      if (/^\/api\/v1\/courses\/\d+\/discussion_topics$/.test(url.pathname)) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end("[]");
+        return;
+      }
       if (url.pathname === "/em/caption-fixture") {
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(

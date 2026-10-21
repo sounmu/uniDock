@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Result } from "../../src/protocol";
 import type { Document } from "../../src/documents";
+import { documentMimeMatches } from "../../src/documents";
 import { queryActive, type QueryTarget } from "../../src/transport";
 import {
   lmsFileDownloadUrl,
@@ -87,7 +88,11 @@ export function useDocumentDownloads(context: {
         item.state === "interrupted"
           ? "failed"
           : item.state === "complete"
-            ? item.mime === "application/pdf"
+            ? documentMimeMatches(
+                expected.current.find((entry) => entry.handle === handle)
+                  ?.path ?? "",
+                item.mime,
+              )
               ? "complete"
               : "review"
             : "requested";
@@ -192,7 +197,7 @@ export function useDocumentDownloads(context: {
       }
       const handle = item.downloadHandle;
       used.current.add(handle);
-      const path = safeDownloadPath(course, item.module, item.title);
+      const path = safeDownloadPath(course, item.module, item.filename);
       if (path)
         expected.current.push({
           handle,
@@ -205,8 +210,27 @@ export function useDocumentDownloads(context: {
       );
       inFlight.current = work;
       const result = await work.finally(lease.release);
-      report(result.status === "success");
       if (inFlight.current === work) inFlight.current = null;
+      if (
+        result.status === "error" &&
+        (result.code === "RATE_LIMITED" || result.code === "BUSY")
+      ) {
+        // Refused before use: the content script kept this handle. Stop the
+        // batch; it and the rest stay queued, end as cancelled, and remain
+        // selectable for a retry from this same list.
+        used.current.delete(handle);
+        expected.current = expected.current.filter(
+          (entry) => entry.handle !== handle,
+        );
+        if (current === generation.current)
+          setNotice(
+            result.code === "RATE_LIMITED"
+              ? "짧은 시간에 다운로드 요청이 많아 일시 중지했습니다. 1분 뒤 남은 자료를 다시 다운로드하세요."
+              : "이전 요청을 처리하고 있어 다운로드를 멈췄습니다. 잠시 후 남은 자료를 다시 다운로드하세요.",
+          );
+        break;
+      }
+      report(result.status === "success");
       done++;
       if (current !== generation.current) break;
       const observedState = observed.current.get(handle);
@@ -223,7 +247,7 @@ export function useDocumentDownloads(context: {
         setNotice(
           result.code === "STALE_SELECTION"
             ? "목록을 새로고침한 뒤 다시 다운로드하세요."
-            : "PDF 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
+            : "자료 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
         );
       setProgress({ running: true, done, total: selected.length });
     }

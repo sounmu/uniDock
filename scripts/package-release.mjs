@@ -27,7 +27,11 @@ assert.deepEqual(
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
-  [...lmsHosts, "https://kucom.korea.ac.kr/*", "https://lms.korea.ac.kr/*"].sort(),
+  [
+    ...lmsHosts,
+    "https://kucom.korea.ac.kr/*",
+    "https://lms.korea.ac.kr/*",
+  ].sort(),
 );
 for (const key of [
   "externally_connectable",
@@ -75,7 +79,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup)\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -101,6 +105,7 @@ for (const file of files) {
   }
 }
 for (const file of [
+  "updates.html",
   "privacy.html",
   "THIRD_PARTY_NOTICES.txt",
   "icons/128.png",

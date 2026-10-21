@@ -3,6 +3,9 @@ import { validDownloadDeadline, validHandle } from "./protocol";
 import { object } from "./playback/bridge";
 import { lmsFileDownloadUrl, validDownloadPath } from "./security/download";
 import { safeLog } from "./security/logger";
+import { TabRateLimiter } from "./security/rate-limit";
+// The panel downloads serially; a full course batch stays well under this.
+const downloads = new TabRateLimiter(240, 60_000);
 
 async function sourceDocumentAlive(
   tabId: number,
@@ -82,6 +85,8 @@ export async function downloadLmsFile(
     // initiating one after the originating panel operation has expired.
     if (!validDownloadDeadline(message.deadline))
       return { status: "error", code: "TIMEOUT" };
+    if (!downloads.admit(sender.tab.id))
+      return { status: "error", code: "RATE_LIMITED" };
     await chrome.downloads.download({
       url: message.url,
       filename: message.filename,

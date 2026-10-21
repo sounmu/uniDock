@@ -1271,6 +1271,7 @@ it("isolates identical capability lists while general queries and another issuer
               {
                 module: "Week",
                 title: "Notes",
+                filename: "Notes.pdf",
                 courseId: "101",
                 itemId: "900",
                 fileId: "501",
@@ -2072,6 +2073,7 @@ it("routes document handles through the background LMS boundary and consumes the
         {
           module: "Week",
           title: "file.pdf",
+          filename: "file.pdf",
           courseId: "101",
           itemId: "501",
           fileId: "777",
@@ -2166,6 +2168,81 @@ it("routes document handles through the background LMS boundary and consumes the
   const second = response();
   listener(downloadEnvelope, sender, second.respond);
   expect(await second.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it("returns a rate-limited download handle to its catalog for a retry", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi
+    .fn()
+    .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" })
+    .mockResolvedValueOnce({ status: "success", downloaded: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => ({
+      status: "success",
+      documents: catalog.replaceDocuments(origin, [
+        {
+          module: "Week",
+          title: "file.pdf",
+          filename: "file.pdf",
+          courseId: "101",
+          itemId: "501",
+          fileId: "777",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ]),
+    }),
+  );
+  const listed = response();
+  listener(
+    capability({ version: 1, type: "DOCUMENTS_LIST", course: "Course" }),
+    sender,
+    listed.respond,
+  );
+  const result = parseResult(await listed.done);
+  if (result.status !== "success" || !("documents" in result))
+    throw new Error("missing documents");
+  const envelope = () => ({
+    version: 1,
+    type: "DOCUMENT_DOWNLOAD_REQUEST",
+    deadline: Date.now() + 23_000,
+    request: {
+      version: 1,
+      type: "DOCUMENT_DOWNLOAD",
+      handle: result.documents[0]!.downloadHandle,
+      course: "Course",
+    },
+  });
+  // When: the background refuses the first request before acting.
+  const limited = response();
+  listener(envelope(), sender, limited.respond);
+  expect(await limited.done).toEqual({ status: "error", code: "RATE_LIMITED" });
+  // Then: the same handle still works once, and only once.
+  const retried = response();
+  listener(envelope(), sender, retried.respond);
+  expect(await retried.done).toEqual({ status: "success", downloaded: true });
+  const replay = response();
+  listener(envelope(), sender, replay.respond);
+  expect(await replay.done).toEqual({
     status: "error",
     code: "STALE_SELECTION",
   });
@@ -2605,4 +2682,40 @@ it("rejects forged background discovery, raw endpoint input and panel account qu
       vi.fn(),
     ),
   ).toBe(false);
+});
+
+it("answers the background presence check so re-injection skips a live copy", () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: (path = "") => `chrome-extension://fixture-extension/${path}`,
+      onMessage: { addListener },
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const message = { version: 1, type: "LMS_PRESENCE" };
+  const background = { id: "fixture-extension" };
+  const respond = vi.fn();
+  expect(listener(message, background, respond)).toBe(false);
+  expect(respond).toHaveBeenCalledExactlyOnceWith({
+    version: 1,
+    type: "LMS_PRESENT",
+  });
+  // Only the extension's own background may probe; extra fields are refused.
+  const refused = vi.fn();
+  listener(
+    message,
+    {
+      id: "fixture-extension",
+      url: "chrome-extension://fixture-extension/sidepanel.html",
+      tab: { id: 1 },
+    },
+    refused,
+  );
+  listener({ ...message, extra: true }, background, refused);
+  listener(message, { id: "other-extension" }, refused);
+  expect(refused).not.toHaveBeenCalledWith({ version: 1, type: "LMS_PRESENT" });
 });

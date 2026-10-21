@@ -40,6 +40,12 @@ function validPageUrl(value: unknown): value is string {
   }
 }
 
+// MAIN-world results come from a page that can tamper with built-ins; accept
+// only bounded strings for display fields.
+function displayText(value: unknown): string {
+  return typeof value === "string" ? value.slice(0, 200) : "";
+}
+
 export async function detectCaptions(
   onTarget?: (target: CaptionTarget) => boolean,
   signal?: AbortSignal,
@@ -267,11 +273,14 @@ export async function detectCaptions(
           captions.push({
             sourceUrl: tab.url!,
             pageTitle:
-              tab.title || top.result?.pageTitle || row.pageTitle || "강의",
+              displayText(tab.title) ||
+              displayText(top.result?.pageTitle) ||
+              displayText(row.pageTitle) ||
+              "강의",
             extractedAt: new Date().toISOString(),
             itemCount: items.length,
             items,
-            label: row.label || "화면 자막",
+            label: displayText(row.label) || "화면 자막",
             source: row.source,
           });
           contributors.set(provenance.documentId, provenance);

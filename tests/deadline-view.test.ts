@@ -1,5 +1,9 @@
 import { expect, it } from "vitest";
-import { filterDeadlines, remainingLabel } from "../src/deadline-view";
+import {
+  filterDeadlines,
+  remainingLabel,
+  sortByDateDesc,
+} from "../src/deadline-view";
 const now = Date.parse("2026-09-13T14:00:00Z"); // Sunday 23:00 KST
 const row = (title: string, due_at: string, remaining_candidate = true) => ({
   title,
@@ -60,4 +64,19 @@ it("labels unknown, expired and near deadlines without misleading rounding", () 
   expect(remainingLabel(new Date(now + 3660000).toISOString(), now)).toBe(
     "1시간 1분 남음",
   );
+});
+it("orders schedule rows newest first and keeps undated rows last", () => {
+  const items = [
+    { title: "old", date: "2026-09-01T00:00:00Z" },
+    { title: "none", date: "" },
+    { title: "new", date: "2026-09-20T00:00:00Z" },
+    { title: "mid", date: "2026-09-10T00:00:00Z" },
+  ];
+  expect(sortByDateDesc(items).map((x) => x.title)).toEqual([
+    "new",
+    "mid",
+    "old",
+    "none",
+  ]);
+  expect(items[0]?.title).toBe("old");
 });

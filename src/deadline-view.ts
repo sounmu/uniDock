@@ -4,13 +4,27 @@ export type DeadlinePeriod = "all" | "week" | "day";
 const day = 86400000;
 const koreaOffset = 9 * 3600000;
 
-export function sortByDue<T extends Pick<Deadline, "due_at">>(items: T[]): T[] {
+// Undated rows go last in either direction.
+export function sortByDue<T extends Pick<Deadline, "due_at">>(
+  items: T[],
+  descending = false,
+): T[] {
   return [...items].sort((a, b) => {
     const first = isoTime(a.due_at),
       second = isoTime(b.due_at);
     if (!Number.isFinite(first)) return Number.isFinite(second) ? 1 : 0;
     if (!Number.isFinite(second)) return -1;
-    return first - second;
+    return descending ? second - first : first - second;
+  });
+}
+
+export function sortByDateDesc<T extends { date: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const first = isoTime(a.date),
+      second = isoTime(b.date);
+    if (!Number.isFinite(first)) return Number.isFinite(second) ? 1 : 0;
+    if (!Number.isFinite(second)) return -1;
+    return second - first;
   });
 }
 

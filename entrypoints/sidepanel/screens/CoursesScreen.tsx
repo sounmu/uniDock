@@ -19,7 +19,7 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
               [
                 ["ASSIGNMENTS_LIST", "과제"],
                 ["RECORDINGS_LIST", "녹화 강의"],
-                ["DOCUMENTS_LIST", "수업 자료"],
+                ["DOCUMENTS_LIST", "강의 자료"],
               ] as const
             ).map(([type, label]) => (
               <button

@@ -12,6 +12,10 @@ export interface RecordingTarget {
 }
 export interface DocumentTarget extends Omit<RecordingTarget, "itemId"> {
   itemId: string;
+  filename: string;
+  topicId?: string;
+  /** LearningX board course tool; the post lives inside that tool. */
+  boardToolId?: string;
   fileId?: string;
 }
 interface Entry {
@@ -127,7 +131,11 @@ export class NavigationCatalog {
     try {
       const result = targets.map((target) => {
         const url = navigationUrl(
-          `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
+          target.boardToolId
+            ? `${origin}/courses/${target.courseId}/external_tools/${target.boardToolId}`
+            : target.topicId
+              ? `${origin}/courses/${target.courseId}/discussion_topics/${target.topicId}`
+              : `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
           origin,
         );
         if (!url) throw new Error("POLICY");
@@ -151,7 +159,8 @@ export class NavigationCatalog {
             url: downloadUrl,
             kind: "download",
             module: target.module,
-            title: target.title,
+            // Downloads are saved under the actual file name, not the item title.
+            title: target.filename,
             expires: now + 300000,
             moduleAccess: target.moduleAccess,
             itemAccess: target.itemAccess,
@@ -160,6 +169,7 @@ export class NavigationCatalog {
         return {
           module: target.module,
           title: target.title,
+          filename: target.filename,
           type: "File" as const,
           lmsHandle,
           downloadHandle,
@@ -178,6 +188,15 @@ export class NavigationCatalog {
     now = Date.now(),
     kind?: "recording" | "document",
   ): string | null {
+    return this.takeOpen(handle, origin, now, kind)?.url ?? null;
+  }
+  /** Spends an open capability; `restore` returns it when the background refused it unused. */
+  takeOpen(
+    handle: string,
+    origin: string,
+    now = Date.now(),
+    kind?: "recording" | "document",
+  ): { url: string; restore: () => boolean } | null {
     if (this.revoked) return null;
     const entry = this.remove(handle);
     if (
@@ -189,7 +208,29 @@ export class NavigationCatalog {
       !accessible(entry.itemAccess, now)
     )
       return null;
-    return navigationUrl(entry.url, origin);
+    const url = navigationUrl(entry.url, origin);
+    return url ? { url, restore: this.restorer(handle, entry) } : null;
+  }
+  // One-shot: puts a spent capability back only if this catalog is still live
+  // and the entry has not expired. Nothing about it is extended.
+  private restorer(handle: string, entry: Entry): () => boolean {
+    let restored = false;
+    return () => {
+      if (
+        restored ||
+        this.revoked ||
+        this.entries.has(handle) ||
+        entry.expires <= Date.now()
+      )
+        return false;
+      try {
+        this.add(handle, entry);
+      } catch {
+        return false;
+      }
+      restored = true;
+      return true;
+    };
   }
   /** Validate and spend a playback selection as one operation. */
   takeRecordingBatch(
@@ -235,7 +276,12 @@ export class NavigationCatalog {
     handle: string,
     origin: string,
     now = Date.now(),
-  ): { url: string; module: string; title: string } | null {
+  ): {
+    url: string;
+    module: string;
+    title: string;
+    restore: () => boolean;
+  } | null {
     if (this.revoked) return null;
     const entry = this.remove(handle);
     if (
@@ -249,6 +295,13 @@ export class NavigationCatalog {
     )
       return null;
     const url = lmsFileDownloadUrl(entry.url, origin);
-    return url ? { url, module: entry.module, title: entry.title } : null;
+    return url
+      ? {
+          url,
+          module: entry.module,
+          title: entry.title,
+          restore: this.restorer(handle, entry),
+        }
+      : null;
   }
 }

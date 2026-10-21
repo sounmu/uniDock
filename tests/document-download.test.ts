@@ -7,6 +7,7 @@ const catalog = new NavigationCatalog();
 const target = {
   module: "Week",
   title: "slides.pdf",
+  filename: "slides.pdf",
   courseId: "101",
   itemId: "501",
   fileId: "777",
@@ -25,6 +26,7 @@ it("makes download handles one-use without consuming the document open handle", 
     url: `${origin}/courses/101/files/777/download?download_frd=1`,
     module: "Week",
     title: "slides.pdf",
+    restore: expect.any(Function),
   });
   expect(catalog.takeDownload(item.downloadHandle, origin, now)).toBeNull();
   expect(catalog.take(item.lmsHandle, origin, now, "document")).toBe(

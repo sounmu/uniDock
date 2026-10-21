@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { softDisabled } from "./ui/a11y";
 const pageSize = 100;
 export function PagedList<T>({
   items,
@@ -27,9 +28,10 @@ export function PagedList<T>({
         <nav className="pagination" aria-label="목록 페이지">
           <button
             className="btn-secondary"
-            disabled={page === 0}
             data-analytics-action="page_previous"
-            onClick={() => setSelection({ resetKey, page: page - 1 })}
+            {...softDisabled(page === 0, () =>
+              setSelection({ resetKey, page: page - 1 }),
+            )}
           >
             이전
           </button>
@@ -38,9 +40,10 @@ export function PagedList<T>({
           </span>
           <button
             className="btn-secondary"
-            disabled={end === items.length}
             data-analytics-action="page_next"
-            onClick={() => setSelection({ resetKey, page: page + 1 })}
+            {...softDisabled(end === items.length, () =>
+              setSelection({ resetKey, page: page + 1 }),
+            )}
           >
             다음
           </button>

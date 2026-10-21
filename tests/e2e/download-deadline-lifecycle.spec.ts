@@ -71,9 +71,9 @@ test("production downloads expire during tab lookup and reject a same-URL replac
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();
-    await panel.getByRole("button", { name: "수업 자료", exact: true }).click();
+    await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
 
     await panel.evaluate(() => {
@@ -314,7 +314,7 @@ test("production downloads expire during tab lookup and reject a same-URL replac
       .getByRole("button", { name: "목록 새로고침", exact: true })
       .click();
     await expect(
-      panel.getByRole("heading", { name: "수업 자료 · 2개 PDF" }),
+      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
     ).toBeVisible();
     await panel.getByRole("checkbox", { name: "lecture.pdf 선택" }).check();
     await panel.getByRole("button", { name: "선택 다운로드 (1)" }).click();

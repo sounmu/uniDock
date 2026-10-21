@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { newTab } from "./ui/a11y";
 import { remainingLabel } from "../../src/deadline-view";
 import {
   isoTime,
@@ -86,9 +87,8 @@ export function ItemDetail({
             href={item.html_url}
             target="_blank"
             rel="noreferrer"
-          >
-            LMS에서 열기 ↗
-          </a>
+            {...newTab("LMS에서 열기")}
+          />
         )
       )}
     </DetailView>
