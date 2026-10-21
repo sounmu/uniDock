@@ -172,6 +172,74 @@ it("stops processing additions after cleanup", async () => {
   );
   expect(later.clicked).not.toHaveBeenCalled();
 });
+function survey() {
+  const root = document.createElement("div");
+  root.id = "xn-lms-term-survey-list";
+  root.innerHTML =
+    '<div class="xnlts-contents"><div class="xnlts-refresh">' +
+    '<div class="xnlts-button">새로고침</div></div>' +
+    '<div class="xnlts-survey">262R 과목 설문</div></div>' +
+    '<div class="xnlts-button-container">' +
+    '<div class="xnlts-button">로그아웃</div>' +
+    '<div class="xnlts-button blue">설문 나가기</div></div>';
+  const [logout, exit] = [
+    ...root.querySelectorAll(".xnlts-button-container > div"),
+  ];
+  const refresh = root.querySelector(".xnlts-refresh .xnlts-button");
+  const survey = root.querySelector(".xnlts-survey");
+  if (!logout || !exit || !refresh || !survey)
+    throw new Error("Missing fixture survey");
+  const clicks = {
+    logout: vi.fn(),
+    exit: vi.fn(() => root.remove()),
+    refresh: vi.fn(),
+    survey: vi.fn(),
+  };
+  logout.addEventListener("click", clicks.logout);
+  exit.addEventListener("click", clicks.exit);
+  refresh.addEventListener("click", clicks.refresh);
+  survey.addEventListener("click", clicks.survey);
+  return { root, exit, clicks };
+}
+it("leaves an existing survey prompt without logging out, refreshing or opening a survey", () => {
+  const { root, clicks } = survey();
+  document.body.append(root);
+  stop = observeLmsPopups();
+  expect(clicks.exit).toHaveBeenCalledTimes(1);
+  expect(clicks.logout).not.toHaveBeenCalled();
+  expect(clicks.refresh).not.toHaveBeenCalled();
+  expect(clicks.survey).not.toHaveBeenCalled();
+});
+it("leaves a survey prompt that appears after the notice wrapper is attached", async () => {
+  stop = observeLmsPopups();
+  const { root, clicks } = survey();
+  await mutation(() => document.body.append(root));
+  expect(clicks.exit).toHaveBeenCalledTimes(1);
+  expect(clicks.logout).not.toHaveBeenCalled();
+});
+it("clicks only the exact exit label and never loops or acts after cleanup", async () => {
+  const wrong = survey();
+  const wrongExit = wrong.root.querySelector(".xnlts-button.blue");
+  if (wrongExit) wrongExit.textContent = "로그아웃 하기";
+  const stuck = survey();
+  stuck.exit.removeEventListener("click", stuck.clicks.exit);
+  const clicked = vi.fn();
+  stuck.exit.addEventListener("click", clicked);
+  document.body.append(wrong.root);
+  stop = observeLmsPopups();
+  expect(wrong.clicks.exit).not.toHaveBeenCalled();
+  await mutation(() => {
+    wrong.root.remove();
+    document.body.append(stuck.root);
+  });
+  await mutation(() => stuck.root.append(document.createElement("span")));
+  expect(clicked).toHaveBeenCalledTimes(1);
+  stop();
+  stop = undefined;
+  const later = survey();
+  await mutation(() => document.body.append(later.root));
+  expect(later.clicks.exit).not.toHaveBeenCalled();
+});
 it("ignores a side-panel initial read overtaken by a storage change", async () => {
   const held = deferred<Record<string, unknown>>();
   get.mockReturnValue(held.promise);

@@ -100,7 +100,7 @@ Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `sto
 
 `chrome.storage.local`은 `TRUSTED_CONTEXTS`로 잠겨 있어 콘텐츠 스크립트가 직접 읽지 못합니다. 포털 페이지는 백그라운드에 `POPUP_AUTO_CLOSE_GET`으로 켜짐/꺼짐 값만 요청하고, 백그라운드는 이 확장의 `lms.korea.ac.kr` 최상위 프레임 발신자에게만 boolean을 응답합니다. 설정이 바뀌거나 로컬 데이터가 삭제되면 백그라운드가 열린 포털 탭에 값 없는 `POPUP_AUTO_CLOSE_CHANGED` 신호를 보내고, 페이지는 다시 요청해 최신 응답만 적용합니다. 요청이 실패하거나 응답 형식이 다르면 비활성으로 처리합니다.
 
-`lms-popup` 콘텐츠 스크립트는 공지 포털 `https://lms.korea.ac.kr/*`에서 최상위 프레임만(`allFrames: false`) `document_idle`에 실행합니다. 활성화하면 `#xn-popup-wrapper > .xnp-item-wrapper[data-popup-id] > .xnp-item-close > button.xnp-item-close-button`에 해당하는 닫기 버튼만 클릭하며, 유지되는 팝업 wrapper의 자식 추가를 관찰해 나중에 추가된 팝업도 처리합니다. ‘오늘 하루 보지 않기’ 체크박스와 페이지의 콘텐츠 저장소는 조작하지 않습니다. 팝업 내용·식별자를 저장하거나 통계로 보내지 않으며 네트워크 API를 호출하지 않습니다. 포털 호스트 권한만 추가하고 기존 Canvas API 허용 목록과 CSP는 넓히지 않습니다.
+`lms-popup` 콘텐츠 스크립트는 공지 포털 `https://lms.korea.ac.kr/*`에서 최상위 프레임만(`allFrames: false`) `document_idle`에 실행합니다. 활성화하면 `#xn-popup-wrapper > .xnp-item-wrapper[data-popup-id] > .xnp-item-close > button.xnp-item-close-button`에 해당하는 닫기 버튼만 클릭하며, 유지되는 팝업 wrapper의 자식 추가를 관찰해 나중에 추가된 팝업도 처리합니다. 같은 페이지의 미참여 설문 안내(`#xn-lms-term-survey-list`)는 `.xnlts-button-container > .xnlts-button.blue` 중 글자가 정확히 ‘설문 나가기’인 컨트롤만 클릭합니다. 같은 컨테이너의 ‘로그아웃’·‘새로고침’과 설문 항목은 클릭하지 않으며 설문에 참여·제출하지 않습니다. ‘오늘 하루 보지 않기’ 체크박스와 페이지의 콘텐츠 저장소는 조작하지 않습니다. 팝업 내용·식별자를 저장하거나 통계로 보내지 않으며 네트워크 API를 호출하지 않습니다. 포털 호스트 권한만 추가하고 기존 Canvas API 허용 목록과 CSP는 넓히지 않습니다.
 
 ## 강의 자료 일괄 다운로드
 
