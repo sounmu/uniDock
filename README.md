@@ -61,6 +61,7 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 - `entrypoints/background.ts`, `src/open-tab.ts`: Side Panel 설정 및 검증된 LMS 주소를 새 탭으로 열기.
 - `entrypoints/sidepanel/`: 기능 선택, 입력, 상태 UI, 결과 렌더링.
 - `entrypoints/lms.content.ts`: 허용 LMS 최상위 프레임의 isolated world에서 사용자 요청 처리.
+- `entrypoints/lms-popup.content.ts`: `lms.korea.ac.kr` 포털 최상위 프레임에서 opt-in 팝업 자동 닫기.
 - `src/transport.ts`, `src/protocol.ts`: 요청 종류별 닫힌 스키마, sender 검증, 응답 종류/필드 검증, 시간 제한.
 - `src/api/`: GET 전용 API, 과목명 해석, Link 페이지네이션.
 - `src/domain.ts`, `src/domain-items.ts`: 공개 모델, 필드 투영, 날짜와 남은 후보 계산.
@@ -85,13 +86,19 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다. 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 선택적 통계 공유 동의·설치 식별자에 사용합니다. `alarms`와 자동 재생 코드는 개발용 `UNIDOCK_PLAYBACK=1` 빌드에만 포함됩니다. 상시 호스트 권한은 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 선택적 통계 공유 동의·설치 식별자와 팝업 자동 닫기 설정에 사용합니다. `alarms`와 자동 재생 코드는 개발용 `UNIDOCK_PLAYBACK=1` 빌드에만 포함됩니다. 상시 호스트 권한은 조회용 두 LMS 호스트, KU 플레이어(`kucom.korea.ac.kr`), 공지 자동 닫기 전용 포털(`lms.korea.ac.kr`)입니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 통계 공유 설정과 동의 후 생성한 설치 식별자만 로컬에 저장합니다. 개발용 자동 재생 빌드에서는 최소 재생 상태와 전용 탭 소유권도 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **정보 → 로컬 데이터 모두 삭제**로 설정을 삭제합니다. IndexedDB는 사용하지 않으며 telemetry는 선택적 PostHog만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 통계 공유 설정, 동의 후 생성한 설치 식별자와 팝업 자동 닫기 boolean 설정을 로컬에 저장합니다. 개발용 자동 재생 빌드에서는 최소 재생 상태와 전용 탭 소유권도 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **정보 → 로컬 데이터 모두 삭제**로 설정을 삭제하고 팝업 자동 닫기도 기본 비활성으로 되돌립니다. IndexedDB는 사용하지 않으며 telemetry는 선택적 PostHog만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
 
 과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. 자동 재생은 배포 빌드에 포함되지 않습니다([자동 재생 (검토 중)](#자동-재생-검토-중)). 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
+
+## LMS 팝업 자동 닫기
+
+**정보** 화면에서 사용자가 켜는 opt-in 기능이며 기본 비활성입니다. `chrome.storage.local`의 `unidock.popup-auto-close.v1` boolean만 저장하며 키가 없거나 값이 유효하지 않으면 `false`로 처리합니다. **로컬 데이터 모두 삭제**는 이 설정도 지웁니다.
+
+`lms-popup` 콘텐츠 스크립트는 공지 포털 `https://lms.korea.ac.kr/*`에서 최상위 프레임만(`allFrames: false`) `document_idle`에 실행합니다. 활성화하면 `#xn-popup-wrapper > .xnp-item-wrapper[data-popup-id] > .xnp-item-close > button.xnp-item-close-button`에 해당하는 닫기 버튼만 클릭하며, 유지되는 팝업 wrapper의 자식 추가를 관찰해 나중에 추가된 팝업도 처리합니다. ‘오늘 하루 보지 않기’ 체크박스와 페이지의 콘텐츠 저장소는 조작하지 않습니다. 팝업 내용·식별자를 저장하거나 통계로 보내지 않으며 네트워크 API를 호출하지 않습니다. 포털 호스트 권한만 추가하고 기존 Canvas API 허용 목록과 CSP는 넓히지 않습니다.
 
 ## 수업 자료 PDF 일괄 다운로드
 
@@ -162,7 +169,7 @@ KU 소스 근거: [공개 교육 영상](https://kucom.korea.ac.kr/em/6746b8bd75
 
 | 빌드                                | 자동 재생                                                                                                                                                                                                                                                                       |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build` / `npm run release` | 제외. `__UNIDOCK_PLAYBACK__`이 `false`로 치환되어 background 런타임·재생 탐색·패널이 tree-shaking되고, `player` 콘텐츠 스크립트와 `alarms` 권한이 빠집니다. `storage`는 선택적 분석 설정에 사용합니다. 메뉴의 `자동 재생`은 `aria-disabled` 버튼으로 검토 중 안내를 표시합니다. |
+| `npm run build` / `npm run release` | 제외. `__UNIDOCK_PLAYBACK__`이 `false`로 치환되어 background 런타임·재생 탐색·패널이 tree-shaking되고, `player` 콘텐츠 스크립트와 `alarms` 권한이 빠집니다. `storage`는 선택적 분석 및 팝업 자동 닫기 설정에 사용합니다. 메뉴의 `자동 재생`은 `aria-disabled` 버튼으로 검토 중 안내를 표시합니다. |
 | `npm run build:playback`            | 포함(`UNIDOCK_PLAYBACK=1`). 아래 동작 설명은 이 빌드 기준입니다. 배포용이 아닙니다.                                                                                                                                                                                             |
 
 `scripts/package-release.mjs`는 `UNIDOCK_PLAYBACK=1` 환경, `player` 스크립트, `alarms` 권한, 설명의 “자동 재생” 문구, 재생 전용 문자열(`PLAYBACK_DISCOVER` 등)이 산출물에 있으면 실패합니다. 단위 테스트는 재생 코드까지 포함합니다. 자동 재생을 다시 배포하려면 이 표, 개인정보처리방침과 스토어 권한 사유를 함께 갱신해야 합니다.
@@ -231,7 +238,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`와 두 LMS·KU 플레이어 호스트 권한, Chrome 114 minimum 유지. 자동 재생과 `alarms`는 제외합니다. PostHog EU ingestion만 CSP `connect-src`로 허용합니다.
+- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`와 조회용 두 LMS·KU 플레이어·공지 전용 포털 호스트 권한, Chrome 114 minimum 유지. 자동 재생과 `alarms`는 제외합니다. PostHog EU ingestion만 CSP `connect-src`로 허용합니다.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 합성 LMS를 사용한 production 확장 브라우저 UI 검증은 통과했습니다. 실제 LMS 세션에서의 UI와 플레이어 검증은 미실시이며 위 수동 절차로 확인이 필요합니다.
 

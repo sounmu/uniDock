@@ -138,3 +138,13 @@
 ### 2026-10-01 문서 재검토
 
 로컬 `.env.local` 토큰의 빌드 반영은 확인했고, 실제 PostHog 수신은 사용자가 확인했습니다. 기존의 미연결 표기는 2026-09-30 검증 당시 기록입니다. 운영 프로젝트의 IP 폐기·최대 90일 보관·설치 ID별 원격 삭제는 아직 확인하지 않았습니다. 특히 공개 정책의 90일 보관 약속을 확장 코드가 집행하지 않으므로 실제 서버 설정/삭제 운영과의 일치 확인이 남아 있습니다. 대시보드 생성·최종 ZIP 재생성·스토어/공개 정책 게시도 별도 항목으로 관리합니다.
+
+## 2026-10-20 opt-in LMS 팝업 자동 닫기
+
+구현 중인 기능의 배포 계약과 보안 경계를 문서화합니다. 아래 내용은 실제 LMS 동작 검증이나 출시 완료를 의미하지 않습니다.
+
+- 진입점 `entrypoints/lms-popup.content.ts`는 `content-scripts/lms-popup.js`로 번들됩니다. 사용자가 확인한 공지 포털 `https://lms.korea.ac.kr/*`에만 주입하며 `allFrames: false`, `runAt: document_idle`로 최상위 프레임에서 실행합니다. 해당 호스트 권한만 추가하고 기존 `LMS_MATCHES`, Canvas GET API 허용 목록, 기능 권한과 CSP는 변경하지 않습니다.
+- 정보 화면의 명시적 opt-in만 허용합니다. `chrome.storage.local`의 `unidock.popup-auto-close.v1` boolean이 없거나 유효하지 않으면 `false`입니다. 로컬 데이터 모두 삭제는 이 키도 제거해 비활성으로 되돌립니다. 팝업 내용·식별자나 페이지 콘텐츠는 저장하지 않습니다.
+- 클릭 대상은 `#xn-popup-wrapper > .xnp-item-wrapper[data-popup-id] > .xnp-item-close > button.xnp-item-close-button`뿐입니다. 유지되는 wrapper의 자식 추가를 관찰합니다. ‘오늘 하루 보지 않기’ 체크박스, 페이지 콘텐츠 저장소, 다른 페이지 컨트롤은 조작하지 않습니다. 네트워크 API 및 telemetry를 사용하지 않습니다.
+- 배포 검사는 콘텐츠 스크립트를 `lms.js`, `lms-popup.js` 두 개로 한정하고 각 JS 배열·분리된 호스트 matches·최상위 프레임·`document_idle`을 검사합니다. ZIP 파일 allowlist는 새 파일명만 추가하며 포털을 포함한 정확한 호스트 목록, 기존 기능 권한·CSP 및 자동 재생 제외 검사를 유지합니다. E2E 재생 빌드 판별은 팝업 스크립트 수가 아니라 `player.js` 존재를 기준으로 유지합니다.
+- 남은 검증: 실제 LMS에서 기본 비활성, 켜기/끄기·로컬 삭제, wrapper 유지 상태의 후속 팝업, 지정 셀렉터 밖의 컨트롤과 ‘오늘 하루 보지 않기’ 체크박스 불변을 확인해야 합니다. 페이지가 닫기 버튼에 연결한 자체 동작은 LMS 경계에 속합니다.
