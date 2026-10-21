@@ -1,0 +1,149 @@
+import { test, expect, type BrowserContext } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { syntheticServer } from "./synthetic-server";
+
+test("popup opt-in closes only notices, handles later additions, and resets on delete", async ({
+  playwright,
+}, testInfo) => {
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-popup-"));
+  const server = await syntheticServer(profile);
+  let context: BrowserContext | undefined;
+  const errors: string[] = [];
+  try {
+    const extension = path.resolve(".output/chrome-mv3");
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 420, height: 900 },
+      args: [
+        `--disable-extensions-except=${extension}`,
+        `--load-extension=${extension}`,
+        `--host-resolver-rules=MAP lms.korea.ac.kr 127.0.0.1:${server.port}, MAP * ~NOTFOUND`,
+        "--no-proxy-server",
+        "--ignore-certificate-errors",
+      ],
+    });
+    context.on("page", (page) => {
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+    });
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    worker.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await context.route("https://lms.korea.ac.kr/popup-fixture", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><body>
+          <div id="xn-popup-wrapper"></div>
+          <div role="dialog"><button id="unrelated">Submit</button></div>
+          <script>
+            const wrapper = document.getElementById('xn-popup-wrapper');
+            window.addNotice = () => {
+              const item = document.createElement('div');
+              item.className = 'xnp-item-wrapper';
+              item.dataset.popupId = 'fixture';
+              item.innerHTML = '<div class="xnp-item-content"></div><div class="xnp-item-close"><input type="checkbox" class="xnp-item-close-checkbox"><button type="button" class="xnp-item-close-button">Close</button></div>';
+              item.querySelector('.xnp-item-content').attachShadow({mode:'open'}).textContent = 'Synthetic notice';
+              item.querySelector('button').addEventListener('click', () => {
+                if (item.querySelector('input').checked) document.body.dataset.checkboxTouched = 'true';
+                item.remove();
+                console.log('NOTICE_CLOSED');
+              });
+              wrapper.append(item);
+            };
+            document.getElementById('unrelated').addEventListener('click', () => {
+              document.body.dataset.unrelatedClicked = 'true';
+            });
+            window.addEventListener('fixture-add', window.addNotice);
+            window.addNotice();
+          </script></body></html>`,
+      }),
+    );
+    const lms = await context.newPage();
+    await lms.goto("https://lms.korea.ac.kr/popup-fixture");
+    const panel = await context.newPage();
+    await panel.goto(
+      `chrome-extension://${new URL(worker.url()).host}/sidepanel.html`,
+    );
+    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    const select = panel.getByRole("combobox", {
+      name: "공지 자동 닫기",
+      exact: true,
+    });
+    await expect(select).toBeEnabled();
+    await expect(select).toHaveValue("off");
+    await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    const firstClosed = lms.waitForEvent("console", {
+      predicate: (message) => message.text() === "NOTICE_CLOSED",
+    });
+    await select.selectOption("on");
+    await firstClosed;
+    await expect(lms.locator("#xn-popup-wrapper")).toHaveCount(1);
+    await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(0);
+
+    const laterClosed = lms.waitForEvent("console", {
+      predicate: (message) => message.text() === "NOTICE_CLOSED",
+    });
+    await lms.evaluate(() => window.dispatchEvent(new Event("fixture-add")));
+    await laterClosed;
+    expect(
+      await lms.locator("body").getAttribute("data-checkbox-touched"),
+    ).toBeNull();
+    expect(
+      await lms.locator("body").getAttribute("data-unrelated-clicked"),
+    ).toBeNull();
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await panel.emulateMedia({ colorScheme });
+      for (const width of [320, 420, 1440]) {
+        await panel.setViewportSize({ width, height: 900 });
+        await select.scrollIntoViewIfNeeded();
+        expect(
+          await panel.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        await panel.screenshot({
+          path: testInfo.outputPath(
+            `popup-settings-${colorScheme}-${width}.png`,
+          ),
+          fullPage: true,
+        });
+      }
+    }
+    await select.selectOption("off");
+    // A fresh document reads the saved OFF value; no timing assumption about cross-context events.
+    await lms.reload();
+    await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    const resumed = lms.waitForEvent("console", {
+      predicate: (message) => message.text() === "NOTICE_CLOSED",
+    });
+    await select.selectOption("on");
+    await resumed;
+    await panel
+      .getByRole("button", { name: "로컬 데이터 모두 삭제", exact: true })
+      .click();
+    await panel.getByRole("button", { name: "삭제 확인", exact: true }).click();
+    await expect(select).toHaveValue("off");
+    expect(
+      await worker.evaluate(() =>
+        chrome.storage.local.get("unidock.popup-auto-close.v1"),
+      ),
+    ).toEqual({});
+    await lms.reload();
+    await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    expect(errors).toEqual([]);
+  } finally {
+    await context?.close();
+    await server.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

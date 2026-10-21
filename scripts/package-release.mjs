@@ -27,7 +27,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
-  [...lmsHosts, "https://kucom.korea.ac.kr/*"].sort(),
+  [...lmsHosts, "https://kucom.korea.ac.kr/*", "https://lms.korea.ac.kr/*"].sort(),
 );
 for (const key of [
   "externally_connectable",
@@ -40,13 +40,20 @@ for (const key of [
   assert.equal(manifest[key], undefined);
 assert.equal(manifest.side_panel.default_path, "sidepanel.html");
 assert.equal(manifest.background.service_worker, "background.js");
-assert.equal(manifest.content_scripts.length, 1);
-const lmsContent = manifest.content_scripts.find((script) =>
-  script.js.includes("content-scripts/lms.js"),
-);
-assert(lmsContent);
-assert.equal(lmsContent.all_frames, false);
-assert.deepEqual([...lmsContent.matches].sort(), lmsHosts);
+assert.equal(manifest.content_scripts.length, 2);
+for (const filename of ["lms.js", "lms-popup.js"]) {
+  const lmsContent = manifest.content_scripts.find((script) =>
+    script.js.includes(`content-scripts/${filename}`),
+  );
+  assert(lmsContent);
+  assert.deepEqual(lmsContent.js, [`content-scripts/${filename}`]);
+  assert.equal(lmsContent.all_frames, false);
+  assert.equal(lmsContent.run_at, "document_idle");
+  assert.deepEqual(
+    [...lmsContent.matches].sort(),
+    filename === "lms-popup.js" ? ["https://lms.korea.ac.kr/*"] : lmsHosts,
+  );
+}
 assert(
   !manifest.description.includes("자동 재생"),
   "Release description must not advertise playback",
@@ -68,7 +75,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -93,7 +100,13 @@ for (const file of files) {
       assert(!code.includes(marker), `Playback code leaked into ${file}`);
   }
 }
-for (const file of ["privacy.html", "THIRD_PARTY_NOTICES.txt", "icons/128.png"])
+for (const file of [
+  "privacy.html",
+  "THIRD_PARTY_NOTICES.txt",
+  "icons/128.png",
+  "content-scripts/lms.js",
+  "content-scripts/lms-popup.js",
+])
   assert(files.includes(file));
 import { dependencyNoticesText } from "./dependency-notices.mjs";
 // Re-run build if installed dependency notices differ from bundled notices.

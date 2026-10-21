@@ -26,6 +26,7 @@ export default defineConfig({
       ...(playback ? ["alarms"] : []),
     ],
     host_permissions: [
+      "https://lms.korea.ac.kr/*",
       "https://mylms.korea.ac.kr/*",
       "https://canvas.korea.ac.kr/*",
       "https://kucom.korea.ac.kr/*",

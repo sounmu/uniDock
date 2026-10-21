@@ -26,8 +26,8 @@ export function LocalDataSettings() {
     <section className="notice" aria-label="로컬 데이터">
       <h3>로컬 데이터</h3>
       <p className="hint">
-        통계 동의와 설치 식별자 등 저장된 설정을 삭제합니다. 다운로드한 파일은
-        유지됩니다.
+        공지 자동 닫기 설정, 통계 동의와 설치 식별자 등 저장된 설정을
+        삭제합니다. 다운로드한 파일은 유지됩니다.
       </p>
       {confirm ? (
         <div className="tools">

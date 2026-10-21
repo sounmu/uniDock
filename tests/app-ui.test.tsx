@@ -39,6 +39,10 @@ beforeEach(() => {
     },
   });
   vi.stubGlobal("chrome", {
+    storage: {
+      local: { get: vi.fn().mockResolvedValue({}) },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
     downloads: {
       onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() },

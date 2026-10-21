@@ -10,6 +10,7 @@ import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
+import { PopupSettings } from "./PopupSettings";
 export function App() {
   const gate = useRef(new QueryGate()).current;
   const model = useSidepanelQuery(gate);
@@ -96,7 +97,7 @@ export function App() {
             <p>조회 시 현재 LMS 세션의 정보를 이 기기에 표시합니다.</p>
             <p>
               LMS 정보는 분석 서비스로 전송하지 않습니다. 통계 공유 설정은 이
-              기기에 저장합니다.{" "}
+              기기에 저장합니다. 공지 자동 닫기 설정도 이 기기에 저장합니다.{" "}
               {__UNIDOCK_PLAYBACK__
                 ? "재생 설정도 이 기기에 저장합니다."
                 : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·PDF는 기기에 저장됩니다."}
@@ -110,6 +111,7 @@ export function App() {
               개인정보 처리방침
             </a>
             <p>고려대학교와 제휴하지 않은 비공식 도구입니다.</p>
+            <PopupSettings />
             <AnalyticsSettings status={analytics} />
             <LocalDataSettings />
           </DetailView>
