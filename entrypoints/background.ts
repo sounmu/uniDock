@@ -32,6 +32,13 @@ import {
   takeUpdateBadge,
 } from "../src/update-notice";
 import { isAnalyticsCommand } from "../src/analytics/contract";
+import {
+  isPopupAutoCloseGet,
+  notifyPopupAutoCloseTabs,
+  popupAutoCloseKey,
+  popupPageSender,
+  readPopupAutoClose,
+} from "../src/popup-settings";
 
 async function boundedMessage(
   tabId: number,
@@ -466,6 +473,12 @@ export default defineBackground(() => {
     __UNIDOCK_PLAYBACK__ && chrome.storage?.local && chrome.alarms?.onAlarm
       ? createChromePlaybackRuntime()
       : null;
+  // The panel writes the popup opt-in directly; this trusted listener tells
+  // open portal pages to reread it, including after local-data deletion.
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if (area === "local" && popupAutoCloseKey in changes)
+      void notifyPopupAutoCloseTabs();
+  });
   const notifyPlayback = () => {
     try {
       void chrome.runtime
@@ -499,6 +512,14 @@ export default defineBackground(() => {
       void takeUpdateBadge().then((updated) => respond({ updated }));
       return true;
     }
+    if (isPopupAutoCloseGet(message)) {
+      if (!popupPageSender(sender)) {
+        respond({ ok: false });
+        return false;
+      }
+      void readPopupAutoClose().then(respond, () => respond({ ok: false }));
+      return true;
+    }
     if (
       object(message) &&
       message.version === 1 &&
@@ -516,6 +537,8 @@ export default defineBackground(() => {
             await chrome.storage.local.clear();
             return { status: "success" };
           }
+          // Playback erases only its own keys; reset the popup opt-in too.
+          await chrome.storage.local.remove(popupAutoCloseKey);
           return playback.command({
             version: 1,
             type: "LOCAL_DATA_DELETE_ALL",

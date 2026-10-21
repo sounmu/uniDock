@@ -45,9 +45,10 @@ export function safeDownloadPath(
   const name = segments[2] ?? "_";
   const extension = documentExtension(title) ?? "pdf";
   const stem = name.replace(/\.(?:pdf|pptx|ppt)$/i, "");
-  segments[2] = documentExtension(name) === extension
-    ? name
-    : `${stem.slice(0, 79 - extension.length)}.${extension}`;
+  segments[2] =
+    documentExtension(name) === extension
+      ? name
+      : `${stem.slice(0, 79 - extension.length)}.${extension}`;
   const path = `uniDock/${segments.join("/")}`;
   return validDownloadPath(path) ? path : null;
 }

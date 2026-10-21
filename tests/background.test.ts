@@ -565,13 +565,15 @@ it("does not broadcast rejected playback messages", () => {
   expect(f.sendMessage).not.toHaveBeenCalled();
 });
 
-it("erases analytics consent before the existing clear-data command and does not capture deletion", async () => {
+it("erases analytics consent and the popup opt-in before the existing clear-data command and does not capture deletion", async () => {
   const f = commandBroadcastFixture();
   f.command.mockResolvedValue({ status: "error", code: "STORAGE" });
   const order: string[] = [];
-  vi.mocked(chrome.storage.local.remove).mockImplementation(async () => {
-    order.push("erase");
-  });
+  vi.mocked(chrome.storage.local.remove).mockImplementation(
+    async (key: string | string[]) => {
+      order.push(`erase:${String(key)}`);
+    },
+  );
   f.command.mockImplementation(async () => {
     order.push("playback");
     return { status: "error", code: "STORAGE" };
@@ -588,7 +590,134 @@ it("erases analytics consent before the existing clear-data command and does not
   expect(chrome.storage.local.remove).toHaveBeenCalledWith(
     "unidock.analytics.v1",
   );
-  expect(order).toEqual(["erase", "playback"]);
+  expect(order).toEqual([
+    "erase:unidock.analytics.v1",
+    "erase:unidock.popup-auto-close.v1",
+    "playback",
+  ]);
+});
+
+function popupFixture(local: Record<string, unknown> = {}) {
+  let receive!: (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    respond: (value: unknown) => void,
+  ) => boolean;
+  let changed!: (
+    changes: Record<string, chrome.storage.StorageChange>,
+    area: string,
+  ) => void;
+  const get = vi.fn(async () => local);
+  const query = vi.fn().mockResolvedValue([{ id: 3 }]);
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: {
+        addListener: (listener: typeof receive) => {
+          receive = listener;
+        },
+      },
+    },
+    action: actionMocks(),
+    storage: {
+      local: { get, setAccessLevel: vi.fn().mockResolvedValue(undefined) },
+      onChanged: {
+        addListener: (listener: typeof changed) => {
+          changed = listener;
+        },
+      },
+    },
+    tabs: { query, sendMessage },
+  });
+  background.main();
+  return {
+    get,
+    query,
+    sendMessage,
+    receive,
+    changed,
+    page: {
+      id: "test",
+      frameId: 0,
+      tab: { id: 3 } as chrome.tabs.Tab,
+      url: "https://lms.korea.ac.kr/main",
+      origin: "https://lms.korea.ac.kr",
+    } as chrome.runtime.MessageSender,
+  };
+}
+
+it("answers the popup content script with only the stored boolean", async () => {
+  const f = popupFixture({
+    "unidock.popup-auto-close.v1": true,
+    "unidock.analytics.v1": { choice: "granted" },
+  });
+  const reply = await new Promise((resolve) => {
+    expect(
+      f.receive({ version: 1, type: "POPUP_AUTO_CLOSE_GET" }, f.page, resolve),
+    ).toBe(true);
+  });
+  expect(reply).toEqual({
+    version: 1,
+    type: "POPUP_AUTO_CLOSE_STATE",
+    enabled: true,
+  });
+  expect(f.get).toHaveBeenCalledWith("unidock.popup-auto-close.v1");
+});
+
+it("refuses popup setting reads from other pages, frames, and extensions", () => {
+  const f = popupFixture({ "unidock.popup-auto-close.v1": true });
+  const respond = vi.fn();
+  for (const sender of [
+    { ...f.page, url: "https://mylms.korea.ac.kr/" },
+    { ...f.page, frameId: 2 },
+    { ...f.page, id: "other" },
+    { id: "test", url: "chrome-extension://test/sidepanel.html" },
+  ])
+    expect(
+      f.receive(
+        { version: 1, type: "POPUP_AUTO_CLOSE_GET" },
+        sender as chrome.runtime.MessageSender,
+        respond,
+      ),
+    ).toBe(false);
+  expect(respond.mock.calls).toEqual(Array(4).fill([{ ok: false }]));
+  expect(
+    f.receive(
+      { version: 1, type: "POPUP_AUTO_CLOSE_GET", key: "x" },
+      f.page,
+      respond,
+    ),
+  ).toBe(false);
+  expect(respond).toHaveBeenCalledTimes(4);
+  expect(f.get).not.toHaveBeenCalled();
+});
+
+it("reports a popup setting read failure without exposing the error", async () => {
+  const f = popupFixture();
+  f.get.mockRejectedValueOnce(new Error("storage detail"));
+  const reply = await new Promise((resolve) => {
+    f.receive({ version: 1, type: "POPUP_AUTO_CLOSE_GET" }, f.page, resolve);
+  });
+  expect(reply).toEqual({ ok: false });
+});
+
+it("tells open portal pages to reread only when the popup opt-in changes", async () => {
+  const f = popupFixture();
+  f.changed({ "unidock.analytics.v1": { newValue: {} } }, "local");
+  f.changed({ "unidock.popup-auto-close.v1": { newValue: true } }, "sync");
+  expect(f.query).not.toHaveBeenCalled();
+  // clear() and remove() report the key with no newValue: pages reread OFF.
+  f.changed({ "unidock.popup-auto-close.v1": { oldValue: true } }, "local");
+  await vi.waitFor(() =>
+    expect(f.sendMessage).toHaveBeenCalledWith(
+      3,
+      { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" },
+      { frameId: 0 },
+    ),
+  );
+  expect(f.query).toHaveBeenCalledWith({ url: ["https://lms.korea.ac.kr/*"] });
 });
 
 function activationListenerFixture(

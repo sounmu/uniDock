@@ -1,17 +1,47 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { observeLmsPopups, startPopupAutoClose } from "../src/lms-popup";
-import { popupAutoCloseKey, watchPopupAutoClose } from "../src/popup-settings";
+import {
+  isPopupAutoCloseGet,
+  notifyPopupAutoCloseTabs,
+  parsePopupAutoCloseState,
+  popupAutoCloseKey,
+  popupPageSender,
+  readPopupAutoClose,
+  watchPopupAutoClose,
+  watchPopupAutoCloseFromWorker,
+} from "../src/popup-settings";
 import { deferred } from "./ui-helpers";
 
 let stop: (() => void) | undefined;
 const listeners = new Set<
   (changes: Record<string, chrome.storage.StorageChange>, area: string) => void
 >();
+const messageListeners = new Set<
+  (message: unknown, sender: chrome.runtime.MessageSender) => unknown
+>();
 const get = vi.fn();
-function setting(value: unknown) {
+const sendMessage = vi.fn();
+const worker = { id: "test" } as chrome.runtime.MessageSender;
+let enabled: unknown = false;
+function state(value: unknown) {
+  return { version: 1, type: "POPUP_AUTO_CLOSE_STATE", enabled: value };
+}
+function storageChange(value: unknown) {
   for (const listener of listeners)
     listener({ [popupAutoCloseKey]: { newValue: value } }, "local");
+}
+function notify(
+  sender = worker,
+  message: unknown = { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" },
+) {
+  for (const listener of messageListeners) listener(message, sender);
+}
+/** Simulates the worker seeing a new value and telling the page to reread. */
+async function setting(value: unknown) {
+  enabled = value;
+  notify();
+  await sendMessage.mock.results.at(-1)?.value.catch(() => undefined);
 }
 function notice() {
   const item = document.createElement("div");
@@ -39,8 +69,22 @@ async function mutation(action: () => void) {
 }
 beforeEach(() => {
   document.body.innerHTML = '<div id="xn-popup-wrapper"></div>';
+  enabled = false;
   get.mockResolvedValue({});
+  sendMessage.mockImplementation(async () => state(enabled));
   vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      sendMessage,
+      onMessage: {
+        addListener: (listener: Parameters<typeof messageListeners.add>[0]) =>
+          messageListeners.add(listener),
+        removeListener: (
+          listener: Parameters<typeof messageListeners.add>[0],
+        ) => messageListeners.delete(listener),
+      },
+    },
     storage: {
       local: { get },
       onChanged: {
@@ -56,6 +100,7 @@ afterEach(() => {
   stop?.();
   stop = undefined;
   listeners.clear();
+  messageListeners.clear();
   document.body.replaceChildren();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
@@ -127,56 +172,166 @@ it("stops processing additions after cleanup", async () => {
   );
   expect(later.clicked).not.toHaveBeenCalled();
 });
-it("ignores an initial read overtaken by a storage change", async () => {
+it("ignores a side-panel initial read overtaken by a storage change", async () => {
   const held = deferred<Record<string, unknown>>();
   get.mockReturnValue(held.promise);
   const receive = vi.fn();
   stop = watchPopupAutoClose(receive, vi.fn());
-  setting(false);
+  storageChange(false);
   held.resolve({ [popupAutoCloseKey]: true });
   await held.promise;
   expect(receive.mock.calls).toEqual([[false]]);
 });
-it("requires a true boolean and disables immediately when the setting is removed", async () => {
+it("reads through the worker, never extension storage, and applies only the newest reply", async () => {
+  const held = deferred<unknown>();
+  sendMessage.mockReturnValueOnce(held.promise);
+  const receive = vi.fn();
+  stop = watchPopupAutoCloseFromWorker(receive, vi.fn());
+  expect(sendMessage).toHaveBeenCalledWith({
+    version: 1,
+    type: "POPUP_AUTO_CLOSE_GET",
+  });
+  await setting(false);
+  held.resolve(state(true));
+  await held.promise;
+  expect(receive.mock.calls).toEqual([[false]]);
+  expect(get).not.toHaveBeenCalled();
+  expect(listeners.size).toBe(0);
+});
+it("rereads only for exact change notices from this extension's worker", async () => {
+  stop = watchPopupAutoCloseFromWorker(vi.fn(), vi.fn());
+  await sendMessage.mock.results[0]?.value;
+  const change = { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" };
+  for (const [sender, message] of [
+    [{ id: "test", tab: { id: 1 } }, change],
+    [{ id: "other" }, change],
+    [{ id: "test", url: "chrome-extension://test/sidepanel.html" }, change],
+    [worker, { ...change, enabled: true }],
+    [worker, { version: 2, type: "POPUP_AUTO_CLOSE_CHANGED" }],
+    [worker, null],
+  ] as const)
+    notify(sender as chrome.runtime.MessageSender, message);
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  notify({ id: "test", url: "chrome-extension://test/background.js" });
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+});
+it("starts on a worker change notice and stops immediately when the setting is off", async () => {
   stop = startPopupAutoClose();
-  await get.mock.results[0]?.value;
+  await sendMessage.mock.results[0]?.value;
   const first = notice();
-  setting("true");
   await mutation(() =>
     document.getElementById("xn-popup-wrapper")?.append(first.item),
   );
   expect(first.clicked).not.toHaveBeenCalled();
-  setting(true);
+  await setting(true);
   expect(first.clicked).toHaveBeenCalledTimes(1);
-  setting(undefined);
+  await setting(false);
   const later = notice();
   await mutation(() =>
     document.getElementById("xn-popup-wrapper")?.append(later.item),
   );
   expect(later.clicked).not.toHaveBeenCalled();
+  await setting(true);
+  expect(later.clicked).toHaveBeenCalledTimes(1);
 });
 it("pauses on pagehide and rereads the setting on pageshow", async () => {
-  get.mockResolvedValue({ [popupAutoCloseKey]: true });
+  enabled = true;
   stop = startPopupAutoClose();
-  await get.mock.results[0]?.value;
+  await sendMessage.mock.results[0]?.value;
   window.dispatchEvent(new Event("pagehide"));
   const later = notice();
   await mutation(() =>
     document.getElementById("xn-popup-wrapper")?.append(later.item),
   );
   expect(later.clicked).not.toHaveBeenCalled();
-  expect(listeners.size).toBe(0);
+  expect(messageListeners.size).toBe(0);
   window.dispatchEvent(new Event("pageshow"));
-  await get.mock.results.at(-1)?.value;
+  await sendMessage.mock.results.at(-1)?.value;
   expect(later.clicked).toHaveBeenCalledTimes(1);
-  expect(listeners.size).toBe(1);
+  expect(messageListeners.size).toBe(1);
 });
-it("fails closed on a storage read error", async () => {
-  get.mockRejectedValue(new Error("unavailable"));
+it.each([
+  ["a rejected request", () => sendMessage.mockRejectedValue(new Error("x"))],
+  [
+    "an unavailable runtime",
+    () =>
+      sendMessage.mockImplementation(() => {
+        throw new Error("Extension context invalidated");
+      }),
+  ],
+  ["a refusal", () => sendMessage.mockResolvedValue({ ok: false })],
+  ["a non-boolean value", () => sendMessage.mockResolvedValue(state("true"))],
+  [
+    "an extra field",
+    () => sendMessage.mockResolvedValue({ ...state(true), url: "x" }),
+  ],
+])("fails closed on %s", async (_name, arrange) => {
+  arrange();
   const first = notice();
   document.getElementById("xn-popup-wrapper")?.append(first.item);
   stop = startPopupAutoClose();
-  await get.mock.results[0]?.value.catch(() => undefined);
+  await sendMessage.mock.results[0]?.value?.catch?.(() => undefined);
+  await Promise.resolve();
   expect(first.clicked).not.toHaveBeenCalled();
-  expect(listeners.size).toBe(0);
+  expect(messageListeners.size).toBe(0);
+});
+it("parses only the exact closed popup messages", () => {
+  expect(
+    isPopupAutoCloseGet({ version: 1, type: "POPUP_AUTO_CLOSE_GET" }),
+  ).toBe(true);
+  expect(
+    isPopupAutoCloseGet({ version: 1, type: "POPUP_AUTO_CLOSE_GET", x: 1 }),
+  ).toBe(false);
+  expect(isPopupAutoCloseGet([1, 2])).toBe(false);
+  expect(parsePopupAutoCloseState(state(false))).toBe(false);
+  expect(parsePopupAutoCloseState({ ...state(true), version: 2 })).toBeNull();
+  expect(parsePopupAutoCloseState(null)).toBeNull();
+});
+it("accepts setting reads only from this extension's portal top frame", () => {
+  const page = {
+    id: "test",
+    frameId: 0,
+    tab: { id: 4 } as chrome.tabs.Tab,
+    url: "https://lms.korea.ac.kr/main",
+    origin: "https://lms.korea.ac.kr",
+  };
+  expect(popupPageSender(page)).toBe(true);
+  expect(popupPageSender({ ...page, origin: undefined })).toBe(true);
+  for (const sender of [
+    { ...page, id: "other" },
+    { ...page, frameId: 1 },
+    { ...page, tab: undefined },
+    { ...page, url: undefined },
+    { ...page, url: "https://mylms.korea.ac.kr/" },
+    { ...page, url: "https://user:pass@lms.korea.ac.kr/" },
+    { ...page, url: "not a url" },
+    { ...page, origin: "https://evil.example" },
+  ])
+    expect(popupPageSender(sender)).toBe(false);
+});
+it("reports only a strict boolean from worker storage", async () => {
+  get.mockResolvedValueOnce({ [popupAutoCloseKey]: "true" });
+  expect(await readPopupAutoClose()).toEqual(state(false));
+  get.mockResolvedValueOnce({ [popupAutoCloseKey]: true });
+  expect(await readPopupAutoClose()).toEqual(state(true));
+  expect(get).toHaveBeenCalledWith(popupAutoCloseKey);
+});
+it("notifies only top frames of portal tabs and tolerates missing receivers", async () => {
+  const query = vi
+    .fn()
+    .mockResolvedValueOnce([{ id: 3 }, {}, { id: 5 }])
+    .mockRejectedValueOnce(new Error("unavailable"));
+  const tabsSend = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("no receiver"))
+    .mockResolvedValue(undefined);
+  vi.stubGlobal("chrome", { tabs: { query, sendMessage: tabsSend } });
+  await notifyPopupAutoCloseTabs();
+  expect(query).toHaveBeenCalledWith({ url: ["https://lms.korea.ac.kr/*"] });
+  expect(tabsSend.mock.calls).toEqual([
+    [3, { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" }, { frameId: 0 }],
+    [5, { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" }, { frameId: 0 }],
+  ]);
+  await notifyPopupAutoCloseTabs();
+  expect(tabsSend).toHaveBeenCalledTimes(2);
 });

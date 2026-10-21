@@ -1,4 +1,4 @@
-import { watchPopupAutoClose } from "./popup-settings";
+import { watchPopupAutoCloseFromWorker } from "./popup-settings";
 
 const itemSelector = ".xnp-item-wrapper[data-popup-id]";
 const buttonSelector =
@@ -64,7 +64,7 @@ export function startPopupAutoClose(): () => void {
   };
   const resume = () => {
     pause();
-    stopWatching = watchPopupAutoClose((enabled) => {
+    stopWatching = watchPopupAutoCloseFromWorker((enabled) => {
       if (enabled) stopObserving ??= observeLmsPopups();
       else {
         stopObserving?.();
