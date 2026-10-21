@@ -41,6 +41,9 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
   const releaseCourses = Promise.withResolvers<void>();
   const accountRaceStarted = Promise.withResolvers<void>();
   const releaseAccountRace = Promise.withResolvers<void>();
+  // The reattached caller's identity probe is a separate fetch, so it is
+  // observable only once Playwright routes it, not when BUSY is replied.
+  const reattachProbed = Promise.withResolvers<void>();
   let context: BrowserContext | undefined;
   let extensionId: string | undefined;
   let account = 1;
@@ -85,6 +88,7 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
       expect(route.request().method()).toBe("GET");
       if (url.pathname === "/api/v1/users/self") {
         identities.push(account);
+        if (identities.length === 2) reattachProbed.resolve();
         timeline.push({ event: "identity", account });
         return route.fulfill({ json: { id: account } });
       }
@@ -221,6 +225,7 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     );
     expect(busy).toEqual({ status: "error", code: "BUSY" });
     expect(coursesRequests).toBe(1);
+    await reattachProbed.promise;
     expect(identities).toEqual([1, 1]);
     timeline.push({ event: "release-old-courses", account: 1 });
     releaseCourses.resolve();
@@ -309,6 +314,7 @@ test("rejects a late account A cache commit after a trusted BFCache restoration"
     expect.soft(identities).toEqual([1, 1, 1, 2, 2, 2]);
     expect(errors).toEqual([]);
   } finally {
+    reattachProbed.resolve();
     releaseCourses.resolve();
     releaseAccountRace.resolve();
     evidence.coursesRequests = coursesRequests;
