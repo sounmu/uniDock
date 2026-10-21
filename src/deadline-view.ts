@@ -63,3 +63,43 @@ export function remainingLabel(due: string, now: number): string {
     return `${hours}시간${minutes % 60 ? ` ${minutes % 60}분` : ""} 남음`;
   return `${Math.floor(hours / 24)}일${hours % 24 ? ` ${hours % 24}시간` : ""} 남음`;
 }
+
+// Planner rows mix announcements with graded work. The panel groups them by
+// what the student has to do, keeping the raw Canvas type for the detail view.
+export type ScheduleKind = "task" | "notice" | "other";
+export function scheduleKind(type: string): ScheduleKind {
+  switch (type) {
+    case "assignment":
+    case "quiz":
+      return "task";
+    case "announcement":
+      return "notice";
+    default:
+      return "other";
+  }
+}
+export const scheduleKindLabels: Record<ScheduleKind, string> = {
+  task: "과제",
+  notice: "공지",
+  other: "기타",
+};
+export function scheduleTypeLabel(type: string): string {
+  switch (type) {
+    case "assignment":
+      return "과제";
+    case "quiz":
+      return "퀴즈";
+    case "announcement":
+      return "공지";
+    case "discussion_topic":
+      return "토론";
+    case "calendar_event":
+      return "일정";
+    case "wiki_page":
+      return "페이지";
+    case "planner_note":
+      return "메모";
+    default:
+      return "기타";
+  }
+}

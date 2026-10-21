@@ -400,6 +400,19 @@ main:has(.detail-view) > div > .view-settings {
   color: var(--brand);
   background: var(--brand-wash);
 }
+.kind-filter {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: var(--space-2);
+}
+.kind-filter .kind-count {
+  margin-left: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.kind-filter [aria-pressed="true"] .kind-count {
+  color: inherit;
+}
 .course-context h2 {
   margin-top: var(--space-2);
 }

@@ -175,3 +175,99 @@ it("collapses unsubmitted overdue Todo rows into a trailing group", async () => 
   await act(async () => vi.advanceTimersByTime(3 * 86400000));
   expect(titles(group)).toEqual(["남은 과제", "방금 지남", "오래 지남"]);
 });
+it("separates schedule rows into tasks and notices with counts and type labels", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-21T03:00:00Z"));
+  const row = (title: string, type: string, date = "2026-10-22T06:00:00Z") => ({
+    title,
+    date,
+    type,
+    course: "확률및랜덤과정",
+    submitted: false,
+    new_activity: false,
+  });
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        upcoming: [
+          row("과제 3", "assignment"),
+          row("휴강 안내", "announcement"),
+          row("퀴즈 2", "quiz"),
+          row("토론", "discussion_topic"),
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const filters = () =>
+    [...document.querySelectorAll(".kind-filter button")].map((b) => [
+      b.textContent,
+      b.getAttribute("aria-pressed"),
+    ]);
+  const titles = () =>
+    [...document.querySelectorAll(".list-row strong")].map(
+      (e) => e.textContent,
+    );
+  const subtitles = () =>
+    [...document.querySelectorAll(".row-course")].map((e) => e.textContent);
+  expect(filters()).toEqual([
+    ["전체4", "true"],
+    ["과제2", "false"],
+    ["공지1", "false"],
+    ["기타1", "false"],
+  ]);
+  expect(titles()).toEqual(["과제 3", "휴강 안내", "퀴즈 2", "토론"]);
+  expect(subtitles()).toEqual([
+    "확률및랜덤과정 · 과제",
+    "확률및랜덤과정 · 공지",
+    "확률및랜덤과정 · 퀴즈",
+    "확률및랜덤과정 · 토론",
+  ]);
+  const press = async (label: string) => {
+    const button = [
+      ...document.querySelectorAll<HTMLElement>(".kind-filter button"),
+    ].find((b) => b.textContent?.startsWith(label));
+    await act(async () => button!.click());
+  };
+  await press("공지");
+  expect(titles()).toEqual(["휴강 안내"]);
+  expect(document.querySelector(".count")?.textContent).toContain(
+    "4개 항목 중 1개 표시",
+  );
+  await press("과제");
+  expect(titles()).toEqual(["과제 3", "퀴즈 2"]);
+  await press("기타");
+  expect(titles()).toEqual(["토론"]);
+  await press("전체");
+  expect(titles()).toHaveLength(4);
+  // Detail shows the Korean kind next to the raw Canvas type.
+  await click("휴강 안내");
+  expect(document.body.textContent).toContain("공지 (announcement)");
+});
+it("hides the other-kind filter when every schedule row is a task or notice", async () => {
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        upcoming: [
+          {
+            title: "과제",
+            date: "",
+            type: "assignment",
+            course: "",
+            submitted: false,
+            new_activity: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  expect(
+    [...document.querySelectorAll(".kind-filter button")].map(
+      (b) => b.textContent,
+    ),
+  ).toEqual(["전체1", "과제1", "공지0"]);
+  expect(document.querySelector(".row-course")?.textContent).toBe("과제");
+});
