@@ -1,6 +1,6 @@
 # uniDock 다음 단계 설계 리서치
 
-- 조사일: 2026-10-20
+- 조사일: 2026-10-20 (AI 자막 모델·음원 경로 보강: 2026-10-21)
 - 대상: 자막 없는 영상의 AI 자막 생성, Telegram·Discord 알림, LMS 공지 레이어 자동 닫기
 - 브랜치: `research/captions-notifications-popups`
 - 코드 기준: 로컬 `main`, `bf5abd26e030d2886f64a753a0d6cc34869d6a6f`
@@ -178,6 +178,81 @@ Chrome `tabCapture`는 사용자 호출을 전제로 하는 API다. Service work
 
 **의견:** 자동 음원 취득이 막히면 모델을 바꿔도 해결되지 않는다. 서버 구축을 크게 시작하기 전에 대표 강의 몇 개에서 이 경계를 먼저 조사하는 것이 비용을 줄인다.
 
+#### 2026-10-21 실측: KU 플레이어 영상 1건
+
+사용자의 로그인된 Chrome에서 읽기 전용으로 확인했다. 대상은 확률및랜덤과정 게시판에 올라온 `kucom.korea.ac.kr/em/{id}` 영상 하나다(게시판 2개에서 11건). 표본이 하나이므로 모든 강의의 일반 규칙으로 쓰지 않는다.
+
+| 항목 | 관측 |
+| --- | --- |
+| 플레이어 페이지 | `kucom.korea.ac.kr/em/{id}`가 쿠키 없는 `curl`에도 200 HTML |
+| 콘텐츠 형식 | `uniPlayerConfig._contentPlayingInfoData.contentType = "upf"`, 본편 story 1개, 약 3,938초 |
+| 미디어 | `mainMediaList`의 `desktopMethod: "progressive"`, 단일 `media_files/screen.mp4` (HLS/DASH 아님, query 서명 없음) |
+| 미디어 호스트 | 학교 도메인이 아닌 NCP CDN `korea-cms-object.cdn.gov-ntruss.com`. fallback으로 `kucom.korea.ac.kr/contents7_pseudo/...` 경로도 설정에 있음 |
+| 쿠키·Referer 없는 직접 요청 | `curl -I` → **403** |
+| 플레이어 페이지에서의 `fetch()` (`credentials: "omit"`, Range 0–1023) | **TypeError** (CORS 거부 또는 403; 구분 못 함) |
+| 기존 자막 | 이 영상은 `useCaption: true`이고 caption XML이 있음 → 기존 `자막 감지`로 처리될 대상 |
+
+해석:
+
+- **서버가 URL만 받아 직접 받는 방식은 이 CDN에서 그대로 동작하지 않는다.** 403의 원인(Referer 검사, 쿠키, 기타)은 확정하지 않았다. Referer를 위조해 우회하는 방식은 학교 CDN의 접근 통제를 피하는 것이므로 검토 대상에서 제외한다.
+- **페이지 world의 `fetch()`로 바이트를 읽는 방식도 막혔다.** `<video>` 재생은 되지만 CORS가 없는 교차 출처 미디어는 스크립트가 바이트를 읽을 수 없다. 같은 이유로 `video.captureStream()`도 tainted media가 되어 쓸 수 없을 가능성이 높다(미검증).
+- 남은 후보는 (a) 확장 background가 CDN 호스트 권한으로 직접 GET하는 방식, (b) `kucom.korea.ac.kr/contents7_pseudo/...` fallback(이미 host permission 있음), (c) 사용자 시작 `tabCapture`다. (a)는 새 host permission이 필요하고 403이 Referer 검사 때문이라면 여전히 실패한다. Referer를 바꾸기 위해 `declarativeNetRequest`를 추가하는 것은 위와 같은 이유로 권하지 않는다. (b)는 이번에 응답을 확인하지 못했다. (c)는 재생 시간만큼 걸리고, 재생 속도를 자동으로 올리는 것은 이 프로젝트의 playback automation 금지와 충돌한다.
+#### 2026-10-22 실측: 확장 service worker에서 Range 1KB 요청
+
+같은 영상의 두 경로를 확장 background service worker에서 `fetch(url, { headers: { Range: "bytes=0-1023" }, credentials: "omit" })`로 요청했다. 실행 환경은 Playwright Chromium, 빈 임시 프로필(LMS 로그인 없음), `npm run build` 결과물이다. 두 변형을 썼다. 저장소 코드와 manifest는 바꾸지 않았고 scratch 사본만 수정했다.
+
+- `shipped`: 현재 release manifest 그대로.
+- `patched`: CDN host permission 추가, extension CSP `connect-src`에 `kucom.korea.ac.kr`과 CDN 호스트 추가.
+
+| 경로 | `shipped` | `patched` |
+| --- | --- | --- |
+| (a) CDN `korea-cms-object.cdn.gov-ntruss.com/.../screen.mp4` | `TypeError: Failed to fetch` | **403** `text/html`, 본문 0 B, `content-range` 없음 |
+| (b) pseudo `kucom.korea.ac.kr/contents7_pseudo/.../screen.mp4` | `TypeError: Failed to fetch` | **503** `text/html`, 326 B HTML 오류 페이지, 리다이렉트 없음 |
+
+해석:
+
+- **현재 release 빌드는 background에서 미디어를 읽을 수 없다.** 실패 원인은 CSP다. extension CSP의 `connect-src`가 PostHog만 허용해서, `kucom` host permission이 있어도 요청이 나가지 않는다. 기존 자막 추출이 동작하는 이유는 그 `fetch`가 extension CSP의 적용을 받지 않는 content script에서 실행되기 때문이다. background 취득을 하려면 manifest CSP 변경과 보안 검토가 먼저 필요하다.
+- **권한을 열어도 두 경로 모두 바이트를 주지 않았다.** CDN은 쿠키·Referer 없는 확장 요청을 `curl`과 같은 403으로 거부했다. pseudo 경로는 MP4 대신 503 HTML을 반환했다. 레거시 Flash fallback 서버가 꺼져 있거나 이 영상을 제공하지 않는 것으로 보이며, 일시 장애인지는 반복 측정하지 않았다.
+- 자막 XML이 있는 kucom 같은 출처 경로 `kucom.korea.ac.kr/contents7/.../media_files/screen.mp4`도 사용자가 `curl`로 확인했다. **200 `text/html`**로 HTML 페이지가 돌아왔고 MP4가 아니었다. 같은 출처 경로로 미디어를 읽는 방법도 없다.
+- **403의 원인은 Referer hotlink 제한으로 확정됐다.** 사용자가 `Referer: https://kucom.korea.ac.kr/`만 붙인 `curl`(Range 0–1023)을 직접 실행해 **206 `video/mp4`, `content-range: bytes 0-1023/462754770`**을 받았다. 쿠키·서명·UA는 필요 없었다. 응답에 `access-control-allow-origin`이 없으므로 페이지·content script `fetch`가 실패한 이유는 CORS이고, 확장 background가 실패한 이유는 Referer 부재다. 파일은 약 463 MB(약 66분)이므로 브라우저에서 음원만 분리해 보내는 것이 필수다.
+- 따라서 확장 background에서 `declarativeNetRequest` `modifyHeaders`로 해당 CDN 경로의 자기 요청에만 Referer를 붙이면 기술적으로 받을 수 있다. 이는 아래 4.2.1의 정책 판단 대상이다. 자동 모드 안전 검사가 이 추가 확인을 차단했다. 어느 쪽이든 Referer 위조는 검토 대상이 아니다.
+- **결론: 현재 확인된 범위에서 "브라우저가 파일을 받아 서버로 업로드"하는 자동 경로는 열리지 않는다.** 남은 자동 경로는 사용자가 시작하는 `tabCapture`(Chrome 116+ offscreen, 실시간 길이)뿐이다. 그 외에는 사용자가 직접 확보한 파일을 업로드하는 첫 PoC 경로가 남는다. 다른 강의·다른 콘텐츠 유형(`upf` 외)은 별도 표본으로 다시 확인해야 한다.
+
+#### 4.2.1 Referer 부착 경로의 정책 판단
+
+기술은 확정됐으므로 남은 것은 세 층위의 정책이다. 서로 다른 질문이므로 섞지 않는다.
+
+| 층위 | 질문 | 판단 |
+| --- | --- | --- |
+| 학교 규정 | 강의 녹화 음원이 LMS 밖(운영자 Mac)으로 나가도 되는가 | **Referer 경로와 탭 캡처 경로가 같은 문제를 가진다.** 자막 생성 자체를 하기로 했다면 이 층위에서 둘의 차이는 없다. 개인 학습 목적·재배포 없음·원본 음원 즉시 삭제를 전제로 하고, 학교 규정 확인은 별도 항목으로 남긴다 |
+| 접근 통제 우회인가 | Referer 부착이 "권한 없는 접근"인가 | 같은 사용자의 같은 브라우저가 `<video>`로 이미 받는 바이트를, 같은 조건(Referer)으로 다시 요청하는 것이다. 쿠키·서명·로그인은 관여하지 않으며 hotlink 제한의 목적은 제3자 사이트 임베드 차단이다. 수강 권한이 없는 사람에게 접근을 열어 주지 않는다. **우회라기보다 브라우저 동작의 재현**으로 보는 것이 타당하지만, 이는 이 문서의 의견이지 학교의 해석이 아니다 |
+| Chrome Web Store 심사 | 미디어 URL fetch + 헤더 수정이 "미디어 다운로더"로 보이는가 | **가장 실질적인 위험.** CWS는 스트리밍 미디어의 무단 다운로드를 돕는 확장을 금지하고, `declarativeNetRequest` 헤더 수정 + 학교 외 CDN 호스트 권한은 심사 설명이 필요하다. 거부 가능성은 있으나 확정이 아니며, 아래 완화 조치로 낮출 수 있다 |
+
+**권고: Referer 경로를 채택하되, 먼저 개인용 빌드 플래그 뒤에 둔다.** 기존 `UNIDOCK_PLAYBACK=1`과 같은 방식으로 `UNIDOCK_AI_CAPTIONS=1` 빌드에서만 컴파일하고, release 패키징은 거부한다. 스토어 제출은 모델 PoC와 서버가 안정된 뒤 아래 완화 조치를 갖춘 상태로 별도 판단한다. 탭 캡처는 스토어 빌드용 대안으로 남겨 두되 먼저 구현하지 않는다.
+
+스토어 제출 시 필요한 완화 조치:
+
+- **범위를 최소로 고정한다.** DNR 규칙은 `korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/*/contents/media_files/*.mp4`에만, 확장 자신이 보낸 요청에만, Referer 값은 `https://kucom.korea.ac.kr/` 고정으로 적용한다. 탭의 일반 요청은 건드리지 않는다.
+- **세션 규칙으로 작업 중에만 켠다.** 사용자가 생성을 요청하면 규칙을 추가하고 완료·실패·취소 시 제거한다. 영구 규칙을 두지 않는다.
+- **현재 열린 플레이어에서 시작한다.** 미디어 URL은 사용자가 보고 있는 kucom 플레이어의 `uniPlayerConfig`에서 읽은 것만 쓰고, 임의 URL이나 다른 강의 ID를 받지 않는다.
+- **CDN 권한은 `optional_host_permissions`로 둔다.** AI 자막을 처음 쓸 때 사용자가 승인하며, 설치 시점에는 요청하지 않는다.
+- **영상은 저장도 제공도 하지 않는다.** 바이트는 스트리밍으로 읽어 음원 트랙만 분리하고, MP4나 음원 파일을 사용자에게 다운로드로 주지 않는다. 결과물은 자막뿐이다.
+- `README.md`, `public/privacy.html`, `documentation/SECURITY-REVIEW.md`, 스토어 설명에 "사용자가 요청한 강의의 음원을 사용자가 지정한 자막 서버로 보낸다"는 사실과 보관·삭제 기한을 명시한다.
+
+#### 업로드 형식: MP3일 필요는 없다
+
+Whisper 계열은 입력을 16 kHz mono로 리샘플링해서 쓰므로, 서버로 보내는 형식은 **작고 브라우저가 기본으로 만들 수 있는 것**이면 된다. Chrome WebCodecs `AudioEncoder`가 안정적으로 제공하는 것은 Opus이고, MP3 인코더는 확인되지 않았다. MP3를 고집하면 lamejs·ffmpeg.wasm 같은 WASM 인코더를 번들해야 하고 확장 크기·CSP(`wasm-unsafe-eval`) 검토가 추가된다.[R17]
+
+| 업로드 형식 | 1시간 크기(계산) | 브라우저 쪽 비용 |
+| --- | --- | --- |
+| 원본 MP4 그대로 | 영상 포함, 수백 MB 이상 | 없음, 대신 업로드·서버 디스크 부담 큼 |
+| MP4에서 AAC 트랙만 demux | 원본 오디오 비트레이트에 비례 | 재인코딩 없음, MP4 box 파서 필요 |
+| 16 kHz mono Opus 24 kbps (WebCodecs) | 약 10.8 MB | 디코딩 + `AudioEncoder`, 추가 라이브러리 불필요 |
+| MP3 64 kbps | 약 28.8 MB | WASM 인코더 번들 필요 |
+| 16 kHz mono 16-bit PCM WAV | 약 115 MB | 가장 단순, 가장 큼 |
+
+**권고:** `tabCapture` 경로에서는 `MediaRecorder`/`AudioEncoder`로 Opus를 바로 만든다. 파일을 얻는 경로에서는 AAC 트랙 demux 또는 Opus 재인코딩을 비교한다. 서버는 형식을 MIME만으로 믿지 않고 FFmpeg로 길이·채널·코덱을 검증한다.
+
 ### 4.3 권고 배치 구조
 
 ```text
@@ -217,6 +292,26 @@ Go는 API·인증·작업 관리에 집중하고 모델을 Go에 직접 이식�
 테스트 데이터에는 한국어 단독 강의, 영문 용어 혼합, 음질 낮은 강의, 긴 무음, 실제 장시간 강의를 포함한다. 짧은 표본 정답 전사로 CER/WER를 보고, 사람 검수로 전문용어·숫자·의미 왜곡을 별도 평가한다. RTF는 `처리 시간 / 음원 길이`로 측정한다.
 
 출시 판단에 필요한 측정값은 peak 메모리, cold/warm 실행 시간, 실패율, 무음 환각, cue 시간 오차, 동시 작업 시 대기 시간이다. 이 보고서는 어느 Mac에서 몇 배속이라고 보장하지 않는다.
+
+#### Mac mini M4 16GB에서 돌아가는 후보 (2026-10-21 조사)
+
+**메모리는 제약이 아니다.** 아래 후보는 모두 수 GB 안에서 동작하므로 16GB 통합 메모리에서 macOS와 함께 동시 1작업은 여유가 있다. 실제 제약은 처리 속도와 한국어 품질이며, 둘 다 M4 16GB에서 측정한 공개 자료를 찾지 못했다.
+
+| 모델 | 크기·메모리 (공개 자료) | 한국어 | 타임스탬프 | 판단 |
+| --- | --- | --- | --- | --- |
+| Whisper `large-v3-turbo` | 809M, 모델 파일 약 1.6 GB [R18] | 지원 (multilingual) | segment 기본, word 실험 기능 | **1순위.** `mlx-whisper` 또는 `whisper.cpp`(Metal + Core ML encoder, Silero VAD) [R4][R5] |
+| Whisper `large-v3` | `whisper.cpp` 기준 약 3.9 GB [R4] | 지원 | 위와 같음 | turbo의 품질 기준선. 느리지만 16GB에 충분히 들어감 |
+| Qwen3-ASR-1.7B | MLX fp16 약 3.4 GB, 0.6B는 약 1.2 GB [R19][R20] | 30개 언어에 포함 | 별도 `Qwen3-ForcedAligner-0.6B`, **5분 단위 제한** | 2순위 비교. Apache-2.0. 타임스탬프 때문에 5분 chunk·offset 복원 필요 |
+| 한국어 fine-tune (예: BuzzASR, large-v3 기반) | large-v3와 같은 계열 | 전용 | Whisper와 같음 | 자체 보고 CER 4.61% vs large-v3 5.72%(FLEURS+CV) [R21]. 라이선스·학습 데이터 조건 확인 후 후보 |
+
+참고 처리 속도는 모두 **다른 하드웨어**다. M2 Ultra에서 turbo가 12분 음원을 14초에 처리했다는 보고, M4 Max에서 Qwen3-ASR-1.7B 8-bit 약 30배속 보고가 있다.[R18][R20] 기본 M4는 GPU 코어와 메모리 대역폭이 훨씬 작으므로 이 수치를 그대로 쓰지 않는다. 앞의 용량 계산에서 쓴 RTF 0.25 가정도 실측 전까지는 가정이다.
+
+권고 PoC 순서:
+
+1. `mlx-whisper` + `large-v3-turbo`로 대표 강의 3~5개(한국어, 영어 용어 혼합, 잡음, 긴 무음)를 돌려 RTF·peak 메모리·CER을 기록한다.
+2. 같은 음원을 `whisper.cpp` turbo(Core ML encoder, `--vad`)로 돌려 속도와 무음 환각을 비교한다.
+3. 품질이 부족하면 `large-v3`, Qwen3-ASR-1.7B, 한국어 fine-tune 순으로 비교한다. Qwen3-ASR은 aligner의 5분 제한 때문에 chunk 경계 검사를 포함한다.
+4. 엔진·모델 revision·양자화·디코딩 설정을 결과 JSON의 `engine`·`model_revision`에 고정 기록한다.
 
 ### 4.5 작업 API와 장애 복구
 
@@ -423,5 +518,13 @@ DOM 구조·열린 팝업의 클릭 성공·wrapper 유지 여부는 사용자�
 - [R14] Telegram Bot API: https://core.telegram.org/bots/api#setwebhook — webhook secret, 업데이트·발송 계약.
 - [R15] Discord OAuth2: https://docs.discord.com/developers/topics/oauth2 — `webhook.incoming`과 채널 선택 흐름.
 - [R16] Discord Webhook: https://docs.discord.com/developers/resources/webhook — 실행 응답·`wait`·mention 제어.
+
+아래는 2026-10-21 추가 조사 자료다. [R18]~[R21]은 블로그·커뮤니티·모델 카드의 자체 보고이며 독립 검증된 벤치마크가 아니다.
+
+- [R17] MDN AudioEncoder: https://developer.mozilla.org/en-US/docs/Web/API/AudioEncoder — Chrome 94+, 코덱 지원은 `isConfigSupported()`로 런타임 확인.
+- [R18] Simon Willison, whisper large-v3-turbo: https://simonwillison.net/2024/Oct/1/whisper-large-v3-turbo-model/ — 809M, 1.6 GB, M2 Ultra mlx-whisper 처리 속도 보고.
+- [R19] Qwen3-ASR-1.7B 모델 카드: https://huggingface.co/Qwen/Qwen3-ASR-1.7B — 한국어 포함 30개 언어, Apache-2.0, ForcedAligner 5분·11개 언어.
+- [R20] MLX 포팅: https://github.com/moona3k/mlx-qwen3-asr , https://www.mintlify.com/OminiX-ai/OminiX-MLX/asr/qwen3-asr — 메모리 사용량, M4 Max 처리 속도 보고.
+- [R21] BuzzASR Korean: https://huggingface.co/BuzzASR/korean — Whisper large-v3 기반 한국어 fine-tune, 자체 보고 CER.
 
 외부 프로젝트는 전체 서버를 복사하기보다 **추론 adapter와 플랫폼 연동 패턴의 참고**로 활용할 것을 권한다. 제품의 LMS 접근·권한·학기 삭제 정책은 별도로 설계해야 한다.
