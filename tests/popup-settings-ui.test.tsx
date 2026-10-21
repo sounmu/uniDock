@@ -11,6 +11,11 @@ const listeners = new Set<
 >();
 const get = vi.fn();
 const set = vi.fn();
+function toggle(): HTMLButtonElement {
+  const button = ui.host.querySelector<HTMLButtonElement>('[role="switch"]');
+  if (!button) throw new Error("Missing switch");
+  return button;
+}
 function emit(value: unknown) {
   for (const listener of listeners)
     listener({ [popupAutoCloseKey]: { newValue: value } }, "local");
@@ -40,22 +45,25 @@ afterEach(async () => {
 });
 it("starts off without persisting a default and saves an explicit opt-in", async () => {
   ui = await mount(<PopupSettings />);
-  const select = ui.host.querySelector("select");
-  if (!select) throw new Error("Missing select");
-  expect(select.value).toBe("off");
+  const button = toggle();
+  expect(button.getAttribute("aria-checked")).toBe("false");
+  expect(button.querySelector(".switch-check")).toBeNull();
+  expect(button.getAttribute("aria-labelledby")).toBe("popup-row-title");
+  expect(ui.host.textContent).toContain("LMS 팝업");
   expect(set).not.toHaveBeenCalled();
-  await act(async () => {
-    select.value = "on";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await act(async () => button.click());
   expect(set).toHaveBeenCalledWith({ [popupAutoCloseKey]: true });
-  expect(select.value).toBe("on");
+  expect(button.getAttribute("aria-checked")).toBe("true");
+  expect(button.querySelector(".switch-check")).not.toBeNull();
+  await act(async () => button.click());
+  expect(set).toHaveBeenLastCalledWith({ [popupAutoCloseKey]: false });
+  expect(button.getAttribute("aria-checked")).toBe("false");
 });
 it("reflects clearing local data and detaches its listener on unmount", async () => {
   get.mockResolvedValue({ [popupAutoCloseKey]: true });
   ui = await mount(<PopupSettings />);
   await act(async () => emit(undefined));
-  expect(ui.host.querySelector("select")?.value).toBe("off");
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
   await ui.unmount();
   expect(listeners.size).toBe(0);
 });
@@ -63,20 +71,18 @@ it("disables interaction while the initial setting is loading", async () => {
   const held = deferred<Record<string, unknown>>();
   get.mockReturnValue(held.promise);
   ui = await mount(<PopupSettings />);
-  expect(ui.host.querySelector("select")?.disabled).toBe(true);
+  expect(toggle().getAttribute("aria-disabled")).toBe("true");
+  await act(async () => toggle().click());
+  expect(set).not.toHaveBeenCalled();
   await act(async () => held.resolve({}));
-  expect(ui.host.querySelector("select")?.disabled).toBe(false);
+  expect(toggle().getAttribute("aria-disabled")).toBe("false");
 });
 it("reports failed saves without claiming the setting changed", async () => {
   set.mockRejectedValue(new Error("storage"));
   ui = await mount(<PopupSettings />);
-  const select = ui.host.querySelector("select");
-  if (!select) throw new Error("Missing select");
-  await act(async () => {
-    select.value = "on";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const button = toggle();
+  await act(async () => button.click());
   expect(ui.host.querySelector('[role="alert"]')).not.toBeNull();
-  expect(select.value).toBe("off");
-  expect(select.disabled).toBe(false);
+  expect(button.getAttribute("aria-checked")).toBe("false");
+  expect(button.getAttribute("aria-disabled")).toBe("false");
 });

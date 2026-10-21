@@ -40,9 +40,15 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
     });
     await context.route("https://lms.korea.ac.kr/popup-fixture", (route) =>
       route.fulfill({
-        contentType: "text/html",
+        contentType: "text/html; charset=utf-8",
         body: `<!doctype html><html><body>
           <div id="xn-popup-wrapper"></div>
+          <div id="xn-lms-term-survey-list">
+            <div class="xnlts-button-container">
+              <div class="xnlts-button" id="survey-logout">로그아웃</div>
+              <div class="xnlts-button blue" id="survey-exit">설문 나가기</div>
+            </div>
+          </div>
           <div role="dialog"><button id="unrelated">Submit</button></div>
           <script>
             const wrapper = document.getElementById('xn-popup-wrapper');
@@ -59,6 +65,13 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
               });
               wrapper.append(item);
             };
+            document.getElementById('survey-logout').addEventListener('click', () => {
+              document.body.dataset.logoutClicked = 'true';
+            });
+            document.getElementById('survey-exit').addEventListener('click', () => {
+              document.getElementById('xn-lms-term-survey-list').remove();
+              console.log('SURVEY_EXITED');
+            });
             document.getElementById('unrelated').addEventListener('click', () => {
               document.body.dataset.unrelatedClicked = 'true';
             });
@@ -74,18 +87,25 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
       `chrome-extension://${new URL(worker.url()).host}/sidepanel.html`,
     );
     await panel.getByRole("button", { name: "정보", exact: true }).click();
-    const select = panel.getByRole("combobox", {
-      name: "공지 자동 닫기",
+    const select = panel.getByRole("switch", {
+      name: "팝업 자동 닫기",
       exact: true,
     });
-    await expect(select).toBeEnabled();
-    await expect(select).toHaveValue("off");
+    await expect(select).toHaveAttribute("aria-disabled", "false");
+    await expect(select).toHaveAttribute("aria-checked", "false");
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(1);
     const firstClosed = lms.waitForEvent("console", {
       predicate: (message) => message.text() === "NOTICE_CLOSED",
     });
-    await select.selectOption("on");
+    const surveyExited = lms.waitForEvent("console", {
+      predicate: (message) => message.text() === "SURVEY_EXITED",
+    });
+    await select.click();
+    await expect(select).toHaveAttribute("aria-checked", "true");
     await firstClosed;
+    await surveyExited;
+    await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(0);
     await expect(lms.locator("#xn-popup-wrapper")).toHaveCount(1);
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(0);
 
@@ -99,6 +119,9 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
     ).toBeNull();
     expect(
       await lms.locator("body").getAttribute("data-unrelated-clicked"),
+    ).toBeNull();
+    expect(
+      await lms.locator("body").getAttribute("data-logout-clicked"),
     ).toBeNull();
 
     for (const colorScheme of ["light", "dark"] as const) {
@@ -119,20 +142,23 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
         });
       }
     }
-    await select.selectOption("off");
+    await select.click();
+    await expect(select).toHaveAttribute("aria-checked", "false");
     // A fresh document reads the saved OFF value; no timing assumption about cross-context events.
     await lms.reload();
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(1);
     const resumed = lms.waitForEvent("console", {
       predicate: (message) => message.text() === "NOTICE_CLOSED",
     });
-    await select.selectOption("on");
+    await select.click();
+    await expect(select).toHaveAttribute("aria-checked", "true");
     await resumed;
     await panel
       .getByRole("button", { name: "로컬 데이터 모두 삭제", exact: true })
       .click();
     await panel.getByRole("button", { name: "삭제 확인", exact: true }).click();
-    await expect(select).toHaveValue("off");
+    await expect(select).toHaveAttribute("aria-checked", "false");
     expect(
       await worker.evaluate(() =>
         chrome.storage.local.get("unidock.popup-auto-close.v1"),
@@ -140,6 +166,10 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
     ).toEqual({});
     await lms.reload();
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
+    await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(1);
+    expect(
+      await lms.locator("body").getAttribute("data-logout-clicked"),
+    ).toBeNull();
     expect(errors).toEqual([]);
   } finally {
     await context?.close();

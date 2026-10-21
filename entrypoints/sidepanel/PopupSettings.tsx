@@ -30,6 +30,7 @@ export function PopupSettings() {
       setPending(false);
     }
   }
+  const busy = !ready || pending;
   return (
     <section
       className="settings-group"
@@ -37,32 +38,50 @@ export function PopupSettings() {
       aria-busy={pending}
     >
       <h3 id="popup-title" className="settings-label">
-        LMS 공지
+        LMS 팝업
       </h3>
       <div className="settings-card">
         <div className="settings-row">
           <div className="row-text">
             <p id="popup-row-title" className="row-title">
-              공지 자동 닫기
+              팝업 자동 닫기
             </p>
             <p id="popup-description" className="row-sub">
-              LMS의 공지 팝업을 자동으로 닫습니다. ‘오늘 하루 보지 않기’는
-              선택하지 않습니다. 설정을 끄면 다음에 나타나는 공지를 그대로
-              표시합니다.
+              LMS의 공지 팝업과 미참여 설문 안내를 자동으로 닫습니다. ‘오늘 하루
+              보지 않기’는 선택하지 않고, 설문에는 참여하지 않으며 ‘설문
+              나가기’만 누릅니다.
             </p>
           </div>
-          <div className="row-actions">
-            <select
-              aria-labelledby="popup-row-title"
-              aria-describedby="popup-description"
-              value={enabled ? "on" : "off"}
-              disabled={!ready || pending}
-              onChange={(event) => void change(event.target.value === "on")}
-            >
-              <option value="off">꺼짐</option>
-              <option value="on">켜짐</option>
-            </select>
-          </div>
+          <button
+            type="button"
+            role="switch"
+            className="switch"
+            aria-checked={enabled}
+            aria-disabled={busy}
+            aria-labelledby="popup-row-title"
+            aria-describedby="popup-description"
+            onClick={() => {
+              if (!busy) void change(!enabled);
+            }}
+          >
+            <span className="switch-track" aria-hidden="true">
+              <span className="switch-knob">
+                {enabled && (
+                  <svg
+                    className="switch-check"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m2.5 6.5 2.3 2.3 4.7-5" />
+                  </svg>
+                )}
+              </span>
+            </span>
+          </button>
         </div>
         {error && (
           <p className="settings-row row-error" role="alert">

@@ -32,7 +32,7 @@ export function LocalDataSettings() {
           <div className="row-text">
             <p className="row-title">저장된 설정 삭제</p>
             <p className="row-sub">
-              공지 자동 닫기 설정, 통계 동의와 설치 식별자 등 저장된 설정을
+              팝업 자동 닫기 설정, 통계 동의와 설치 식별자 등 저장된 설정을
               삭제합니다. 다운로드한 파일은 유지됩니다.
             </p>
             {notice && (
