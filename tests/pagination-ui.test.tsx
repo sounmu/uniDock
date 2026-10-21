@@ -69,6 +69,7 @@ it("keeps the recording page while an open completes and resets on refresh", asy
     title: `강의 ${i}`,
     module: "주차",
     type: "ExternalTool" as const,
+    source: "module" as const,
     lmsHandle: crypto.randomUUID(),
     launchHandle: crypto.randomUUID(),
   }));
@@ -150,6 +151,7 @@ it("opens LTI straight from a recording row and only for launchable rows", async
       title: "강의 A",
       module: "주차",
       type: "ExternalTool" as const,
+      source: "module" as const,
       lmsHandle: crypto.randomUUID(),
       launchHandle: crypto.randomUUID(),
     },
@@ -157,6 +159,7 @@ it("opens LTI straight from a recording row and only for launchable rows", async
       title: "강의 B",
       module: "주차",
       type: "ExternalTool" as const,
+      source: "module" as const,
       lmsHandle: crypto.randomUUID(),
       launchHandle: "",
     },

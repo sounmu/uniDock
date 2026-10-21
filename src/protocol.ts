@@ -320,6 +320,11 @@ export function parseResult(
                 return [field, child];
               if (type === "externalTool" && child === "ExternalTool")
                 return [field, child];
+              if (
+                type === "recordingSource" &&
+                (child === "module" || child === "board")
+              )
+                return [field, child];
               if (type === "file" && child === "File") return [field, child];
               if (
                 (type === "handle" || type === "optionalHandle") &&

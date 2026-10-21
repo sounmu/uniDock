@@ -170,6 +170,7 @@ it("announces new-tab actions without reading the arrow glyph", async () => {
             title: "강의",
             module: "1주차",
             type: "ExternalTool" as const,
+            source: "module" as const,
             lmsHandle: "a",
             launchHandle: "b",
           },

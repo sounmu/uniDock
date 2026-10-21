@@ -46,15 +46,18 @@ export function ResultList({
                     title={row.title}
                     course={course || row.module}
                     chip={
-                      row.launchHandle ? undefined : (
+                      !row.launchHandle ? (
                         <StatusChip>LMS에서 확인</StatusChip>
-                      )
+                      ) : row.source === "board" ? (
+                        <StatusChip>게시판 영상</StatusChip>
+                      ) : undefined
                     }
                     onClick={() => open(index)}
                   />
                   {row.launchHandle && (
                     <RowLaunch
                       title={row.title}
+                      source={row.source}
                       state={
                         openedRecordingHandles?.has(row.launchHandle)
                           ? "opened"
@@ -76,12 +79,17 @@ export function ResultList({
             title={item.title}
             onBack={back}
             meta={[
-              ["모듈", item.module || "모듈 이름 없음"],
+              [
+                item.source === "board" ? "출처" : "모듈",
+                item.module || "모듈 이름 없음",
+              ],
               [
                 "설명",
-                item.launchHandle
-                  ? "LTI 탭은 LMS를 거쳐 열립니다."
-                  : "개별 항목 주소를 확인할 수 없습니다. LMS 모듈에서 열어주세요.",
+                item.source === "board"
+                  ? "게시판 글에 포함된 KU 플레이어 영상입니다. 플레이어 페이지를 새 탭에서 바로 엽니다."
+                  : item.launchHandle
+                    ? "LTI 탭은 LMS를 거쳐 열립니다."
+                    : "개별 항목 주소를 확인할 수 없습니다. LMS 모듈에서 열어주세요.",
               ],
             ]}
           >
@@ -96,7 +104,9 @@ export function ResultList({
                 }
                 data-analytics-action="recording_launch"
                 onClick={() => onRecording?.(item.launchHandle)}
-                {...newTab("LTI 탭 열기")}
+                {...newTab(
+                  item.source === "board" ? "영상 열기" : "LTI 탭 열기",
+                )}
               />
               <button
                 className="btn-secondary"
@@ -107,7 +117,11 @@ export function ResultList({
                 }
                 data-analytics-action="recording_module"
                 onClick={() => onRecording?.(item.lmsHandle)}
-                {...newTab("LMS 모듈에서 보기")}
+                {...newTab(
+                  item.source === "board"
+                    ? "LMS 게시판에서 보기"
+                    : "LMS 모듈에서 보기",
+                )}
               />
             </div>
           </DetailView>
@@ -159,18 +173,21 @@ export function ResultList({
 // (expired, timed out or failed to open), instead of looking merely disabled.
 function RowLaunch({
   title,
+  source,
   state,
   disabled,
   onClick,
 }: {
   readonly title: string;
+  readonly source: "module" | "board";
   readonly state: "ready" | "opened" | "expired";
   readonly disabled: boolean;
   readonly onClick: () => void;
 }) {
   const name = title || "제목 없음";
+  const target = source === "board" ? "영상" : "LTI";
   const label = {
-    ready: "LTI 열기",
+    ready: `${target} 열기`,
     opened: "열었음",
     expired: "새로고침 필요",
   }[state];
@@ -182,10 +199,10 @@ function RowLaunch({
       onClick={onClick}
       aria-label={
         state === "ready"
-          ? `${name} LTI 열기 (새 탭)`
+          ? `${name} ${target} 열기 (새 탭)`
           : state === "opened"
-            ? `${name} LTI 열었음`
-            : `${name} LTI 열 수 없음, 목록을 새로고침하세요`
+            ? `${name} ${target} 열었음`
+            : `${name} ${target} 열 수 없음, 목록을 새로고침하세요`
       }
     >
       {label}

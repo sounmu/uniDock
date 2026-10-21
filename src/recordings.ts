@@ -1,9 +1,12 @@
 import { isoTime } from "./domain-items";
+import { playerUrl } from "./security/navigation";
 import { redactText } from "./security/redaction";
 export interface Recording {
   module: string;
   title: string;
   type: "ExternalTool";
+  /** Weekly module item, or a KU player video embedded in a LearningX board post. */
+  source: "module" | "board";
   lmsHandle: string;
   launchHandle: string;
 }
@@ -83,4 +86,28 @@ export function availabilitySnapshot(row: Metadata): Metadata {
     ...pick(row),
     content_details: pick((row.content_details ?? {}) as Metadata),
   };
+}
+// KU player videos embedded in post HTML. Only the canonical player page is
+// kept: no query, no other host, at most a few per post, in document order.
+export function playerEmbeds(content: unknown): string[] {
+  if (typeof content !== "string" || content.length > 500000) return [];
+  const urls: string[] = [];
+  for (const match of content.matchAll(
+    /<iframe\b[^>]*?\ssrc\s*=\s*["']([^"']{1,300})["']/gi,
+  )) {
+    const canonical = embeddedPlayer(match[1]!.replace(/&amp;/g, "&"));
+    if (!canonical || urls.includes(canonical)) continue;
+    urls.push(canonical);
+    if (urls.length >= 20) break;
+  }
+  return urls;
+}
+// Embeds may carry player options in the query; only the clean page is kept.
+function embeddedPlayer(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return playerUrl(`${url.origin}${url.pathname}`);
+  } catch {
+    return null;
+  }
 }

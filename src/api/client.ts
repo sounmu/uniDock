@@ -20,7 +20,10 @@ import { readUrl } from "../security/policy";
 import { nextPage } from "./pagination";
 import { collectRecordings } from "./recording-collection";
 import { collectDocuments } from "./document-collection";
-import { collectBoardDocuments } from "./board-collection";
+import {
+  collectBoardDocuments,
+  collectBoardRecordings,
+} from "./board-collection";
 const coursesPath = "/api/v1/courses";
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
@@ -197,12 +200,29 @@ export async function listQuery(
                   now,
                 })
             : undefined;
+          const boardRecordings = boardToken
+            ? () =>
+                collectBoardRecordings({
+                  origin,
+                  courseId,
+                  token: boardToken(),
+                  fetcher,
+                  signal: controller.signal,
+                  now,
+                })
+            : undefined;
           return query.type === "DOCUMENTS_LIST"
             ? {
                 status: "success",
                 documents: await collectDocuments({ ...input, boards }),
               }
-            : { status: "success", recordings: await collectRecordings(input) };
+            : {
+                status: "success",
+                recordings: await collectRecordings({
+                  ...input,
+                  boards: boardRecordings,
+                }),
+              };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;
         const assignments = await collect(

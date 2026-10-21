@@ -12,6 +12,7 @@ export const fields = {
     module: "text",
     title: "text",
     type: "externalTool",
+    source: "recordingSource",
     lmsHandle: "handle",
     launchHandle: "optionalHandle",
   },

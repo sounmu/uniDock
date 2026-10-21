@@ -96,6 +96,7 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
             module: "1주차",
             title: "1차시",
             type: "ExternalTool",
+            source: "module",
             lmsHandle: crypto.randomUUID(),
             launchHandle: crypto.randomUUID(),
           },
@@ -146,4 +147,29 @@ it("labels schedule chips as past, today, upcoming, or submitted in Korea time",
     "제출됨 9. 22. 21:53",
     "예정",
   ]);
+});
+it("labels board videos as direct player launches without URLs in the DOM", () => {
+  const html = renderToStaticMarkup(
+    <ResultList
+      result={{
+        status: "success",
+        recordings: [
+          {
+            module: "게시판 · 강의자료실",
+            title: "10월 13일 수업 백업본",
+            type: "ExternalTool",
+            source: "board",
+            lmsHandle: crypto.randomUUID(),
+            launchHandle: crypto.randomUUID(),
+          },
+        ],
+      }}
+      onCourse={() => {}}
+      onRecording={() => {}}
+    />,
+  );
+  expect(html).toContain("게시판 영상");
+  expect(html).toContain("10월 13일 수업 백업본 영상 열기 (새 탭)");
+  expect(html).not.toContain("LTI");
+  expect(html).not.toMatch(/href=|https:|kucom|\/courses\//);
 });
