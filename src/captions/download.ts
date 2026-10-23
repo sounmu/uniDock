@@ -31,14 +31,18 @@ export type CaptionDownloadResult =
 
 export async function downloadCaption(
   value: Transcript,
-  options: { signal?: AbortSignal; isCurrent?: () => boolean } = {},
+  options: {
+    signal?: AbortSignal;
+    isCurrent?: () => boolean;
+    variant?: "ai";
+  } = {},
 ): Promise<CaptionDownloadResult> {
   const files = exportTranscript(value);
   const timestamp = value.extractedAt
     .replace(/[-:]/g, "")
     .replace(/\.\d+Z$/, "Z");
   const nonce = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
-  const stem = `output/uniDock-${timestamp}-${nonce}`;
+  const stem = `output/uniDock-${options.variant === "ai" ? "AI-" : ""}${timestamp}-${nonce}`;
   let accepted: 0 | 1 | 2 = 0;
   const canContinue = () =>
     !options.signal?.aborted && (options.isCurrent?.() ?? true);

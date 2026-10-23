@@ -10,6 +10,7 @@ import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
+import { CaptionServerSettings } from "./CaptionServerSettings";
 import { PopupSettings } from "./PopupSettings";
 import { UpdateNotice } from "./UpdateNotice";
 import { Icon } from "./ui/icons";
@@ -165,6 +166,7 @@ export function App() {
               </div>
             </section>
             <PopupSettings />
+            {__UNIDOCK_AI_CAPTIONS__ && <CaptionServerSettings />}
             <AnalyticsSettings status={analytics} />
             <LocalDataSettings />
             <section className="settings-group" aria-labelledby="about-title">

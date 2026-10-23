@@ -61,6 +61,17 @@ export const actions = [
   "playback_cancel",
   "delete_prompt",
   "delete_cancel",
+  // AI caption names exist only in the flag build so release ships no trace.
+  ...(__UNIDOCK_AI_CAPTIONS__
+    ? ([
+        "captions_ai_generate",
+        "captions_ai_confirm",
+        "captions_ai_cancel",
+        "caption_server_save",
+        "caption_server_clear",
+        "caption_server_test",
+      ] as const)
+    : []),
 ] as const;
 export type AnalyticsAction = (typeof actions)[number];
 export const features = [
@@ -74,6 +85,7 @@ export const features = [
   "download",
   "captions_detect",
   "captions_export",
+  ...(__UNIDOCK_AI_CAPTIONS__ ? (["captions_ai"] as const) : []),
   "ai_handoff",
   "playback_start",
   "playback_stop",

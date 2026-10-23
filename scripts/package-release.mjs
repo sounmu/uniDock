@@ -12,6 +12,13 @@ assert.notEqual(
   "1",
   "Release packaging requires a build without UNIDOCK_PLAYBACK=1",
 );
+// AI caption generation (CDN media access + server upload) is development only
+// and must never ship in a release ZIP.
+assert.notEqual(
+  process.env.UNIDOCK_AI_CAPTIONS,
+  "1",
+  "Release packaging requires a build without UNIDOCK_AI_CAPTIONS=1",
+);
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, "manifest.json"), "utf8"),
 );
@@ -96,6 +103,18 @@ for (const file of files) {
       "unidock-playback-v1",
     ])
       assert(!code.includes(marker), `Playback code leaked into ${file}`);
+    // Markers unique to the AI caption build. Their presence means the flag
+    // failed to tree-shake CDN media access or server upload out of release.
+    for (const marker of [
+      "korea-cms-object.cdn.gov-ntruss.com",
+      "declarativeNetRequest",
+      "transcription-jobs",
+      "unidock.caption-",
+      "unidock-caption-rule",
+      "captions_ai",
+      "caption_server_",
+    ])
+      assert(!code.includes(marker), `AI caption code leaked into ${file}`);
   }
 }
 for (const file of [

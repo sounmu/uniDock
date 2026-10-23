@@ -126,3 +126,35 @@ export function parseMediaScript(raw: string): TranscriptItem[] {
   // Untimed scripts remain untimed. Do not invent a 00:00 start.
   return normalizeItems(items.length ? items : [{ time: "", text }]);
 }
+
+function clock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const seconds = String(total % 60).padStart(2, "0");
+  return `${hours ? `${String(hours).padStart(2, "0")}:` : ""}${minutes}:${seconds}`;
+}
+
+/** Project server segments (ms cues) to display items; reject reversed or out-of-range cues. */
+export function projectServerSegments(
+  segments: { start_ms: number; end_ms: number; text: string }[],
+  durationMs?: number,
+): TranscriptItem[] {
+  const rows: { time: string; text: string }[] = [];
+  let previousStart = -1;
+  for (const segment of segments) {
+    if (
+      !Number.isFinite(segment.start_ms) ||
+      !Number.isFinite(segment.end_ms) ||
+      segment.start_ms < 0 ||
+      segment.end_ms < segment.start_ms ||
+      segment.start_ms < previousStart ||
+      (Number.isFinite(durationMs) && segment.start_ms > (durationMs as number) + 2000)
+    )
+      throw new Error("INVALID_TRANSCRIPT");
+    previousStart = segment.start_ms;
+    const text = segment.text.replace(/\s+/g, " ").trim();
+    if (text) rows.push({ time: clock(segment.start_ms), text });
+  }
+  return normalizeItems(rows);
+}
