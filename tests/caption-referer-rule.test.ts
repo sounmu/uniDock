@@ -9,7 +9,13 @@ const url =
   "https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/0123456789abc/contents/media_files/screen.mp4";
 let updates: { removeRuleIds?: number[]; addRules?: { id: number }[] }[];
 let sessionRules: { id: number }[];
-let ports: { name: string; disconnect: ReturnType<typeof vi.fn> }[];
+interface PanelPort {
+  name: string;
+  disconnect: ReturnType<typeof vi.fn>;
+  onDisconnect: { addListener(fn: () => void): void };
+  drop(): void;
+}
+let ports: PanelPort[];
 let onConnect: ((port: unknown) => void) | undefined;
 
 beforeEach(() => {
@@ -21,7 +27,13 @@ beforeEach(() => {
     runtime: {
       id: "abcdefghijklmnopabcdefghijklmnop",
       connect: vi.fn(({ name }: { name: string }) => {
-        const port = { name, disconnect: vi.fn() };
+        const listeners: (() => void)[] = [];
+        const port: PanelPort = {
+          name,
+          disconnect: vi.fn(),
+          onDisconnect: { addListener: (fn) => listeners.push(fn) },
+          drop: () => listeners.forEach((fn) => fn()),
+        };
         ports.push(port);
         return port;
       }),
@@ -90,7 +102,7 @@ function fakePort(name: string, sender: object) {
 }
 
 it("background removes a panel's rule when the panel port disconnects", async () => {
-  await installCaptionRuleCleanup(() => true);
+  await installCaptionRuleCleanup(() => true, 0);
   const port = fakePort(`${CAPTION_RULE_PORT}:1947005`, { id: "x" });
   onConnect!(port);
   port.close();
@@ -99,7 +111,7 @@ it("background removes a panel's rule when the panel port disconnects", async ()
 });
 
 it("background refuses rule ports from outside the panel or out of range", async () => {
-  await installCaptionRuleCleanup((sender) => (sender as { ok?: boolean }).ok === true);
+  await installCaptionRuleCleanup((sender) => (sender as { ok?: boolean }).ok === true, 0);
   const stranger = fakePort(`${CAPTION_RULE_PORT}:1947005`, { ok: false });
   onConnect!(stranger);
   expect(stranger.disconnect).toHaveBeenCalled();
@@ -110,6 +122,35 @@ it("background refuses rule ports from outside the panel or out of range", async
 
 it("background start removes leftover caption rules but leaves other rules", async () => {
   sessionRules = [{ id: 1947001 }, { id: 7 }, { id: 1947999 }];
-  await installCaptionRuleCleanup(() => true);
+  await installCaptionRuleCleanup(() => true, 0);
   expect(updates).toEqual([{ removeRuleIds: [1947001, 1947999] }]);
+});
+
+it("reconnects the rule port under the same name if the worker restarts mid-run", async () => {
+  let finish!: () => void;
+  const running = withCaptionMediaRule(url, () => new Promise<void>((resolve) => (finish = resolve)));
+  await vi.waitFor(() => expect(ports).toHaveLength(1));
+  ports[0]!.drop();
+  expect(ports).toHaveLength(2);
+  expect(ports[1]!.name).toBe(ports[0]!.name);
+  finish();
+  await running;
+  ports[1]!.drop();
+  expect(ports).toHaveLength(2);
+});
+
+it("background start keeps a rule whose panel reconnects within the grace period", async () => {
+  vi.useFakeTimers();
+  try {
+    sessionRules = [{ id: 1947001 }, { id: 1947002 }];
+    const swept = installCaptionRuleCleanup(() => true, 10_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(updates).toEqual([]);
+    onConnect!(fakePort(`${CAPTION_RULE_PORT}:1947001`, {}));
+    await vi.advanceTimersByTimeAsync(9_000);
+    await swept;
+    expect(updates).toEqual([{ removeRuleIds: [1947002] }]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
