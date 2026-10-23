@@ -8,16 +8,20 @@ const browser = await chromium.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 });
 try {
-  const page = await browser.newPage({ deviceScaleFactor: 1 });
   for (const size of [16, 32, 48, 128]) {
-    await page.setViewportSize({ width: size, height: size });
+    // A fresh page avoids stale compositor tiles when changing icon sizes.
+    const page = await browser.newPage({
+      viewport: { width: size, height: size },
+      deviceScaleFactor: 1,
+    });
     await page.setContent(
-      `<style>html,body{margin:0;background:transparent}svg{display:block;width:100vw;height:100vh}</style>${svg}`,
+      `<style>html,body{margin:0;background:transparent}svg{display:block;width:${size}px;height:${size}px}</style>${svg}`,
     );
-    await page.screenshot({
+    await page.locator("svg").screenshot({
       path: `public/icons/${size}.png`,
       omitBackground: true,
     });
+    await page.close();
   }
 } finally {
   await browser.close();
