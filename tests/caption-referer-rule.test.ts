@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   CAPTION_RULE_KEEPALIVE_MS,
   CAPTION_RULE_PORT,
+  CAPTION_RULE_SWEEP_GRACE_MS,
   installCaptionRuleCleanup,
   withCaptionMediaRule,
 } from "../src/captions/referer-rule";
@@ -244,4 +245,25 @@ it("re-adds the same rule when a reconnected worker answers ready", async () => 
   expect(updates[0]!.addRules![0]!.id).toBe(id);
   finish();
   await running;
+});
+
+it("background start uses a 10 second grace period by default", async () => {
+  vi.useFakeTimers();
+  try {
+    sessionRules = [{ id: 1947006 }];
+    const swept = installCaptionRuleCleanup(() => true);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(updates).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await swept;
+    expect(updates).toEqual([{ removeRuleIds: [1947006] }]);
+    expect(CAPTION_RULE_SWEEP_GRACE_MS).toBe(10_000);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("sends keepalives more often than Chrome's 30 second idle shutdown", () => {
+  expect(CAPTION_RULE_KEEPALIVE_MS).toBeGreaterThan(0);
+  expect(CAPTION_RULE_KEEPALIVE_MS).toBeLessThan(30_000);
 });
