@@ -173,3 +173,32 @@ it("labels board videos as direct player launches without URLs in the DOM", () =
   expect(html).not.toContain("LTI");
   expect(html).not.toMatch(/href=|https:|kucom|\/courses\//);
 });
+it("says when board videos could not be loaded and still lists module recordings", () => {
+  const recordings = [
+    {
+      module: "1주차",
+      title: "1주차 강의",
+      type: "ExternalTool" as const,
+      source: "module" as const,
+      lmsHandle: crypto.randomUUID(),
+      launchHandle: crypto.randomUUID(),
+    },
+  ];
+  const render = (boardsUnavailable: boolean) =>
+    renderToStaticMarkup(
+      <ResultList
+        result={{
+          status: "success",
+          recordings,
+          ...(boardsUnavailable ? { boardsUnavailable: true as const } : {}),
+        }}
+        onCourse={() => {}}
+        onRecording={() => {}}
+      />,
+    );
+  expect(render(true)).toContain(
+    "게시판 영상을 불러오지 못해 주차학습 녹화 강의만 표시합니다.",
+  );
+  expect(render(true)).toContain("1주차 강의");
+  expect(render(false)).not.toContain("게시판 영상을 불러오지 못해");
+});

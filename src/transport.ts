@@ -110,7 +110,8 @@ export async function queryActive(
         typeof result === "object" &&
         "status" in result &&
         result.status === "success" &&
-        (Object.keys(result).length !== 3 ||
+        (Object.keys(result).length !==
+          ("boardsUnavailable" in result ? 4 : 3) ||
           !("recordings" in result) ||
           !("documentToken" in result))
       )

@@ -111,7 +111,12 @@ export function validDownloadDeadline(
   );
 }
 export type Result =
-  | { status: "success"; recordings: Recording[] }
+  | {
+      status: "success";
+      recordings: Recording[];
+      /** The LearningX board source failed; only module recordings are listed. */
+      boardsUnavailable?: true;
+    }
   | { status: "success"; documents: Document[] }
   | { status: "success"; opened: true }
   | { status: "success"; downloaded: true }
@@ -277,7 +282,12 @@ export function parseResult(
           (field) =>
             field !== "status" &&
             field !== key &&
-            !(key === "recordings" && field === "documentToken"),
+            !(
+              key === "recordings" &&
+              (field === "documentToken" ||
+                (field === "boardsUnavailable" &&
+                  row.boardsUnavailable === true))
+            ),
         ) ||
         (expected && resultKey[expected.type] !== key)
       )
@@ -359,7 +369,11 @@ export function parseResult(
         );
       });
       // Every field has been validated against the corresponding closed schema.
-      return { status: "success", [key]: items } as Result;
+      return (
+        key === "recordings" && row.boardsUnavailable === true
+          ? { status: "success", [key]: items, boardsUnavailable: true }
+          : { status: "success", [key]: items }
+      ) as Result;
     }
   } catch {
     /* Never expose untrusted response or exception details. */

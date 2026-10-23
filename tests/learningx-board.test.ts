@@ -473,3 +473,155 @@ it("skips a board whose post detail names another course's tool", async () => {
     catalog.clear();
   }
 });
+
+// Module recordings plus a board fetcher; boards are supplementary here.
+function lecturesWithBoard(
+  board: (url: URL, init?: RequestInit) => Promise<Response> | Response,
+): ReturnType<typeof vi.fn<typeof fetch>> {
+  return vi.fn<typeof fetch>(async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith("/learningx/")) return board(url, init);
+    if (url.pathname === "/api/v1/courses")
+      return Response.json([{ id: 1, name: "Course" }]);
+    if (url.pathname.endsWith("/modules"))
+      return Response.json([
+        {
+          id: 2,
+          name: "1주차",
+          items: [
+            {
+              id: 3,
+              type: "ExternalTool",
+              title: "1주차 강의",
+              html_url: `${origin}/courses/1/modules/items/3`,
+            },
+          ],
+        },
+      ]);
+    throw new Error(`unexpected ${url.pathname}`);
+  });
+}
+
+it("keeps module recordings and reports the board source when a board request fails", async () => {
+  for (const failing of [
+    // A later board page fails.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts`
+        ? new Response(null, { status: 500 })
+        : undefined,
+    // The one post detail read is gone between list and detail.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts/21`
+        ? new Response(null, { status: 404 })
+        : undefined,
+    // Malformed board pagination.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts`
+        ? Response.json({ items: [], pagination: { last_page: 101 } })
+        : undefined,
+  ]) {
+    const catalog = new NavigationCatalog();
+    const fetcher = lecturesWithBoard((url) => {
+      const failure = failing(url);
+      if (failure) return failure;
+      if (url.pathname === root) return Response.json([{ id: 8 }]);
+      if (url.pathname === `${root}/8/posts`)
+        return Response.json({
+          items: [
+            {
+              id: 21,
+              title: "백업본",
+              content: `<iframe src="${player("6ace04083ab26")}"></iframe>`,
+            },
+          ],
+          pagination: { last_page: 1 },
+        });
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    try {
+      const result = await listQuery(
+        origin,
+        recordingQuery,
+        fetcher,
+        Date.now(),
+        catalog,
+        undefined,
+        () => token,
+      );
+      if (result.status !== "success" || !("recordings" in result))
+        throw new Error("missing recordings");
+      expect(result.boardsUnavailable).toBe(true);
+      expect(
+        result.recordings.map(({ title, source }) => [title, source]),
+      ).toEqual([["1주차 강의", "module"]]);
+      expect(parseResult(result, recordingQuery)).toEqual(result);
+    } finally {
+      catalog.clear();
+    }
+  }
+});
+
+it("stops board videos before the shared query deadline and still lists modules", async () => {
+  vi.useFakeTimers();
+  const catalog = new NavigationCatalog();
+  const fetcher = lecturesWithBoard(
+    (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      }),
+  );
+  try {
+    const pending = listQuery(
+      origin,
+      recordingQuery,
+      fetcher,
+      Date.now(),
+      catalog,
+      undefined,
+      () => token,
+    );
+    await vi.advanceTimersByTimeAsync(18000);
+    const result = await pending;
+    if (result.status !== "success" || !("recordings" in result))
+      throw new Error("missing recordings");
+    expect(result.boardsUnavailable).toBe(true);
+    expect(result.recordings).toHaveLength(1);
+  } finally {
+    catalog.clear();
+    vi.useRealTimers();
+  }
+});
+
+it("accepts the board-unavailable flag only as true on recording results", () => {
+  const recordings = [
+    {
+      module: "1주차",
+      title: "강의",
+      type: "ExternalTool",
+      source: "module",
+      lmsHandle: crypto.randomUUID(),
+      launchHandle: "",
+    },
+  ];
+  expect(
+    parseResult(
+      { status: "success", recordings, boardsUnavailable: true },
+      recordingQuery,
+    ),
+  ).toEqual({ status: "success", recordings, boardsUnavailable: true });
+  for (const boardsUnavailable of [false, "true", 1])
+    expect(
+      parseResult(
+        { status: "success", recordings, boardsUnavailable },
+        recordingQuery,
+      ),
+    ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+  expect(
+    parseResult(
+      { status: "success", documents: [], boardsUnavailable: true },
+      query,
+    ),
+  ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+});

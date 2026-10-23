@@ -26,8 +26,11 @@ interface RecordingCollectionInput {
   readonly catalog: NavigationCatalog;
   readonly now: number;
   readonly controller: AbortController;
-  /** KU player videos embedded in LearningX board posts, listed after modules. */
-  readonly boards?: () => Promise<RecordingTarget[]>;
+  /**
+   * KU player videos embedded in LearningX board posts, listed after modules.
+   * `null` means the board source failed; module rows are still listed.
+   */
+  readonly boards?: () => Promise<RecordingTarget[] | null>;
 }
 
 export async function collectRecordings({
@@ -101,9 +104,18 @@ export async function collectRecordings({
   if (failure) throw failure.error;
   if (controller.signal.aborted) throw new Error("TIMEOUT");
   const targets = targetsByModule.flat();
+  // Board videos are all-or-nothing on their own: a board failure drops every
+  // board row and is reported, never a partial board list or a failed module list.
+  let boardsUnavailable = false;
   if (boards) {
-    targets.push(...(await boards()));
-    if (targets.length > 10000) throw new Error("LIMIT");
+    const boardTargets = await boards();
+    if (controller.signal.aborted) throw new Error("TIMEOUT");
+    if (!boardTargets || targets.length + boardTargets.length > 10000)
+      boardsUnavailable = true;
+    else targets.push(...boardTargets);
   }
-  return catalog.replace(origin, targets);
+  return {
+    recordings: catalog.replace(origin, targets),
+    boardsUnavailable,
+  };
 }

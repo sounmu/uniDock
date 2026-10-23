@@ -25,6 +25,8 @@ import {
   collectBoardRecordings,
 } from "./board-collection";
 const coursesPath = "/api/v1/courses";
+// Time kept back from board videos so module recordings can still be returned.
+const BOARD_RESERVE_MS = 2000;
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
   origin: string,
@@ -38,6 +40,7 @@ export async function listQuery(
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
+  const deadline = Date.now() + 20000;
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
@@ -200,29 +203,46 @@ export async function listQuery(
                   now,
                 })
             : undefined;
+          // Board videos are supplementary to module recordings: they get the
+          // query budget minus a reserve, and any failure drops only board rows.
           const boardRecordings = boardToken
-            ? () =>
-                collectBoardRecordings({
-                  origin,
-                  courseId,
-                  token: boardToken(),
-                  fetcher,
-                  signal: controller.signal,
-                  now,
-                })
-            : undefined;
-          return query.type === "DOCUMENTS_LIST"
-            ? {
-                status: "success",
-                documents: await collectDocuments({ ...input, boards }),
+            ? async () => {
+                const board = new AbortController();
+                const stop = () => board.abort();
+                controller.signal.addEventListener("abort", stop);
+                const boardTimer = setTimeout(
+                  stop,
+                  Math.max(0, deadline - BOARD_RESERVE_MS - Date.now()),
+                );
+                try {
+                  return await collectBoardRecordings({
+                    origin,
+                    courseId,
+                    token: boardToken(),
+                    fetcher,
+                    signal: board.signal,
+                    now,
+                  });
+                } catch {
+                  return null;
+                } finally {
+                  clearTimeout(boardTimer);
+                  controller.signal.removeEventListener("abort", stop);
+                }
               }
-            : {
-                status: "success",
-                recordings: await collectRecordings({
-                  ...input,
-                  boards: boardRecordings,
-                }),
-              };
+            : undefined;
+          if (query.type === "DOCUMENTS_LIST")
+            return {
+              status: "success",
+              documents: await collectDocuments({ ...input, boards }),
+            };
+          const { recordings, boardsUnavailable } = await collectRecordings({
+            ...input,
+            boards: boardRecordings,
+          });
+          return boardsUnavailable
+            ? { status: "success", recordings, boardsUnavailable: true }
+            : { status: "success", recordings };
         }
         const path = `/api/v1/courses/${match.id}/assignments`;
         const assignments = await collect(

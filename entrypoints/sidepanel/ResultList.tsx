@@ -36,6 +36,12 @@ export function ResultList({
           <p className="count">
             조회 완료 · {result.recordings.length}개 강의 후보
           </p>
+          {result.boardsUnavailable && (
+            <div className="notice" role="status">
+              게시판 영상을 불러오지 못해 주차학습 녹화 강의만 표시합니다. 잠시
+              후 새로고침해 보세요.
+            </div>
+          )}
           {result.recordings.length === 0 ? (
             <div className="notice">조회 가능한 녹화 강의 후보가 없습니다.</div>
           ) : (
