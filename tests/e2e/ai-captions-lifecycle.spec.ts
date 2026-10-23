@@ -7,6 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createFile, MP4BoxBuffer, type Movie } from "mp4box";
 import { aiCaptionsBuild, AI_CAPTIONS_SKIP_REASON } from "./build-shape";
+import { CAPTION_RULE_SWEEP_GRACE_MS } from "../../src/captions/referer-rule";
 
 const extensionPath = path.resolve(".output/chrome-mv3");
 const CDN_HOST = "korea-cms-object.cdn.gov-ntruss.com";
@@ -342,6 +343,42 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     expect(services.idempotencyKeys).toHaveLength(1);
     expect(services.idempotencyKeys[0]).toMatch(/^unidock-[0-9a-f]{40}$/);
     expect(services.idempotencyKeys[0]).not.toContain("0123456789abc");
+  });
+
+  test("a worker restart mid-capture keeps the rule and the job still completes", async () => {
+    // Opened before the job so it is not a tab event while the job runs.
+    const internals = await context.newPage();
+    await internals.goto("chrome://serviceworker-internals/");
+    const thread = async () =>
+      /Renderer thread ID: (\d+)/.exec(await internals.locator("body").innerText())?.[1];
+    const { panel } = await openPanelOnPlayer();
+    const panelRules = () =>
+      panel.evaluate(async () =>
+        (await chrome.declarativeNetRequest.getSessionRules()).map((rule) => rule.id),
+      );
+    const held = services.holdNextCdnResponse();
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await held.arrived;
+    const ruleIds = await panelRules();
+    expect(ruleIds).toHaveLength(1);
+
+    const before = await thread();
+    await internals.getByRole("button", { name: "Stop" }).first().click();
+    // Wake the new worker explicitly too, as any extension event would.
+    await panel.evaluate(() =>
+      chrome.runtime.sendMessage({ version: 1, type: "E2E_WAKE" }).catch(() => undefined),
+    );
+    await expect.poll(thread).not.toBe(before);
+    // The grace period is the behaviour under test: wait it out, then the rule
+    // must still be there because the panel reconnected its port.
+    await panel.waitForTimeout(CAPTION_RULE_SWEEP_GRACE_MS + 1_000);
+    expect(await panelRules()).toEqual(ruleIds);
+
+    held.release();
+    await expect(panel.getByText(/AI 생성 자막 · 1개/)).toBeVisible({ timeout: 20_000 });
+    expect(services.uploads).toHaveLength(1);
+    expect(services.cdn.every((hit) => hit.status === 206 && hit.referer)).toBe(true);
+    await expect.poll(panelRules).toEqual([]);
   });
 
   test("closing the panel mid-capture removes the rule through the background", async () => {
