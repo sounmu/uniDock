@@ -345,7 +345,8 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     expect(services.idempotencyKeys[0]).not.toContain("0123456789abc");
   });
 
-  test("a worker restart mid-capture keeps the rule and the job still completes", async () => {
+  test("more than 20 worker restarts mid-capture keep the rule and the job still completes", async () => {
+    test.setTimeout(120_000);
     // Opened before the job so it is not a tab event while the job runs.
     const internals = await context.newPage();
     await internals.goto("chrome://serviceworker-internals/");
@@ -362,6 +363,12 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     const ruleIds = await panelRules();
     expect(ruleIds).toHaveLength(1);
 
+    // The earlier fix stopped reconnecting after 20 restarts in one job.
+    for (let restart = 0; restart < 22; restart++) {
+      const previous = await thread();
+      await internals.getByRole("button", { name: "Stop" }).first().click();
+      await expect.poll(thread).not.toBe(previous);
+    }
     const before = await thread();
     await internals.getByRole("button", { name: "Stop" }).first().click();
     // Wake the new worker explicitly too, as any extension event would.
