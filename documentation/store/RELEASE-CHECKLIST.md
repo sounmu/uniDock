@@ -1,73 +1,101 @@
 # 배포 절차 및 남은 입력
 
+상태(2026-10-23): 0.3.0이 `main`에 병합됨(PR 6). Chrome Web Store에는 아직 등록·제출하지 않았으므로 첫 등록 기준으로 정리합니다. 0.2.0·0.2.1은 GitHub 릴리스로만 배포했습니다.
+
 ## 준비된 산출물
 
-- release/uniDock-0.2.1-chrome-mv3.zip: production 전용 배포 후보
+- release/uniDock-0.3.0-chrome-mv3.zip: production 전용 배포 후보 (`npm run release`로 생성, 저장소에는 포함하지 않음)
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
-- public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본
-- docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신)
-- public/icons, store/assets: 아이콘과 홍보/샘플 화면
-- LISTING.md: 등록 설명, 권한 사유, 데이터 처리 고지 초안
+- public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본 (기준일 2026-10-23, 적용 버전 0.3.0)
+- docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신, `pages:check`로 일치 확인)
+- public/icons, store/assets: 새 유리 효과 로고 아이콘과 홍보(promo.png)·샘플 화면(assignments.png, recordings.png, schedule.png)
+- LISTING.md: 등록 설명, 권한 사유, 데이터 처리 고지 초안 (0.3.0 범위 반영)
 - ../SECURITY-REVIEW.md: 범위, 수정 사항, 잔여 위험
 
 ## 재현
 
 ```sh
 npm ci
-npm run notices
 npm run release        # UNIDOCK_PLAYBACK를 설정하지 않은 셸에서 실행 (자동 재생 제외 빌드)
 npm run contract:check  # Python 3.10+ 및 읽기 전용 ../ku-lms-cli가 있을 때
 npm run store:assets   # 개발용: macOS Chrome, sips 필요. 개인 프로필 미사용
 ```
 
+`npm run release`는 `notices` 재생성 → `check`(pages 검사·lint·typecheck·테스트·빌드) → `npm audit` → `scripts/package-release.mjs`(manifest·ZIP allowlist 검사, ZIP·inventory 생성) 순서로 실행합니다.
+
 `npm run`은 `~/.npmrc` 등의 npm 설정을 `npm_config_*` 환경변수로 하위 명령에 넘깁니다. 전역 `allow-scripts` 설정이 있으면 npm 11이 하위 `npm audit`을 `EALLOWSCRIPTS`로 중단하므로, `release` 스크립트는 audit 단계에서만 `env -u npm_config_allow_scripts`로 이 변수를 제거합니다. 전역 설정은 바꾸지 않습니다.
+
+분석 토큰은 루트 `.env.local`의 `VITE_POSTHOG_KEY`를 빌드 시 읽습니다. 이 파일은 CI/다른 개발 환경에 자동 전달되지 않습니다. `npm run build`는 `.output/`만 갱신하므로 토큰을 추가·변경한 후의 배포 ZIP은 `npm run release`로 다시 생성해야 합니다. 테스트용 토큰으로 배포하지 않습니다. 아래 PostHog 운영 설정을 마치지 못하면 토큰 없이 빌드해 통계를 끈 채 배포합니다.
 
 ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행하고 해시를 갱신합니다. ZIP 루트에 manifest.json이 있어야 합니다. 소스 프로젝트 전체를 업로드하지 않습니다.
 
-## 0.1.1 업데이트 확인 (과거 배포 기록)
+## 0.3.0 manifest와 권한
 
-- [x] 자동 재생은 검토 중이므로 빌드에서 제외: `player.js`, 재생 런타임, `storage`·`alarms` 권한 없음 (`package-release.mjs`가 강제)
-- [x] 메뉴의 자동 재생은 비활성 항목과 “현재 검토 중인 기능입니다.” 안내만 표시 (합성 E2E 확인)
-- [x] 개인정보처리방침·LISTING·보안 검토에서 자동 재생·storage·alarms 설명 제거 및 `npm run pages:sync`
-- [x] 권한 변경 없음: 0.1.1 manifest 권한은 0.1.0과 동일(`sidePanel`, `activeTab`, `scripting`, `downloads`와 세 호스트)하므로 대시보드 권한 사유는 유지
-- [ ] 대시보드 설명문·단일 목적·데이터 공개가 LISTING.md와 일치하고 자동 재생을 기능으로 소개하지 않는지 확인
-- [ ] 공개 GitHub Pages의 privacy.html이 기준일 2026-09-30 버전으로 갱신됐는지 비로그인 브라우저에서 확인
-- [ ] 실제 LMS에서 할 일(전체 활성 과목), PDF 일괄 다운로드 파일명, 긴 제목 줄바꿈, 정보 닫기 후 포커스 복귀 확인
-      분석 토큰은 루트 `.env.local`의 `VITE_POSTHOG_KEY`를 빌드 시 읽습니다. 이 파일은 CI/다른 개발 환경에 자동 전달되지 않습니다. `npm run build`는 `.output/`만 갱신하므로 토큰을 추가·변경한 후의 배포 ZIP은 `npm run release`로 다시 생성해야 합니다. 2026-09-30에 생성한 토큰 미설정 ZIP과 이후 토큰 포함 로컬 빌드를 혼동하지 않습니다.
+- 기능 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage` (0.2.1과 동일). `alarms`와 `player.js`는 제외(`package-release.mjs`가 강제).
+- 상시 호스트: `mylms.korea.ac.kr`, `canvas.korea.ac.kr`, `kucom.korea.ac.kr` (0.2.1과 동일).
+- 선택 호스트(`optional_host_permissions`): `https://lms.korea.ac.kr/*`. 팝업 자동 닫기를 켤 때만 요청하고 끄거나 로컬 데이터를 삭제하면 반납합니다. 상시 권한이 아니므로 기존 설치의 업데이트에 새 권한 경고를 추가하지 않습니다.
+- 콘텐츠 스크립트 선언: `content-scripts/lms.js` 하나. `content-scripts/lms-popup.js`는 ZIP에 포함되지만 manifest에 선언하지 않고 opt-in 후 런타임 등록합니다.
+- 대시보드 권한 사유에 선택 호스트 `lms.korea.ac.kr` 줄과 `scripting`·`storage`의 팝업 관련 용도가 추가됐습니다(LISTING.md 표).
+
+## 0.3.0 확인
+
+2026-10-23 로컬 검증: `npm run check`(771 tests), 커버리지 80% 기준, production Chromium E2E 25 passed / 자동 재생 전용 8 skipped, PR 6 CI `verify` 통과. `scripts/package-release.mjs`의 manifest·ZIP allowlist 검사를 통과했고, `npm run release` 전체(notices·audit 포함)는 최종 ZIP을 만들 때 다시 실행합니다. 아래 실제 LMS·실제 Chrome 확인은 아직 하지 않았습니다. E2E는 합성 HTTPS LMS를 쓰며, 선택 권한은 headless에서 프롬프트에 응답할 수 없어 `chrome://extensions`의 developerPrivate API로 부여합니다.
+
+- [x] 업데이트 안내(`entrypoints/updates/index.html`)를 0.3.0 변경으로 갱신하고 E2E 제목 확인
+- [x] 개인정보처리방침 적용 버전 0.3.0, Pages 사본 동기화(`pages:check` 통과)
+- [x] LISTING의 0.3.0 범위, 기능 목록, 권한 사유(선택 호스트·팝업 설정 저장) 반영
+- [ ] `.output/chrome-mv3`를 압축 해제 상태로 로드한 실제 Chrome에서 팝업 자동 닫기: 기본 꺼짐, 켤 때 권한 프롬프트 허용·거절, 빠른 끄기→켜기 후 켜짐 유지, 이미 열린 포털 탭에 즉시 적용, `chrome://extensions`에서 권한 회수 시 꺼짐, 브라우저 재시작 후 등록 유지, 로컬 데이터 삭제 후 권한 반납
+- [ ] 실제 `lms.korea.ac.kr`에서 공지 팝업과 미참여 설문 안내만 닫히고 ‘로그아웃’, ‘오늘 하루 보지 않기’, 다른 컨트롤은 건드리지 않는지, ‘설문 나가기’ 이후 LMS 동작
+- [ ] 실제 과목의 게시판 영상: 녹화 강의 목록 표시, ‘영상 열기’로 KU 플레이어 탭이 열리는지, 그 탭에서 자막 감지, ‘LMS 게시판에서 보기’ 경로, 글이 많은 과목에서 20초 안에 완료되는지와 실패 시 ‘게시판 영상을 불러오지 못해…’ 안내
+- [ ] 플레이어를 LMS 밖에서 열었을 때 시청 기록 처리 차이 확인(게시판 백업 영상은 출석 항목이 아니라는 가정)
+- [ ] 실제 Planner 응답에서 일정 과제·공지·기타 구분(토론은 과제로 분류)
+- [ ] Chrome 114와 현재 안정 버전에서 위 항목 중 선택 권한·런타임 등록 경로 확인
+- [x] 샘플 화면을 실제 패널 구성요소로 다시 생성: 과제, 주차학습·게시판 녹화 강의, 일정 과제·공지 구분 (`node scripts/store-assets.mjs`)
+- [ ] 스토어 이미지(promo.png, assignments.png, recordings.png, schedule.png)와 새 아이콘이 실제 0.3.0 패널과 일치하는지 실제 Chrome에서 비교
 
 ## 제출 전 필수 (아직 완료되지 않음)
 
-2026-10-04 로컬 검증: `npm run check`(682 tests), 커버리지 80% 기준, production Chromium E2E 24 passed / 자동 재생 전용 8 skipped, analytics E2E, `npm run release`(audit 취약점 0, ZIP allowlist)를 통과했습니다. 아래의 실제 LMS·스토어 확인은 별도입니다. 업데이트 배지·버전 판정은 단위 테스트, 배지 → 패널 알림 1회 표시·소비는 실제 Chromium으로, 열린 LMS 탭 재주입은 CDP `Extensions.loadUnpacked`로 설치·재설치(업데이트) 경로를 실제 Chromium에서 검증했습니다. 스토어 업데이트 전달 자체를 재현한 것은 아닙니다.
+계정·공개 정책:
 
-- [ ] 실제 주차학습·게시판/공지에서 PDF·PPTX·PPT 첨부파일이 하나의 강의 자료 목록에 표시되는지 확인. 학교 전용 외부 도구·본문 링크·답글 첨부는 이번 Canvas 첨부 메타데이터 범위와 구분
-- [ ] `entrypoints/updates/index.html`의 변경 사항과 배포 버전 일치 확인. 실제 스토어 업데이트 후 새 탭이 열리지 않고 아이콘 `NEW` 배지와 패널 알림이 한 번 표시되는지, 열려 있던 LMS 탭이 새로고침 없이 조회되는지 확인
+- [ ] 배포자 표시명, 공개 지원 이메일/지원 URL 결정 및 스토어 계정 연락처 등록 (LISTING의 ‘미정’ 항목). 개인정보처리방침은 문의처를 스토어 등록 페이지의 지원 연락처로 안내하므로 본문 수정은 필요 없음
+- [ ] GitHub Pages를 `main`의 `/docs`로 설정하여 공개 HTTPS URL에 게시하고, 비로그인 브라우저에서 `/privacy.html`이 ‘적용 버전: 0.3.0’으로 보이는지 확인한 뒤 LISTING과 대시보드에 URL 입력 ([배포 안내](../../README.md#개인정보처리방침-github-pages-배포))
+- [ ] Chrome Web Store 개발자 등록 및 계정 보안/2단계 인증 요구 충족. 비용 지급·계정 설정은 배포자 수행
+
+PostHog 사용 통계 (공개 정책의 약속과 일치해야 함):
+
 - [x] 2026-10-04 운영 토큰의 합성 SDK `/batch/` 요청 HTTP 200 확인 (`scripts/verify-analytics-live.mjs`)
-
-- [x] 로컬 `.env.local` 공개 수집 토큰 설정 및 production 빌드 반영 확인 (2026-10-01 문서 점검에 반영, 토큰 값 미기록)
 - [x] 실제 PostHog 이벤트 도착 확인 (사용자 확인). 보관 설정·전체 속성·그래프 검증을 뜻하지 않음
 - [ ] 최종 배포 ZIP을 해당 EU 프로젝트 토큰으로 재생성하고 재로드하여 수신 확인. 개인 API 키는 확장에 포함하지 않음
 - [ ] PostHog의 IP 폐기와 GeoIP/자동 기능 비활성 확인, 원시 이벤트 최대 90일 보관·삭제 정책 설정 및 검증. 해당 기능을 제공하지 않는 플랜이면 서버측 만료 삭제 운영을 마련하기 전 수집을 활성화하지 않음
 - [ ] 지원 연락처를 통한 설치 ID별 원격 이벤트 삭제 절차 확인. 로컬 삭제와 원격 삭제의 차이를 고지
-- [ ] 동의 전 네트워크/분석 ID 없음, 거절 후 기능 이용, 동의 후 고정 이벤트, 철회/재시작/모든 데이터 삭제 후 중단 확인
-- [ ] 실제 PostHog 프로젝트에서 가상 데이터로 속성·DAU/WAU/MAU·리텐션 대시보드 확인. [설정 안내](../ANALYTICS.md#대시보드-구성). 테스트용 토큰으로 배포하지 않음
-- [ ] 새 개인정보 처리방침 게시, 스토어 User activity·식별자·제3자 처리 고지 갱신. 기존 설치도 재동의 없이 수집하지 않는지 확인
+- [ ] 동의 전 네트워크/분석 ID 없음, 거절 후 기능 이용, 동의 후 고정 이벤트(0.3.0에서 `filter_kind` 추가), 철회/재시작/모든 데이터 삭제 후 중단 확인
+- [ ] 실제 PostHog 프로젝트에서 가상 데이터로 속성·DAU/WAU/MAU·리텐션 대시보드 확인. [설정 안내](../ANALYTICS.md#대시보드-구성)
 
-- [ ] 배포자 표시명, 공개 지원 이메일/지원 URL 결정 및 스토어 계정 연락처 등록
-- [ ] `public/privacy.html`에 배포자 연락처를 넣고 `npm run pages:sync` 실행. GitHub Pages를 `main`의 `/docs`로 설정하여 공개 HTTPS URL에 게시하고 비로그인 브라우저에서 접근 확인 ([배포 안내](../../README.md#개인정보처리방침-github-pages-배포))
-- [ ] Chrome Web Store 개발자 등록 및 계정 보안/2단계 인증 요구 충족. 비용 지급·계정 설정은 배포자 수행
-- [ ] 실제 LMS의 로그인 전/후, 403·세션 만료, 과제·일정·강의 여러 페이지, 안전한 탭 열기를 확인
+실제 LMS·브라우저 (이전 버전부터 남은 항목):
+
+- [ ] 실제 LMS의 로그인 전/후, 403·세션 만료, 과제·일정·강의 여러 페이지, 안전한 탭 열기 확인
+- [ ] 실제 주차학습·게시판/공지에서 PDF·PPTX·PPT 첨부파일이 하나의 강의 자료 목록에 표시되는지 확인. 학교 전용 외부 도구·본문 링크·답글 첨부는 Canvas 첨부 메타데이터 범위와 구분
 - [ ] 실제 LTI 자막/다운로드·권한 미승인·자막 없음·cross-origin iframe·파일 내용 검증
 - [ ] Chrome 114와 현재 안정 버전의 Side Panel, activeTab, MAIN/documentIds, 다운로드 동작 확인
-- [ ] 최종 스토어 이미지와 실제 UI 일치 확인. 실사용 화면은 반드시 가상 데이터 또는 완전히 비식별화한 자료로 제작
 - [ ] 기관/강의 자료 이용 조건과 자막 저장 권한 확인. 대학 공식 제품으로 오인시키는 이름·로고·설명 사용 금지
+
+대시보드 입력:
+
+- [ ] LISTING의 짧은 설명·상세 설명·단일 목적·권한 사유·데이터 공개 항목을 그대로 입력하고 자동 재생을 기능으로 소개하지 않는지 확인
 - [ ] 배포자가 LISTING의 데이터 항목·Limited Use 선언·국가/배포 대상·지원 연락처를 확인
 - [ ] 아래 심사용 로그인 제한 설명을 제출하고, 심사에서 요구하는 접근 수단을 확보
+
+## 승인 후
+
+- [ ] 스토어 설치본에서 정보 화면 버전 0.3.0, 개인정보처리방침 링크, 기본 꺼짐 상태 확인
+- [ ] 첫 등록이므로 설치 사용자에게 `NEW` 배지·업데이트 안내가 뜨지 않는 것이 정상. 다음 버전부터 스토어 업데이트 후 새 탭 없이 배지와 패널 알림이 한 번 표시되고 열린 LMS 탭이 새로고침 없이 조회되는지 확인
+- [ ] GitHub 릴리스 `v0.3.0`에 같은 ZIP과 `inventory.json`을 첨부하고 해시가 스토어 업로드본과 같은지 확인
 
 ## 심사자 안내 초안
 
 이 제품은 로그인된 고려대 LMS 세션을 사용합니다. 개발자에게 비밀번호를 보내거나 확장에 자격 증명을 입력하지 않습니다. 회원 가입은 대학의 권한 관리에 따르므로 공개 테스트 계정이 현재 없습니다. 실제 LMS 접근 없이는 핵심 조회 기능을 완전히 검증할 수 없습니다. 배포 전 기관 정책에 맞는 심사용 접근 방법 또는 심사팀과 합의한 검증 자료가 필요합니다. 대학 사용자 비밀번호·쿠키를 ZIP/설명/영상에 넣지 않습니다.
 
-오프라인 샘플 이미지는 실제 ResultList와 공개 fixture로 만든 것이며 production에 숨겨진 심사 전용 동작이나 원격 데모 모드는 없습니다. 자막은 사용자가 직접 연 플레이어에서 감지하며 자동 재생·출석 처리는 하지 않습니다. 메뉴의 “자동 재생”은 검토 중인 기능 안내용 비활성 항목이며, 해당 코드는 이 패키지에 포함되어 있지 않습니다.
+오프라인 샘플 이미지는 실제 사이드 패널 구성요소와 가상 데이터로 만든 것이며 production에 숨겨진 심사 전용 동작이나 원격 데모 모드는 없습니다. 자막은 사용자가 직접 연 플레이어에서 감지하며 자동 재생·출석 처리는 하지 않습니다. 메뉴의 “자동 재생”은 검토 중인 기능 안내용 비활성 항목이며, 해당 코드는 이 패키지에 포함되어 있지 않습니다.
 
 ## 실제 제출 (이 작업에서는 수행하지 않음)
 

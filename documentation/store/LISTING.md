@@ -36,8 +36,8 @@ LMS에서 평소처럼 로그인하고 탭을 선택한 뒤 uniDock에서 조회
 
 - 확장 아이콘: public/icons/128.png (128×128 PNG, 자체 디자인)
 - 소형 홍보 이미지: store/assets/promo.png (440×280)
-- 샘플 화면: store/assets/assignments.png, recordings.png (1280×800)
-- 화면은 실제 ResultList 컴포넌트에 공개 가상 fixture를 넣어 제작한 설명용 샘플이며 실계정 캡처가 아닙니다. 이미지 자체에도 샘플이라고 표시합니다. 실제 Chrome Side Panel 동작을 보여주는 민감정보 없는 최종 캡처와 비교한 후 제출하세요.
+- 샘플 화면: store/assets/assignments.png(과제), recordings.png(주차학습·게시판 녹화 강의), schedule.png(일정 과제·공지 구분) (1280×800)
+- 화면은 실제 사이드 패널 구성요소(상단 메뉴, 과목·할 일 화면, 결과 목록)와 스타일에 가상 데이터를 넣어 제작한 설명용 샘플이며 실계정 캡처가 아닙니다. 이미지 자체에도 샘플이라고 표시합니다. 실제 Chrome Side Panel 동작을 보여주는 민감정보 없는 최종 캡처와 비교한 후 제출하세요.
 
 ## 단일 목적
 
