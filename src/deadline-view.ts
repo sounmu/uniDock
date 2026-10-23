@@ -66,11 +66,14 @@ export function remainingLabel(due: string, now: number): string {
 
 // Planner rows mix announcements with graded work. The panel groups them by
 // what the student has to do, keeping the raw Canvas type for the detail view.
+// The Planner lists a discussion only when it is graded (has a due date) or
+// the instructor put it on the student to-do list, so it counts as a task.
 export type ScheduleKind = "task" | "notice" | "other";
 export function scheduleKind(type: string): ScheduleKind {
   switch (type) {
     case "assignment":
     case "quiz":
+    case "discussion_topic":
       return "task";
     case "announcement":
       return "notice";

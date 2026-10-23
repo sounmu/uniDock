@@ -85,14 +85,10 @@ it("orders schedule rows newest first and keeps undated rows last", () => {
 it("groups planner rows into tasks, notices and other, keeping Korean type labels", () => {
   expect(scheduleKind("assignment")).toBe("task");
   expect(scheduleKind("quiz")).toBe("task");
+  // The Planner lists discussions only when graded or put on the to-do list.
+  expect(scheduleKind("discussion_topic")).toBe("task");
   expect(scheduleKind("announcement")).toBe("notice");
-  for (const type of [
-    "discussion_topic",
-    "calendar_event",
-    "wiki_page",
-    "",
-    "x",
-  ])
+  for (const type of ["calendar_event", "wiki_page", "", "x"])
     expect(scheduleKind(type)).toBe("other");
   expect(
     [

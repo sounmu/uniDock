@@ -266,7 +266,12 @@ export function ItemResults({
                 ["other", scheduleKindLabels.other, kindCounts.other],
               ] as const
             )
-              .filter(([value, , count]) => value !== "other" || count > 0)
+              // "기타" appears only when used, but stays while selected so a
+              // later result without such rows never hides the active filter.
+              .filter(
+                ([value, , count]) =>
+                  value !== "other" || count > 0 || kind === "other",
+              )
               .map(([value, label, count]) => (
                 <button
                   key={value}
