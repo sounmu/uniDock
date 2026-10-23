@@ -26,11 +26,13 @@ export default defineConfig({
       ...(playback ? ["alarms"] : []),
     ],
     host_permissions: [
-      "https://lms.korea.ac.kr/*",
       "https://mylms.korea.ac.kr/*",
       "https://canvas.korea.ac.kr/*",
       "https://kucom.korea.ac.kr/*",
     ],
+    // Requested only when the user turns on popup auto-close, so adding the
+    // portal never re-prompts existing installs on update.
+    optional_host_permissions: ["https://lms.korea.ac.kr/*"],
     icons: {
       16: "icons/16.png",
       32: "icons/32.png",

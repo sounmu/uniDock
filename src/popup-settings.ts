@@ -2,6 +2,16 @@ export const popupAutoCloseKey = "unidock.popup-auto-close.v1";
 /** The only origin where the popup content script runs. */
 export const POPUP_ORIGIN = "https://lms.korea.ac.kr";
 export const POPUP_MATCHES = [`${POPUP_ORIGIN}/*`];
+/**
+ * Optional host grant requested only when the user turns the feature on.
+ * It is never an install-time permission, so updates do not re-prompt.
+ */
+export const POPUP_PERMISSION = { origins: POPUP_MATCHES };
+/** Runtime-registered content script; absent from the manifest. */
+export const POPUP_SCRIPT = {
+  id: "unidock-lms-popup",
+  file: "content-scripts/lms-popup.js",
+} as const;
 
 /**
  * Closed messages between the popup content script and the service worker.
@@ -88,22 +98,23 @@ export async function readPopupAutoClose(): Promise<PopupAutoCloseState> {
   };
 }
 
-/**
- * Worker side: tell top-level portal documents to reread. Uses the existing
- * `lms.korea.ac.kr` host permission for the URL filter, not broad `tabs`.
- */
-export async function notifyPopupAutoCloseTabs(): Promise<void> {
-  let tabs: chrome.tabs.Tab[];
+// Portal tabs, found through the optional `lms.korea.ac.kr` grant for the URL
+// filter, not broad `tabs`. Without the grant no tab matches.
+async function popupTabs(): Promise<number[]> {
   try {
-    tabs = await chrome.tabs.query({ url: POPUP_MATCHES });
+    const tabs = await chrome.tabs.query({ url: POPUP_MATCHES });
+    return tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id]));
   } catch {
-    return;
+    return [];
   }
+}
+
+/** Worker side: tell top-level portal documents to reread. */
+export async function notifyPopupAutoCloseTabs(): Promise<void> {
   await Promise.all(
-    tabs.map(async (tab) => {
-      if (tab.id === undefined) return;
+    (await popupTabs()).map(async (tabId) => {
       try {
-        await chrome.tabs.sendMessage(tab.id, popupAutoCloseChanged, {
+        await chrome.tabs.sendMessage(tabId, popupAutoCloseChanged, {
           frameId: 0,
         });
       } catch {
@@ -111,6 +122,80 @@ export async function notifyPopupAutoCloseTabs(): Promise<void> {
       }
     }),
   );
+}
+
+async function popupGranted(): Promise<boolean> {
+  try {
+    return await chrome.permissions.contains(POPUP_PERMISSION);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Worker side: the portal script is registered only while both the opt-in
+ * boolean and the optional grant hold. An opt-in left without its grant (for
+ * example revoked in chrome://extensions) is reset to off. Returns whether the
+ * feature is active. Never removes the grant: the panel requests it before it
+ * saves the opt-in, so a sync in between must not undo the request.
+ */
+export async function syncPopupAutoClose(): Promise<boolean> {
+  const [{ enabled }, granted] = await Promise.all([
+    readPopupAutoClose(),
+    popupGranted(),
+  ]);
+  const active = enabled && granted;
+  const registered =
+    (
+      await chrome.scripting.getRegisteredContentScripts({
+        ids: [POPUP_SCRIPT.id],
+      })
+    ).length > 0;
+  if (active && !registered)
+    await chrome.scripting.registerContentScripts([
+      {
+        id: POPUP_SCRIPT.id,
+        matches: POPUP_MATCHES,
+        js: [POPUP_SCRIPT.file],
+        runAt: "document_idle",
+        allFrames: false,
+        persistAcrossSessions: true,
+      },
+    ]);
+  else if (!active && registered)
+    await chrome.scripting.unregisterContentScripts({ ids: [POPUP_SCRIPT.id] });
+  if (enabled && !granted) await chrome.storage.local.remove(popupAutoCloseKey);
+  return active;
+}
+
+/**
+ * Worker side, after the opt-in changed (set, cleared or deleted). Open portal
+ * pages reread first, while the grant still finds them. Turning on also
+ * injects the script into portal tabs opened before the grant; a reinjected
+ * script supersedes an older instance in the same document. Turning off
+ * returns the optional grant.
+ */
+export async function applyPopupAutoCloseChange(): Promise<void> {
+  const active = await syncPopupAutoClose();
+  await notifyPopupAutoCloseTabs();
+  if (active) {
+    await Promise.all(
+      (await popupTabs()).map((tabId) =>
+        chrome.scripting
+          .executeScript({
+            target: { tabId, frameIds: [0] },
+            files: [POPUP_SCRIPT.file],
+          })
+          .catch(() => {}),
+      ),
+    );
+    return;
+  }
+  try {
+    await chrome.permissions.remove(POPUP_PERMISSION);
+  } catch {
+    // Already removed; nothing is registered without the opt-in.
+  }
 }
 
 /**

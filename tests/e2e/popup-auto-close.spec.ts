@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
 
-test("popup opt-in closes only notices, handles later additions, and resets on delete", async ({
+test("popup opt-in needs the optional portal grant, closes only notices, and resets on delete", async ({
   playwright,
 }, testInfo) => {
   const profile = await mkdtemp(path.join(tmpdir(), "unidock-popup-"));
@@ -80,12 +80,43 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
           </script></body></html>`,
       }),
     );
+    const extensionId = new URL(worker.url()).host;
+    const portal = { origins: ["https://lms.korea.ac.kr/*"] };
+    const state = () =>
+      worker.evaluate(
+        async (origins) => ({
+          granted: await chrome.permissions.contains(origins),
+          registered: (await chrome.scripting.getRegisteredContentScripts())
+            .map(({ id }) => id)
+            .sort(),
+        }),
+        portal,
+      );
+    // The portal is an optional grant; headless Chrome cannot answer the
+    // prompt, so the test grants it the way chrome://extensions does. The
+    // panel's request then resolves without a prompt.
+    const grantPortal = async () => {
+      const settings = await context!.newPage();
+      await settings.goto(`chrome://extensions/?id=${extensionId}`);
+      await settings.evaluate(
+        (id) =>
+          (
+            chrome as unknown as {
+              developerPrivate: {
+                addHostPermission(id: string, host: string): Promise<void>;
+              };
+            }
+          ).developerPrivate.addHostPermission(id, "https://lms.korea.ac.kr/*"),
+        extensionId,
+      );
+      await settings.close();
+    };
+    expect(await state()).toEqual({ granted: false, registered: [] });
+    // Opened before the opt-in: nothing runs here until the grant.
     const lms = await context.newPage();
     await lms.goto("https://lms.korea.ac.kr/popup-fixture");
     const panel = await context.newPage();
-    await panel.goto(
-      `chrome-extension://${new URL(worker.url()).host}/sidepanel.html`,
-    );
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await panel.getByRole("button", { name: "정보", exact: true }).click();
     const select = panel.getByRole("switch", {
       name: "팝업 자동 닫기",
@@ -101,8 +132,10 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
     const surveyExited = lms.waitForEvent("console", {
       predicate: (message) => message.text() === "SURVEY_EXITED",
     });
+    await grantPortal();
     await select.click();
     await expect(select).toHaveAttribute("aria-checked", "true");
+    // The already-open portal tab gets the script without a reload.
     await firstClosed;
     await surveyExited;
     await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(0);
@@ -142,18 +175,30 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
         });
       }
     }
+    expect(await state()).toEqual({
+      granted: true,
+      registered: ["unidock-lms-popup"],
+    });
     await select.click();
     await expect(select).toHaveAttribute("aria-checked", "false");
-    // A fresh document reads the saved OFF value; no timing assumption about cross-context events.
+    // Turning off unregisters the script and returns the optional grant.
+    await expect.poll(state).toEqual({ granted: false, registered: [] });
     await lms.reload();
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
     await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(1);
     const resumed = lms.waitForEvent("console", {
       predicate: (message) => message.text() === "NOTICE_CLOSED",
     });
+    await grantPortal();
     await select.click();
     await expect(select).toHaveAttribute("aria-checked", "true");
     await resumed;
+    // A fresh document gets the registered script on its own.
+    const reloaded = lms.waitForEvent("console", {
+      predicate: (message) => message.text() === "NOTICE_CLOSED",
+    });
+    await lms.reload();
+    await reloaded;
     await panel
       .getByRole("button", { name: "로컬 데이터 모두 삭제", exact: true })
       .click();
@@ -164,6 +209,7 @@ test("popup opt-in closes only notices, handles later additions, and resets on d
         chrome.storage.local.get("unidock.popup-auto-close.v1"),
       ),
     ).toEqual({});
+    await expect.poll(state).toEqual({ granted: false, registered: [] });
     await lms.reload();
     await expect(lms.locator(".xnp-item-wrapper")).toHaveCount(1);
     await expect(lms.locator("#xn-lms-term-survey-list")).toHaveCount(1);

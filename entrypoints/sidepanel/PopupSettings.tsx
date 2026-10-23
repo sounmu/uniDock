@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  POPUP_PERMISSION,
   popupAutoCloseKey,
   watchPopupAutoClose,
 } from "../../src/popup-settings";
@@ -8,24 +9,31 @@ export function PopupSettings() {
   const [enabled, setEnabled] = useState(false);
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"storage" | "denied" | null>(null);
   useEffect(() => {
     return watchPopupAutoClose(
       (value) => {
         setEnabled(value);
         setReady(true);
-        setError(false);
+        setError(null);
       },
-      () => setError(true),
+      () => setError("storage"),
     );
   }, []);
   async function change(value: boolean) {
     setPending(true);
-    setError(false);
+    setError(null);
     try {
+      // The portal grant is optional and asked for here, inside the click:
+      // Chrome shows the prompt only for a user gesture. Turning off returns
+      // the grant from the service worker.
+      if (value && !(await chrome.permissions.request(POPUP_PERMISSION))) {
+        setError("denied");
+        return;
+      }
       await chrome.storage.local.set({ [popupAutoCloseKey]: value });
     } catch {
-      setError(true);
+      setError("storage");
     } finally {
       setPending(false);
     }
@@ -49,7 +57,8 @@ export function PopupSettings() {
             <p id="popup-description" className="row-sub">
               LMS의 공지 팝업과 미참여 설문 안내를 자동으로 닫습니다. ‘오늘 하루
               보지 않기’는 선택하지 않고, 설문에는 참여하지 않으며 ‘설문
-              나가기’만 누릅니다.
+              나가기’만 누릅니다. 켤 때 Chrome이 lms.korea.ac.kr 접근 허용을
+              묻고, 끄면 그 권한을 반납합니다.
             </p>
           </div>
           <button
@@ -85,7 +94,9 @@ export function PopupSettings() {
         </div>
         {error && (
           <p className="settings-row row-error" role="alert">
-            설정을 읽거나 저장하지 못했습니다. 정보 화면을 다시 열어주세요.
+            {error === "denied"
+              ? "lms.korea.ac.kr 접근을 허용해야 켤 수 있습니다."
+              : "설정을 읽거나 저장하지 못했습니다. 정보 화면을 다시 열어주세요."}
           </p>
         )}
       </div>

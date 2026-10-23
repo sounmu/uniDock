@@ -11,6 +11,7 @@ const listeners = new Set<
 >();
 const get = vi.fn();
 const set = vi.fn();
+const request = vi.fn();
 function toggle(): HTMLButtonElement {
   const button = ui.host.querySelector<HTMLButtonElement>('[role="switch"]');
   if (!button) throw new Error("Missing switch");
@@ -22,10 +23,12 @@ function emit(value: unknown) {
 }
 beforeEach(() => {
   get.mockResolvedValue({});
+  request.mockResolvedValue(true);
   set.mockImplementation(async (values: Record<string, unknown>) => {
     emit(values[popupAutoCloseKey]);
   });
   vi.stubGlobal("chrome", {
+    permissions: { request },
     storage: {
       local: { get, set },
       onChanged: {
@@ -52,10 +55,15 @@ it("starts off without persisting a default and saves an explicit opt-in", async
   expect(ui.host.textContent).toContain("LMS 팝업");
   expect(set).not.toHaveBeenCalled();
   await act(async () => button.click());
+  expect(request).toHaveBeenCalledWith({
+    origins: ["https://lms.korea.ac.kr/*"],
+  });
   expect(set).toHaveBeenCalledWith({ [popupAutoCloseKey]: true });
   expect(button.getAttribute("aria-checked")).toBe("true");
   expect(button.querySelector(".switch-check")).not.toBeNull();
   await act(async () => button.click());
+  // Turning off needs no prompt; the worker returns the grant.
+  expect(request).toHaveBeenCalledTimes(1);
   expect(set).toHaveBeenLastCalledWith({ [popupAutoCloseKey]: false });
   expect(button.getAttribute("aria-checked")).toBe("false");
 });
@@ -84,5 +92,17 @@ it("reports failed saves without claiming the setting changed", async () => {
   await act(async () => button.click());
   expect(ui.host.querySelector('[role="alert"]')).not.toBeNull();
   expect(button.getAttribute("aria-checked")).toBe("false");
+  expect(button.getAttribute("aria-disabled")).toBe("false");
+});
+it("stays off without saving when the portal grant is declined", async () => {
+  request.mockResolvedValue(false);
+  ui = await mount(<PopupSettings />);
+  const button = toggle();
+  await act(async () => button.click());
+  expect(set).not.toHaveBeenCalled();
+  expect(button.getAttribute("aria-checked")).toBe("false");
+  expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain(
+    "lms.korea.ac.kr 접근을 허용해야",
+  );
   expect(button.getAttribute("aria-disabled")).toBe("false");
 });

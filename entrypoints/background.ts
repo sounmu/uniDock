@@ -33,11 +33,12 @@ import {
 } from "../src/update-notice";
 import { isAnalyticsCommand } from "../src/analytics/contract";
 import {
+  applyPopupAutoCloseChange,
   isPopupAutoCloseGet,
-  notifyPopupAutoCloseTabs,
   popupAutoCloseKey,
   popupPageSender,
   readPopupAutoClose,
+  syncPopupAutoClose,
 } from "../src/popup-settings";
 
 async function boundedMessage(
@@ -473,12 +474,26 @@ export default defineBackground(() => {
     __UNIDOCK_PLAYBACK__ && chrome.storage?.local && chrome.alarms?.onAlarm
       ? createChromePlaybackRuntime()
       : null;
-  // The panel writes the popup opt-in directly; this trusted listener tells
-  // open portal pages to reread it, including after local-data deletion.
+  // The panel requests the optional portal grant and writes the opt-in; this
+  // trusted side registers the portal script only while both hold, tells open
+  // portal pages to reread (including after local-data deletion) and returns
+  // the grant when the opt-in ends. Tasks run in order so quick toggles settle.
+  let popupSync: Promise<void> = Promise.resolve();
+  const popupTask = (task: () => Promise<unknown>) => {
+    popupSync = popupSync.then(task).then(
+      () => {},
+      () => {},
+    );
+  };
+  if (typeof chrome.scripting?.getRegisteredContentScripts === "function")
+    popupTask(syncPopupAutoClose);
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area === "local" && popupAutoCloseKey in changes)
-      void notifyPopupAutoCloseTabs();
+      popupTask(applyPopupAutoCloseChange);
   });
+  chrome.permissions?.onRemoved?.addListener(() =>
+    popupTask(syncPopupAutoClose),
+  );
   const notifyPlayback = () => {
     try {
       void chrome.runtime
