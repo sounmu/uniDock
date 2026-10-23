@@ -261,7 +261,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
 - [개인정보처리방침](public/privacy.html): 확장 내에서도 열 수 있으며 출시 전 공개 HTTPS 주소에 게시해야 합니다.
-- `store/assets/`: 공개 fixture 기반 샘플 이미지 2개(1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 재생성하며 로컬 Chrome이 필요합니다.
+- `store/assets/`: 공개 fixture 기반 샘플 이미지 2개(1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 재생성하며 로컬 Chrome이 필요합니다. 앱 아이콘과 홍보 이미지는 편집 가능한 `store/assets/logo-concepts/unidock-glass.svg`를 공통 원본으로 사용합니다. 작은 홍보 이미지는 아이보리 배경에 은은한 로즈빛을 더하고 중앙에 로고를 배치합니다.
 
 2026-09-11 배포 후보 검증: 전체 검사 통과, Python 계약 2종 일치, npm audit 알려진 취약점 0개, ZIP 허용 파일 12개 확인. 실제 계정 로그인·Chrome 114 및 최신 Chrome 통합 검증은 미실시입니다. 배포자 이름·지원 연락처·공개 정책 URL과 심사용 접근 방법을 확정한 후 체크리스트를 완료해야 합니다.
 
