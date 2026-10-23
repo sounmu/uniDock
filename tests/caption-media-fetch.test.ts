@@ -77,3 +77,29 @@ it("rejects a body longer or shorter than the requested range", async () => {
     });
   }
 });
+
+it("rejects a 200 even when its Content-Range and length match the request", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      respond(200, new Uint8Array(3), { "content-range": "bytes 10-12/1000" }),
+    ),
+  );
+  const reader = mediaRangeReader(url, new AbortController().signal);
+  await expect(reader.fetchRange(10, 12)).rejects.toMatchObject({
+    code: "UNSUPPORTED_MEDIA",
+  });
+});
+
+it("rejects a 206 whose range starts elsewhere but ends where requested", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      respond(206, new Uint8Array(3), { "content-range": "bytes 9-12/1000" }),
+    ),
+  );
+  const reader = mediaRangeReader(url, new AbortController().signal);
+  await expect(reader.fetchRange(10, 12)).rejects.toMatchObject({
+    code: "UNSUPPORTED_MEDIA",
+  });
+});

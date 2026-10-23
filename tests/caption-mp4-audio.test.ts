@@ -91,3 +91,11 @@ it("rejects sample tables whose counts overrun their boxes", () => {
   const moov = box("moov", track("soun", 1, box("stbl", concat(stsz, stsc, stco))));
   expect(() => audioLayout(moov)).toThrow("BAD_MP4");
 });
+
+it("rejects an stsz table that lists more samples than it holds", () => {
+  const stsz = box("stsz", concat(u32(0), u32(0), u32(3), u32(100)));
+  const stsc = box("stsc", concat(u32(0), u32(1), u32(1), u32(3), u32(1)));
+  const stco = box("stco", concat(u32(0), u32(1), u32(2_000_000)));
+  const moov = box("moov", track("soun", 1, box("stbl", concat(stsz, stsc, stco))));
+  expect(() => audioLayout(moov)).toThrow("BAD_MP4");
+});
