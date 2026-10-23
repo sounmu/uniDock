@@ -56,7 +56,7 @@ function model(fields: {
   } as unknown as PanelModel;
 }
 
-const course = "자료구조 (가상 과목)";
+const course = "자료구조";
 const assignment = (
   title: string,
   dueDays: number,
