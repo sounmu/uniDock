@@ -7,6 +7,7 @@ import console from "node:console";
 await build({
   configFile: false,
   logLevel: "error",
+  define: { __UNIDOCK_PLAYBACK__: "false" },
   build: {
     ssr: "scripts/store-render.tsx",
     outDir: ".store-build",
@@ -19,7 +20,7 @@ if (!fs.existsSync(chrome))
   throw new Error(
     "Set a local Chrome executable in this developer-only script.",
   );
-for (const kind of ["assignments", "recordings", "promo"]) {
+for (const kind of ["assignments", "recordings", "schedule", "promo"]) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "unidock-store-"));
   try {
     const run = spawnSync(

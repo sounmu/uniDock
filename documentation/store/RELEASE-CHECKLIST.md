@@ -8,7 +8,7 @@
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
 - public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본 (기준일 2026-10-23, 적용 버전 0.3.0)
 - docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신, `pages:check`로 일치 확인)
-- public/icons, store/assets: 새 유리 효과 로고 아이콘과 홍보(promo.png)·샘플 화면(assignments.png, recordings.png)
+- public/icons, store/assets: 새 유리 효과 로고 아이콘과 홍보(promo.png)·샘플 화면(assignments.png, recordings.png, schedule.png)
 - LISTING.md: 등록 설명, 권한 사유, 데이터 처리 고지 초안 (0.3.0 범위 반영)
 - ../SECURITY-REVIEW.md: 범위, 수정 사항, 잔여 위험
 
@@ -50,7 +50,8 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 - [ ] 플레이어를 LMS 밖에서 열었을 때 시청 기록 처리 차이 확인(게시판 백업 영상은 출석 항목이 아니라는 가정)
 - [ ] 실제 Planner 응답에서 일정 과제·공지·기타 구분(토론은 과제로 분류)
 - [ ] Chrome 114와 현재 안정 버전에서 위 항목 중 선택 권한·런타임 등록 경로 확인
-- [ ] 스토어 이미지(promo.png, assignments.png, recordings.png)와 새 아이콘이 실제 0.3.0 UI와 일치하는지 확인
+- [x] 샘플 화면을 실제 패널 구성요소로 다시 생성: 과제, 주차학습·게시판 녹화 강의, 일정 과제·공지 구분 (`node scripts/store-assets.mjs`)
+- [ ] 스토어 이미지(promo.png, assignments.png, recordings.png, schedule.png)와 새 아이콘이 실제 0.3.0 패널과 일치하는지 실제 Chrome에서 비교
 
 ## 제출 전 필수 (아직 완료되지 않음)
 
@@ -94,7 +95,7 @@ PostHog 사용 통계 (공개 정책의 약속과 일치해야 함):
 
 이 제품은 로그인된 고려대 LMS 세션을 사용합니다. 개발자에게 비밀번호를 보내거나 확장에 자격 증명을 입력하지 않습니다. 회원 가입은 대학의 권한 관리에 따르므로 공개 테스트 계정이 현재 없습니다. 실제 LMS 접근 없이는 핵심 조회 기능을 완전히 검증할 수 없습니다. 배포 전 기관 정책에 맞는 심사용 접근 방법 또는 심사팀과 합의한 검증 자료가 필요합니다. 대학 사용자 비밀번호·쿠키를 ZIP/설명/영상에 넣지 않습니다.
 
-오프라인 샘플 이미지는 실제 ResultList와 공개 fixture로 만든 것이며 production에 숨겨진 심사 전용 동작이나 원격 데모 모드는 없습니다. 자막은 사용자가 직접 연 플레이어에서 감지하며 자동 재생·출석 처리는 하지 않습니다. 메뉴의 “자동 재생”은 검토 중인 기능 안내용 비활성 항목이며, 해당 코드는 이 패키지에 포함되어 있지 않습니다.
+오프라인 샘플 이미지는 실제 사이드 패널 구성요소와 가상 데이터로 만든 것이며 production에 숨겨진 심사 전용 동작이나 원격 데모 모드는 없습니다. 자막은 사용자가 직접 연 플레이어에서 감지하며 자동 재생·출석 처리는 하지 않습니다. 메뉴의 “자동 재생”은 검토 중인 기능 안내용 비활성 항목이며, 해당 코드는 이 패키지에 포함되어 있지 않습니다.
 
 ## 실제 제출 (이 작업에서는 수행하지 않음)
 
