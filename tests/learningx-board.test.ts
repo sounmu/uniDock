@@ -274,3 +274,354 @@ it("rejects unbounded or malformed board pagination", async () => {
     ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
   }
 });
+
+const recordingQuery = {
+  version: 1,
+  type: "RECORDINGS_LIST",
+  course: "Course",
+} as const;
+const player = (id: string) => `https://kucom.korea.ac.kr/em/${id}`;
+
+it("lists KU player videos embedded in board posts after module recordings", async () => {
+  const catalog = new NavigationCatalog();
+  const now = Date.parse("2026-10-21T00:00:00Z");
+  const detailReads: string[] = [];
+  const fetcher = lms((url, init) => {
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      `Bearer ${token}`,
+    );
+    if (url.pathname === root)
+      return Response.json([
+        { id: 7, type: "qna", title: "Q&A 게시판" },
+        { id: 8, type: "normal", title: "강의자료실" },
+      ]);
+    if (url.pathname === `${root}/7/posts`)
+      return Response.json({
+        items: [{ id: 30, title: "질문", content: "<p>질문</p>" }],
+        pagination: { last_page: 1 },
+      });
+    if (url.pathname === `${root}/8/posts`) {
+      const page = url.searchParams.get("page");
+      return Response.json({
+        items:
+          page === "1"
+            ? [
+                {
+                  id: 21,
+                  title: "10월 13일 수업 백업본",
+                  attachment_count: 0,
+                  content: `<p></p><iframe src="${player("6ace04083ab26")}?autostart=0" allowfullscreen></iframe>`,
+                },
+                {
+                  id: 22,
+                  title: "중간고사 기출",
+                  attachment_count: 2,
+                  content: "<p>첨부 참고</p>",
+                },
+                {
+                  id: 23,
+                  title: "예약 게시",
+                  attachment_count: 0,
+                  reserved_at: "2026-12-01T00:00:00Z",
+                  content: `<iframe src="${player("6ac796651ce34")}"></iframe>`,
+                },
+              ]
+            : [
+                {
+                  id: 24,
+                  title: "보강 2회차",
+                  attachment_count: 0,
+                  content: `<iframe src="${player("6ac4c2d17bd33")}"></iframe><iframe src="${player("6abb8b893e5b0")}"></iframe>`,
+                },
+              ],
+        pagination: { current_page: Number(page), last_page: 2 },
+      });
+    }
+    if (/^\/learningx\/.*\/posts\/\d+$/.test(url.pathname)) {
+      detailReads.push(url.pathname);
+      return Response.json({
+        id: 21,
+        title: "10월 13일 수업 백업본",
+        post_url: `${origin}/learningx/redirect/courses/1/external_tools/5?post_id=21&target=x`,
+        content: `<iframe src="${player("6ace04083ab26")}"></iframe>`,
+        attachments: [],
+      });
+    }
+    return undefined;
+  });
+  try {
+    const result = await listQuery(
+      origin,
+      recordingQuery,
+      fetcher,
+      now,
+      catalog,
+      undefined,
+      () => token,
+    );
+    if (result.status !== "success" || !("recordings" in result))
+      throw new Error("missing recordings");
+    expect(
+      result.recordings.map(({ module, title, source }) => [
+        module,
+        title,
+        source,
+      ]),
+    ).toEqual([
+      ["게시판 · 강의자료실", "10월 13일 수업 백업본", "board"],
+      ["게시판 · 강의자료실", "보강 2회차 (1)", "board"],
+      ["게시판 · 강의자료실", "보강 2회차 (2)", "board"],
+    ]);
+    expect(parseResult(result, recordingQuery)).toEqual(result);
+    expect(JSON.stringify(result)).not.toMatch(
+      /aaa\.bbb|kucom|iframe|external_tools|\/courses\//,
+    );
+    // One detail read per board resolves the course tool; the post HTML is
+    // already in the list, and reserved posts never get read.
+    expect(detailReads).toEqual([`${root}/8/posts/21`]);
+    expect(
+      catalog.take(
+        result.recordings[0]!.launchHandle,
+        origin,
+        now,
+        "recording",
+      ),
+    ).toBe(player("6ace04083ab26"));
+    expect(
+      catalog.take(
+        result.recordings[2]!.launchHandle,
+        origin,
+        now,
+        "recording",
+      ),
+    ).toBe(player("6abb8b893e5b0"));
+    expect(
+      catalog.take(result.recordings[1]!.lmsHandle, origin, now, "recording"),
+    ).toBe(`${origin}/courses/1/external_tools/5`);
+  } finally {
+    catalog.clear();
+  }
+});
+
+it("lists module recordings alone without a board token or when the board is refused", async () => {
+  for (const [read, status] of [
+    [() => null, 0],
+    [() => token, 403],
+  ] as const) {
+    const catalog = new NavigationCatalog();
+    const fetcher = lms((url) =>
+      url.pathname === root ? new Response(null, { status }) : undefined,
+    );
+    try {
+      const result = await listQuery(
+        origin,
+        recordingQuery,
+        fetcher,
+        Date.now(),
+        catalog,
+        undefined,
+        read,
+      );
+      expect(result).toEqual({ status: "success", recordings: [] });
+      expect(
+        fetcher.mock.calls.filter(([input]) =>
+          String(input).includes("/learningx/"),
+        ),
+      ).toHaveLength(status ? 1 : 0);
+    } finally {
+      catalog.clear();
+    }
+  }
+});
+
+it("skips a board whose post detail names another course's tool", async () => {
+  const catalog = new NavigationCatalog();
+  const fetcher = lms((url) => {
+    if (url.pathname === root)
+      return Response.json([{ id: 8, title: "게시판" }]);
+    if (url.pathname === `${root}/8/posts`)
+      return Response.json({
+        items: [
+          {
+            id: 21,
+            title: "백업본",
+            content: `<iframe src="${player("6ace04083ab26")}"></iframe>`,
+          },
+        ],
+        pagination: { last_page: 1 },
+      });
+    if (url.pathname === `${root}/8/posts/21`)
+      return Response.json({
+        id: 21,
+        post_url: `${origin}/learningx/redirect/courses/2/external_tools/5?post_id=21`,
+      });
+    return undefined;
+  });
+  try {
+    expect(
+      await listQuery(
+        origin,
+        recordingQuery,
+        fetcher,
+        Date.now(),
+        catalog,
+        undefined,
+        () => token,
+      ),
+    ).toEqual({ status: "success", recordings: [] });
+  } finally {
+    catalog.clear();
+  }
+});
+
+// Module recordings plus a board fetcher; boards are supplementary here.
+function lecturesWithBoard(
+  board: (url: URL, init?: RequestInit) => Promise<Response> | Response,
+): ReturnType<typeof vi.fn<typeof fetch>> {
+  return vi.fn<typeof fetch>(async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith("/learningx/")) return board(url, init);
+    if (url.pathname === "/api/v1/courses")
+      return Response.json([{ id: 1, name: "Course" }]);
+    if (url.pathname.endsWith("/modules"))
+      return Response.json([
+        {
+          id: 2,
+          name: "1주차",
+          items: [
+            {
+              id: 3,
+              type: "ExternalTool",
+              title: "1주차 강의",
+              html_url: `${origin}/courses/1/modules/items/3`,
+            },
+          ],
+        },
+      ]);
+    throw new Error(`unexpected ${url.pathname}`);
+  });
+}
+
+it("keeps module recordings and reports the board source when a board request fails", async () => {
+  for (const failing of [
+    // A later board page fails.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts`
+        ? new Response(null, { status: 500 })
+        : undefined,
+    // The one post detail read is gone between list and detail.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts/21`
+        ? new Response(null, { status: 404 })
+        : undefined,
+    // Malformed board pagination.
+    (url: URL) =>
+      url.pathname === `${root}/8/posts`
+        ? Response.json({ items: [], pagination: { last_page: 101 } })
+        : undefined,
+  ]) {
+    const catalog = new NavigationCatalog();
+    const fetcher = lecturesWithBoard((url) => {
+      const failure = failing(url);
+      if (failure) return failure;
+      if (url.pathname === root) return Response.json([{ id: 8 }]);
+      if (url.pathname === `${root}/8/posts`)
+        return Response.json({
+          items: [
+            {
+              id: 21,
+              title: "백업본",
+              content: `<iframe src="${player("6ace04083ab26")}"></iframe>`,
+            },
+          ],
+          pagination: { last_page: 1 },
+        });
+      throw new Error(`unexpected ${url.pathname}`);
+    });
+    try {
+      const result = await listQuery(
+        origin,
+        recordingQuery,
+        fetcher,
+        Date.now(),
+        catalog,
+        undefined,
+        () => token,
+      );
+      if (result.status !== "success" || !("recordings" in result))
+        throw new Error("missing recordings");
+      expect(result.boardsUnavailable).toBe(true);
+      expect(
+        result.recordings.map(({ title, source }) => [title, source]),
+      ).toEqual([["1주차 강의", "module"]]);
+      expect(parseResult(result, recordingQuery)).toEqual(result);
+    } finally {
+      catalog.clear();
+    }
+  }
+});
+
+it("stops board videos before the shared query deadline and still lists modules", async () => {
+  vi.useFakeTimers();
+  const catalog = new NavigationCatalog();
+  const fetcher = lecturesWithBoard(
+    (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      }),
+  );
+  try {
+    const pending = listQuery(
+      origin,
+      recordingQuery,
+      fetcher,
+      Date.now(),
+      catalog,
+      undefined,
+      () => token,
+    );
+    await vi.advanceTimersByTimeAsync(18000);
+    const result = await pending;
+    if (result.status !== "success" || !("recordings" in result))
+      throw new Error("missing recordings");
+    expect(result.boardsUnavailable).toBe(true);
+    expect(result.recordings).toHaveLength(1);
+  } finally {
+    catalog.clear();
+    vi.useRealTimers();
+  }
+});
+
+it("accepts the board-unavailable flag only as true on recording results", () => {
+  const recordings = [
+    {
+      module: "1주차",
+      title: "강의",
+      type: "ExternalTool",
+      source: "module",
+      lmsHandle: crypto.randomUUID(),
+      launchHandle: "",
+    },
+  ];
+  expect(
+    parseResult(
+      { status: "success", recordings, boardsUnavailable: true },
+      recordingQuery,
+    ),
+  ).toEqual({ status: "success", recordings, boardsUnavailable: true });
+  for (const boardsUnavailable of [false, "true", 1])
+    expect(
+      parseResult(
+        { status: "success", recordings, boardsUnavailable },
+        recordingQuery,
+      ),
+    ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+  expect(
+    parseResult(
+      { status: "success", documents: [], boardsUnavailable: true },
+      query,
+    ),
+  ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+});

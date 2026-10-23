@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   filterDeadlines,
+  scheduleKind,
+  scheduleKindLabels,
+  scheduleTypeLabel,
   sortByDateDesc,
   sortByDue,
   type DeadlinePeriod,
+  type ScheduleKind,
 } from "../../src/deadline-view";
 import { PagedList } from "./PagedList";
 import {
@@ -105,6 +109,8 @@ export function ItemResults({
   const [remainingOnly, setRemainingOnly] = useState(true);
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
   const [sort, setSort] = useState<SortOrder>(todo ? "due-desc" : "due");
+  // Schedule rows mix announcements with graded work; "all" keeps LMS order.
+  const [kind, setKind] = useState<ScheduleKind | "all">("all");
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
   useEffect(() => {
@@ -129,9 +135,25 @@ export function ItemResults({
     }
     // Schedule rows show the most recent date first; undated rows go last.
     return sortByDateDesc(
-      items.filter((item): item is Upcoming => "date" in item),
+      items.filter(
+        (item): item is Upcoming =>
+          "date" in item &&
+          (kind === "all" || scheduleKind(item.type) === kind),
+      ),
     );
-  }, [items, deadlines, todo, remainingOnly, period, sort, now]);
+  }, [items, deadlines, todo, remainingOnly, period, sort, kind, now]);
+  const schedule = !deadlines && !todo;
+  const kindCounts = useMemo(() => {
+    const counts: Record<ScheduleKind, number> = {
+      task: 0,
+      notice: 0,
+      other: 0,
+    };
+    if (schedule)
+      for (const item of items)
+        if ("date" in item) counts[scheduleKind(item.type)]++;
+    return counts;
+  }, [items, schedule]);
   // Unsubmitted Todo rows past their due time collapse into a trailing group.
   const [current, overdue] = useMemo(() => {
     if (!todo) return [visible, []];
@@ -141,12 +163,23 @@ export function ItemResults({
       rows.filter((item) => isOverdueTodo(item, now)),
     ];
   }, [visible, todo, now]);
-  const resetKey = useMemo(() => ({}), [items, remainingOnly, period, sort]);
+  const resetKey = useMemo(
+    () => ({}),
+    [items, remainingOnly, period, sort, kind],
+  );
   const row = (item: Item) => (
     <li key={rowKey(item)}>
       <ListRow
         title={item.title}
-        course={"course" in item ? item.course : course}
+        course={
+          "date" in item
+            ? [item.course, scheduleTypeLabel(item.type)]
+                .filter(Boolean)
+                .join(" · ")
+            : "course" in item
+              ? item.course
+              : course
+        }
         chip={<ItemChip item={item} now={now} />}
         onClick={() => open(item)}
       />
@@ -223,17 +256,51 @@ export function ItemResults({
             </div>
           </details>
         )}
+        {schedule && items.length > 0 && (
+          <nav className="subviews kind-filter" aria-label="일정 종류">
+            {(
+              [
+                ["all", "전체", items.length],
+                ["task", scheduleKindLabels.task, kindCounts.task],
+                ["notice", scheduleKindLabels.notice, kindCounts.notice],
+                ["other", scheduleKindLabels.other, kindCounts.other],
+              ] as const
+            )
+              // "기타" appears only when used, but stays while selected so a
+              // later result without such rows never hides the active filter.
+              .filter(
+                ([value, , count]) =>
+                  value !== "other" || count > 0 || kind === "other",
+              )
+              .map(([value, label, count]) => (
+                <button
+                  key={value}
+                  className="btn-ghost"
+                  aria-pressed={kind === value}
+                  data-analytics-action="filter_kind"
+                  onClick={() => setKind(value)}
+                >
+                  {label}
+                  <span className="kind-count">{count}</span>
+                </button>
+              ))}
+          </nav>
+        )}
         <p className="count">
           조회 완료 · {items.length}개 항목
-          {deadlines && ` 중 ${visible.length}개 표시`} · 한국 시간
+          {(deadlines || (schedule && kind !== "all")) &&
+            ` 중 ${visible.length}개 표시`}{" "}
+          · 한국 시간
         </p>
         {current.length === 0 ? (
           <div className="notice">
             {items.length === 0
               ? "조회된 항목이 없습니다."
-              : overdue.length > 0
-                ? "마감 전인 할 일이 없습니다."
-                : "조건에 맞는 과제가 없습니다."}
+              : schedule
+                ? "선택한 종류의 일정이 없습니다."
+                : overdue.length > 0
+                  ? "마감 전인 할 일이 없습니다."
+                  : "조건에 맞는 과제가 없습니다."}
           </div>
         ) : (
           <PagedList items={current} resetKey={resetKey}>

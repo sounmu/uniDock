@@ -39,6 +39,10 @@ beforeEach(() => {
     },
   });
   vi.stubGlobal("chrome", {
+    storage: {
+      local: { get: vi.fn().mockResolvedValue({}) },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
     downloads: {
       onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
@@ -241,6 +245,7 @@ const recordings = ["첫 강의", "두 번째 강의"].map((title) => ({
   module: "주차",
   title,
   type: "ExternalTool" as const,
+  source: "module" as const,
   lmsHandle: crypto.randomUUID(),
   launchHandle: crypto.randomUUID(),
 }));

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { newTab } from "./ui/a11y";
-import { remainingLabel } from "../../src/deadline-view";
+import { remainingLabel, scheduleTypeLabel } from "../../src/deadline-view";
 import {
   isoTime,
   type Assignment,
@@ -47,7 +47,14 @@ export function ItemDetail({
   ];
   if ("due_at" in item)
     meta.push(["남은 시간", remainingLabel(item.due_at, now)]);
-  if ("type" in item) meta.push(["유형", item.type || "정보 없음"]);
+  if ("date" in item)
+    meta.push([
+      "유형",
+      item.type
+        ? `${scheduleTypeLabel(item.type)} (${item.type})`
+        : "정보 없음",
+    ]);
+  else if ("type" in item) meta.push(["유형", item.type || "정보 없음"]);
   if ("submitted" in item)
     meta.push(
       ["제출 기록", item.submitted ? "제출 기록 있음" : "제출 기록 없음"],

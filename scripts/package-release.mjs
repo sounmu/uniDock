@@ -29,23 +29,28 @@ assert.deepEqual(
   [...manifest.host_permissions].sort(),
   [...lmsHosts, "https://kucom.korea.ac.kr/*"].sort(),
 );
+// The popup portal is an opt-in grant, never an install-time permission.
+assert.deepEqual(manifest.optional_host_permissions, [
+  "https://lms.korea.ac.kr/*",
+]);
 for (const key of [
   "externally_connectable",
   "web_accessible_resources",
   "update_url",
   "key",
   "oauth2",
-  "optional_host_permissions",
+  "optional_permissions",
 ])
   assert.equal(manifest[key], undefined);
 assert.equal(manifest.side_panel.default_path, "sidepanel.html");
 assert.equal(manifest.background.service_worker, "background.js");
+// lms-popup.js is registered at runtime after the opt-in, so only lms.js is
+// declared here.
 assert.equal(manifest.content_scripts.length, 1);
-const lmsContent = manifest.content_scripts.find((script) =>
-  script.js.includes("content-scripts/lms.js"),
-);
-assert(lmsContent);
+const lmsContent = manifest.content_scripts[0];
+assert.deepEqual(lmsContent.js, ["content-scripts/lms.js"]);
 assert.equal(lmsContent.all_frames, false);
+assert.equal(lmsContent.run_at, "document_idle");
 assert.deepEqual([...lmsContent.matches].sort(), lmsHosts);
 assert(
   !manifest.description.includes("자동 재생"),
@@ -68,7 +73,7 @@ walk(root);
 files.sort();
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/lms\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -98,6 +103,8 @@ for (const file of [
   "privacy.html",
   "THIRD_PARTY_NOTICES.txt",
   "icons/128.png",
+  "content-scripts/lms.js",
+  "content-scripts/lms-popup.js",
 ])
   assert(files.includes(file));
 import { dependencyNoticesText } from "./dependency-notices.mjs";

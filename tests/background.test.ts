@@ -565,13 +565,15 @@ it("does not broadcast rejected playback messages", () => {
   expect(f.sendMessage).not.toHaveBeenCalled();
 });
 
-it("erases analytics consent before the existing clear-data command and does not capture deletion", async () => {
+it("erases analytics consent and the popup opt-in before the existing clear-data command and does not capture deletion", async () => {
   const f = commandBroadcastFixture();
   f.command.mockResolvedValue({ status: "error", code: "STORAGE" });
   const order: string[] = [];
-  vi.mocked(chrome.storage.local.remove).mockImplementation(async () => {
-    order.push("erase");
-  });
+  vi.mocked(chrome.storage.local.remove).mockImplementation(
+    async (key: string | string[]) => {
+      order.push(`erase:${String(key)}`);
+    },
+  );
   f.command.mockImplementation(async () => {
     order.push("playback");
     return { status: "error", code: "STORAGE" };
@@ -588,7 +590,359 @@ it("erases analytics consent before the existing clear-data command and does not
   expect(chrome.storage.local.remove).toHaveBeenCalledWith(
     "unidock.analytics.v1",
   );
-  expect(order).toEqual(["erase", "playback"]);
+  expect(order).toEqual([
+    "erase:unidock.analytics.v1",
+    "erase:unidock.popup-auto-close.v1",
+    "playback",
+  ]);
+});
+
+function popupFixture(
+  local: Record<string, unknown> = {},
+  // Present only when a test exercises the optional grant and registration.
+  grant?: { granted: boolean; registered: boolean },
+) {
+  let receive!: (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    respond: (value: unknown) => void,
+  ) => boolean;
+  let changed!: (
+    changes: Record<string, chrome.storage.StorageChange>,
+    area: string,
+  ) => void;
+  const get = vi.fn(async () => local);
+  const query = vi.fn().mockResolvedValue([{ id: 3 }]);
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const order: string[] = [];
+  let removed: (() => void) | undefined;
+  const scripting = {
+    getRegisteredContentScripts: vi.fn(async () =>
+      grant?.registered ? [{ id: "unidock-lms-popup" }] : [],
+    ),
+    registerContentScripts: vi.fn(async () => {
+      order.push("register");
+    }),
+    unregisterContentScripts: vi.fn(async () => {
+      order.push("unregister");
+    }),
+    executeScript: vi.fn(async () => {
+      order.push("inject");
+      return [];
+    }),
+  };
+  const permissions = {
+    contains: vi.fn(async () => grant?.granted ?? false),
+    remove: vi.fn(async () => {
+      order.push("return-grant");
+      return true;
+    }),
+    onRemoved: {
+      addListener: (listener: () => void) => {
+        removed = listener;
+      },
+    },
+  };
+  sendMessage.mockImplementation(async () => {
+    order.push("notify");
+  });
+  const remove = vi.fn(async () => {
+    order.push("reset");
+  });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: {
+        addListener: (listener: typeof receive) => {
+          receive = listener;
+        },
+      },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get,
+        remove,
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      onChanged: {
+        addListener: (listener: typeof changed) => {
+          changed = listener;
+        },
+      },
+    },
+    tabs: { query, sendMessage },
+    ...(grant ? { scripting, permissions } : {}),
+  });
+  background.main();
+  return {
+    get,
+    query,
+    sendMessage,
+    remove,
+    scripting,
+    permissions,
+    order,
+    revoked: () => removed?.(),
+    receive,
+    changed,
+    page: {
+      id: "test",
+      frameId: 0,
+      tab: { id: 3 } as chrome.tabs.Tab,
+      url: "https://lms.korea.ac.kr/main",
+      origin: "https://lms.korea.ac.kr",
+    } as chrome.runtime.MessageSender,
+  };
+}
+
+it("answers the popup content script with only the stored boolean", async () => {
+  const f = popupFixture({
+    "unidock.popup-auto-close.v1": true,
+    "unidock.analytics.v1": { choice: "granted" },
+  });
+  const reply = await new Promise((resolve) => {
+    expect(
+      f.receive({ version: 1, type: "POPUP_AUTO_CLOSE_GET" }, f.page, resolve),
+    ).toBe(true);
+  });
+  expect(reply).toEqual({
+    version: 1,
+    type: "POPUP_AUTO_CLOSE_STATE",
+    enabled: true,
+  });
+  expect(f.get).toHaveBeenCalledWith("unidock.popup-auto-close.v1");
+});
+
+it("refuses popup setting reads from other pages, frames, and extensions", () => {
+  const f = popupFixture({ "unidock.popup-auto-close.v1": true });
+  const respond = vi.fn();
+  for (const sender of [
+    { ...f.page, url: "https://mylms.korea.ac.kr/" },
+    { ...f.page, frameId: 2 },
+    { ...f.page, id: "other" },
+    { id: "test", url: "chrome-extension://test/sidepanel.html" },
+  ])
+    expect(
+      f.receive(
+        { version: 1, type: "POPUP_AUTO_CLOSE_GET" },
+        sender as chrome.runtime.MessageSender,
+        respond,
+      ),
+    ).toBe(false);
+  expect(respond.mock.calls).toEqual(Array(4).fill([{ ok: false }]));
+  expect(
+    f.receive(
+      { version: 1, type: "POPUP_AUTO_CLOSE_GET", key: "x" },
+      f.page,
+      respond,
+    ),
+  ).toBe(false);
+  expect(respond).toHaveBeenCalledTimes(4);
+  expect(f.get).not.toHaveBeenCalled();
+});
+
+it("reports a popup setting read failure without exposing the error", async () => {
+  const f = popupFixture();
+  f.get.mockRejectedValueOnce(new Error("storage detail"));
+  const reply = await new Promise((resolve) => {
+    f.receive({ version: 1, type: "POPUP_AUTO_CLOSE_GET" }, f.page, resolve);
+  });
+  expect(reply).toEqual({ ok: false });
+});
+
+it("tells open portal pages to reread when the opt-in ends and leaves the grant to the panel", async () => {
+  const f = popupFixture({}, { granted: true, registered: true });
+  // Startup: no opt-in, so the leftover registration goes; the grant stays.
+  await vi.waitFor(() => expect(f.order).toEqual(["unregister"]));
+  f.order.length = 0;
+  f.changed({ "unidock.analytics.v1": { newValue: {} } }, "local");
+  f.changed({ "unidock.popup-auto-close.v1": { newValue: true } }, "sync");
+  await Promise.resolve();
+  expect(f.query).not.toHaveBeenCalled();
+  // clear() and remove() report the key with no newValue: pages reread OFF.
+  f.changed({ "unidock.popup-auto-close.v1": { oldValue: true } }, "local");
+  await vi.waitFor(() => expect(f.order).toEqual(["unregister", "notify"]));
+  expect(f.sendMessage).toHaveBeenCalledWith(
+    3,
+    { version: 1, type: "POPUP_AUTO_CLOSE_CHANGED" },
+    { frameId: 0 },
+  );
+  expect(f.query).toHaveBeenCalledWith({ url: ["https://lms.korea.ac.kr/*"] });
+  // The panel returns the grant after saving OFF; a late worker task must not.
+  expect(f.permissions.remove).not.toHaveBeenCalled();
+  expect(f.scripting.executeScript).not.toHaveBeenCalled();
+});
+
+it("registers the portal script only with the opt-in and its optional grant, and covers open tabs", async () => {
+  const f = popupFixture(
+    { "unidock.popup-auto-close.v1": true },
+    { granted: true, registered: false },
+  );
+  await vi.waitFor(() => expect(f.order).toEqual(["register"]));
+  expect(f.scripting.registerContentScripts).toHaveBeenCalledWith([
+    {
+      id: "unidock-lms-popup",
+      matches: ["https://lms.korea.ac.kr/*"],
+      js: ["content-scripts/lms-popup.js"],
+      runAt: "document_idle",
+      allFrames: false,
+      persistAcrossSessions: true,
+    },
+  ]);
+  f.order.length = 0;
+  f.scripting.getRegisteredContentScripts.mockResolvedValue([
+    { id: "unidock-lms-popup" },
+  ] as never);
+  f.changed({ "unidock.popup-auto-close.v1": { newValue: true } }, "local");
+  // Running pages reread first; open tabs get the script without a reload.
+  await vi.waitFor(() => expect(f.order).toEqual(["notify", "inject"]));
+  expect(f.scripting.executeScript).toHaveBeenCalledWith({
+    target: { tabId: 3, frameIds: [0] },
+    files: ["content-scripts/lms-popup.js"],
+  });
+  expect(f.permissions.remove).not.toHaveBeenCalled();
+});
+
+it("resets an opt-in whose optional grant is gone and never registers without it", async () => {
+  const f = popupFixture(
+    { "unidock.popup-auto-close.v1": true },
+    { granted: false, registered: false },
+  );
+  await vi.waitFor(() => expect(f.order).toEqual(["reset"]));
+  expect(f.remove).toHaveBeenCalledWith("unidock.popup-auto-close.v1");
+  expect(f.scripting.registerContentScripts).not.toHaveBeenCalled();
+  // Revoked later in chrome://extensions: the same check runs again.
+  f.order.length = 0;
+  f.revoked();
+  await vi.waitFor(() => expect(f.order).toEqual(["reset"]));
+});
+
+// One shared state behind storage, permissions and scripting, so a slow
+// background task and a newer panel action can interleave as in Chrome.
+function statefulPopupChrome(local: Record<string, unknown>, granted: boolean) {
+  const state = { local, granted, registered: false };
+  let changed!: (
+    changes: Record<string, chrome.storage.StorageChange>,
+    area: string,
+  ) => void;
+  const notified = deferred<void>();
+  const notify = vi.fn(() => notified.promise);
+  const removeGrant = vi.fn(async () => {
+    order.push("return-grant");
+    state.granted = false;
+    return true;
+  });
+  let receive!: (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    respond: (value: unknown) => void,
+  ) => boolean;
+  const order: string[] = [];
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: {
+        addListener: (listener: typeof receive) => {
+          receive = listener;
+        },
+      },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get: vi.fn(async () => ({ ...state.local })),
+        clear: vi.fn(async () => {
+          order.push("clear");
+          for (const key of Object.keys(state.local)) delete state.local[key];
+        }),
+        remove: vi.fn(async (key: string) => {
+          delete state.local[key];
+        }),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      onChanged: {
+        addListener: (listener: typeof changed) => {
+          changed = listener;
+        },
+      },
+    },
+    tabs: { query: vi.fn(async () => [{ id: 3 }]), sendMessage: notify },
+    permissions: {
+      contains: vi.fn(async () => state.granted),
+      remove: removeGrant,
+      onRemoved: { addListener: () => {} },
+    },
+    scripting: {
+      getRegisteredContentScripts: vi.fn(async () =>
+        state.registered ? [{ id: "unidock-lms-popup" }] : [],
+      ),
+      registerContentScripts: vi.fn(async () => {
+        state.registered = true;
+      }),
+      unregisterContentScripts: vi.fn(async () => {
+        state.registered = false;
+      }),
+      executeScript: vi.fn(async () => []),
+    },
+  });
+  background.main();
+  return {
+    state,
+    notified,
+    removeGrant,
+    order,
+    deleteAll: () =>
+      new Promise((resolve) =>
+        receive(
+          { version: 1, type: "LOCAL_DATA_DELETE_ALL" },
+          {
+            id: "test",
+            url: "chrome-extension://test/sidepanel.html",
+          } as chrome.runtime.MessageSender,
+          resolve,
+        ),
+      ),
+    // What the panel does when the user writes the opt-in.
+    write(value: boolean) {
+      const oldValue = state.local["unidock.popup-auto-close.v1"];
+      state.local["unidock.popup-auto-close.v1"] = value;
+      changed(
+        { "unidock.popup-auto-close.v1": { oldValue, newValue: value } },
+        "local",
+      );
+    },
+  };
+}
+
+it("never lets a slow OFF task return a grant the newer ON still uses", async () => {
+  const f = statefulPopupChrome({ "unidock.popup-auto-close.v1": true }, true);
+  await vi.waitFor(() => expect(f.state.registered).toBe(true));
+  // OFF: the worker is still telling an open portal tab when ON arrives.
+  f.write(false);
+  await vi.waitFor(() => expect(f.state.registered).toBe(false));
+  // ON: the grant is still there, so the panel's request needs no prompt.
+  f.write(true);
+  f.notified.resolve();
+  await vi.waitFor(() => expect(f.state.registered).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(f.removeGrant).not.toHaveBeenCalled();
+  expect(f.state).toEqual({
+    local: { "unidock.popup-auto-close.v1": true },
+    granted: true,
+    registered: true,
+  });
+});
+
+it("clears the opt-in, then returns its grant, before answering local-data deletion", async () => {
+  const f = statefulPopupChrome({ "unidock.popup-auto-close.v1": true }, true);
+  await vi.waitFor(() => expect(f.state.registered).toBe(true));
+  expect(await f.deleteAll()).toEqual({ status: "success" });
+  expect(f.order).toEqual(["clear", "return-grant"]);
+  expect(f.state.granted).toBe(false);
+  expect(f.state.local).toEqual({});
 });
 
 function activationListenerFixture(

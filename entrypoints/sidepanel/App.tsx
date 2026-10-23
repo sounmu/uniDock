@@ -10,6 +10,7 @@ import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
 import { LocalDataSettings } from "./LocalDataSettings";
+import { PopupSettings } from "./PopupSettings";
 import { UpdateNotice } from "./UpdateNotice";
 import { Icon } from "./ui/icons";
 import { restoreFocus } from "./ui/a11y";
@@ -146,8 +147,8 @@ export function App() {
                       조회 시 현재 LMS 세션의 정보를 이 기기에 표시하며 분석
                       서비스로 전송하지 않습니다.{" "}
                       {__UNIDOCK_PLAYBACK__
-                        ? "통계 공유·재생 설정은 이 기기에 저장합니다."
-                        : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·자료와 통계 공유 설정은 기기에 저장됩니다."}
+                        ? "통계 공유·팝업 자동 닫기·재생 설정은 이 기기에 저장합니다."
+                        : "조회 결과는 메모리에만 잠시 유지하고, 다운로드한 자막·자료, 통계 공유와 팝업 자동 닫기 설정은 기기에 저장됩니다."}
                     </p>
                   </div>
                 </div>
@@ -163,6 +164,7 @@ export function App() {
                 </a>
               </div>
             </section>
+            <PopupSettings />
             <AnalyticsSettings status={analytics} />
             <LocalDataSettings />
             <section className="settings-group" aria-labelledby="about-title">

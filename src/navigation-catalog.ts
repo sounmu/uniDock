@@ -7,10 +7,17 @@ export interface RecordingTarget {
   title: string;
   courseId: string;
   itemId?: string;
+  /** LearningX board course tool the post lives in (board videos only). */
+  boardToolId?: string;
+  /** Canonical KU player page embedded in the post (board videos only). */
+  playerUrl?: string;
   moduleAccess: Metadata;
   itemAccess: Metadata;
 }
-export interface DocumentTarget extends Omit<RecordingTarget, "itemId"> {
+export interface DocumentTarget extends Omit<
+  RecordingTarget,
+  "itemId" | "boardToolId" | "playerUrl"
+> {
   itemId: string;
   filename: string;
   topicId?: string;
@@ -105,13 +112,21 @@ export class NavigationCatalog {
         module: target.module,
         title: target.title,
         type: "ExternalTool" as const,
-        lmsHandle: add(`${origin}/courses/${target.courseId}/modules`, target),
-        launchHandle: target.itemId
-          ? add(
-              `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
-              target,
-            )
-          : "",
+        source: target.playerUrl ? ("board" as const) : ("module" as const),
+        lmsHandle: add(
+          target.boardToolId
+            ? `${origin}/courses/${target.courseId}/external_tools/${target.boardToolId}`
+            : `${origin}/courses/${target.courseId}/modules`,
+          target,
+        ),
+        launchHandle: target.playerUrl
+          ? add(target.playerUrl, target)
+          : target.itemId
+            ? add(
+                `${origin}/courses/${target.courseId}/modules/items/${target.itemId}`,
+                target,
+              )
+            : "",
       }));
       this.timer = setTimeout(() => this.expire(), 300000);
       return result;

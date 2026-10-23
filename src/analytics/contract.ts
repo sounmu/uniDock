@@ -43,6 +43,7 @@ export const actions = [
   "page_next",
   "filter_remaining",
   "filter_period",
+  "filter_kind",
   "sort",
   "date_start",
   "date_end",

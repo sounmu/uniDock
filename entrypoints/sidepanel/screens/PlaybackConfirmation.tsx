@@ -51,6 +51,7 @@ export function PlaybackConfirmation({
                 disabled={
                   m.pending ||
                   !item.launchHandle ||
+                  item.source === "board" ||
                   (item.order === null && selected.length >= 100)
                 }
                 onChange={(event) =>
@@ -65,8 +66,14 @@ export function PlaybackConfirmation({
                 <small>{item.module}</small>
               </span>
             </label>
-            {!item.launchHandle && (
+            {!item.launchHandle ? (
               <p>영상 항목을 확인할 수 없어 자동 재생할 수 없습니다.</p>
+            ) : (
+              item.source === "board" && (
+                <p>
+                  게시판 영상은 LMS 모듈 항목이 아니라 자동 재생에서 제외됩니다.
+                </p>
+              )
             )}
           </li>
         ))}

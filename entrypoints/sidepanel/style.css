@@ -400,6 +400,19 @@ main:has(.detail-view) > div > .view-settings {
   color: var(--brand);
   background: var(--brand-wash);
 }
+.kind-filter {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: var(--space-2);
+}
+.kind-filter .kind-count {
+  margin-left: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.kind-filter [aria-pressed="true"] .kind-count {
+  color: inherit;
+}
 .course-context h2 {
   margin-top: var(--space-2);
 }
@@ -865,6 +878,46 @@ progress {
 }
 .row-error {
   color: var(--danger);
+}
+.switch {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+}
+.switch-track {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 40px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+.switch-knob {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--line-input);
+}
+.switch[aria-checked="true"] .switch-track {
+  justify-content: flex-end;
+  border-color: var(--brand);
+  background: var(--brand);
+}
+.switch[aria-checked="true"] .switch-knob {
+  background: var(--on-brand);
+  color: var(--brand);
+}
+.switch-check {
+  width: 12px;
+  height: 12px;
 }
 .settings-link {
   color: inherit;

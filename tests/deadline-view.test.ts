@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 import {
   filterDeadlines,
   remainingLabel,
+  scheduleKind,
+  scheduleTypeLabel,
   sortByDateDesc,
 } from "../src/deadline-view";
 const now = Date.parse("2026-09-13T14:00:00Z"); // Sunday 23:00 KST
@@ -79,4 +81,25 @@ it("orders schedule rows newest first and keeps undated rows last", () => {
     "none",
   ]);
   expect(items[0]?.title).toBe("old");
+});
+it("groups planner rows into tasks, notices and other, keeping Korean type labels", () => {
+  expect(scheduleKind("assignment")).toBe("task");
+  expect(scheduleKind("quiz")).toBe("task");
+  // The Planner lists discussions only when graded or put on the to-do list.
+  expect(scheduleKind("discussion_topic")).toBe("task");
+  expect(scheduleKind("announcement")).toBe("notice");
+  for (const type of ["calendar_event", "wiki_page", "", "x"])
+    expect(scheduleKind(type)).toBe("other");
+  expect(
+    [
+      "assignment",
+      "quiz",
+      "announcement",
+      "discussion_topic",
+      "calendar_event",
+      "wiki_page",
+      "planner_note",
+      "weird",
+    ].map(scheduleTypeLabel),
+  ).toEqual(["과제", "퀴즈", "공지", "토론", "일정", "페이지", "메모", "기타"]);
 });

@@ -217,7 +217,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
         result.status === "success"
           ? type === "DOCUMENT_OPEN"
             ? "새 LMS 자료 탭을 열었습니다."
-            : "새 LMS/LTI 탭을 열었습니다."
+            : "새 탭을 열었습니다."
           : messages[result.code],
     }));
   }

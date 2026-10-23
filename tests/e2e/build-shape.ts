@@ -4,6 +4,7 @@ import path from "node:path";
 /**
  * True only when `.output/chrome-mv3` was built with `UNIDOCK_PLAYBACK=1`.
  * Release builds omit the player content script, so playback specs skip there.
+ * Both builds declare lms.js; lms-popup.js is registered at runtime.
  */
 export function playbackBuild(
   extensionPath = path.resolve(".output/chrome-mv3"),

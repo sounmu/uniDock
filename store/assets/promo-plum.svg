@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280"><defs><radialGradient id="rose-glow"><stop stop-color="#E7C8D3" stop-opacity="0.65"/><stop offset="1" stop-color="#E7C8D3" stop-opacity="0"/></radialGradient></defs><rect width="440" height="280" fill="#28151D"/><svg x="128" y="48" width="184" height="184" viewBox="0 0 512 512" fill="none">
+  <title>uniDock — centered glass logo</title>
+  <desc>Editable vector logo. Burgundy glass tile and a centered lowercase u. No fonts, raster images, or blur filters.</desc>
+  <defs>
+    <linearGradient id="burgundy" x1="65" y1="32" x2="446" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#AB405B"/><stop offset="0.48" stop-color="#872038"/><stop offset="1" stop-color="#62162D"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="translate(128 42) rotate(52) scale(460 380)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD9E5" stop-opacity="0.28"/><stop offset="1" stop-color="#FFD9E5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="reflection" x1="202" y1="34" x2="245" y2="294" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.17"/><stop offset="1" stop-color="white" stop-opacity="0.015"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="80" y1="32" x2="435" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFEAF0" stop-opacity="0.75"/><stop offset="0.43" stop-color="#FFEAF0" stop-opacity="0.12"/><stop offset="0.74" stop-color="#FFEAF0" stop-opacity="0.04"/><stop offset="1" stop-color="#FFEAF0" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="pearl" x1="193" y1="140" x2="331" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/><stop offset="0.56" stop-color="#FFF9FB"/><stop offset="1" stop-color="#EED8E0"/>
+    </linearGradient>
+    <linearGradient id="u-rim" x1="174" y1="140" x2="330" y2="372" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.95"/><stop offset="1" stop-color="white" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <g id="Glass-tile">
+    <rect id="Burgundy-base" x="32" y="32" width="448" height="448" rx="100" fill="url(#burgundy)"/>
+    <rect id="Soft-light" x="32" y="32" width="448" height="448" rx="100" fill="url(#light)"/>
+    <path id="Glass-reflection" d="M132 34H380C434 34 478 78 478 132V189C346 167 219 290 34 257V132C34 78 78 34 132 34Z" fill="url(#reflection)"/>
+    <rect id="Glass-edge" x="33" y="33" width="446" height="446" rx="99" stroke="url(#rim)" stroke-width="2"/>
+    <path id="Top-edge-glint" d="M74 86C90 65 109 57 136 57H336" stroke="white" stroke-opacity="0.22" stroke-width="2" stroke-linecap="round"/>
+    <path id="Bottom-edge-glint" d="M294 458H377C411 458 437 440 449 412" stroke="#F9C6D6" stroke-opacity="0.16" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g id="Centered-u">
+    <path id="U-depth" d="M144 145H212V265C212 289 230 307 256 307C282 307 300 289 300 265V145H368V377H300V365C286 373 271 377 256 377C194 377 144 327 144 265V145Z" fill="#400D21" fill-opacity="0.16"/>
+    <path id="U-face" d="M144 140H212V260C212 284 230 302 256 302C282 302 300 284 300 260V140H368V372H300V360C286 368 271 372 256 372C194 372 144 322 144 260V140Z" fill="url(#pearl)" stroke="url(#u-rim)" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+</svg>
+</svg>

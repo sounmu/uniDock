@@ -29,6 +29,7 @@ for (const kind of ["assignments", "recordings"] as const) {
               module: "1주차",
               title: "1주차 1차시",
               type: "ExternalTool" as const,
+              source: "module" as const,
               lmsHandle: "sample-1",
               launchHandle: "sample-2",
             },
@@ -36,6 +37,7 @@ for (const kind of ["assignments", "recordings"] as const) {
               module: "1주차",
               title: "1주차 2차시",
               type: "ExternalTool" as const,
+              source: "module" as const,
               lmsHandle: "sample-3",
               launchHandle: "sample-4",
             },
@@ -59,7 +61,13 @@ for (const kind of ["assignments", "recordings"] as const) {
   );
 }
 
+const promoLogo = fs
+  .readFileSync("store/assets/logo-concepts/unidock-glass.svg", "utf8")
+  .replace(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"',
+    '<svg x="128" y="48" width="184" height="184"',
+  );
 fs.writeFileSync(
   "store/assets/promo.html",
-  '<!doctype html><meta charset="utf-8"><style>body{margin:0;width:880px;height:560px;background:#872038;display:grid;place-items:center}img{width:320px;height:320px}</style><img src="../../public/icons/128.png" alt="u">',
+  `<!doctype html><meta charset="utf-8"><style>body{margin:0}svg{display:block}</style><svg xmlns="http://www.w3.org/2000/svg" width="880" height="560" viewBox="0 0 440 280"><defs><radialGradient id="rose-glow"><stop stop-color="#E7C8D3" stop-opacity="0.65"/><stop offset="1" stop-color="#E7C8D3" stop-opacity="0"/></radialGradient></defs><rect width="440" height="280" fill="#F5F1ED"/><ellipse cx="220" cy="140" rx="210" ry="170" fill="url(#rose-glow)"/>${promoLogo}</svg>`,
 );

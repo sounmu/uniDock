@@ -26,6 +26,11 @@ interface RecordingCollectionInput {
   readonly catalog: NavigationCatalog;
   readonly now: number;
   readonly controller: AbortController;
+  /**
+   * KU player videos embedded in LearningX board posts, listed after modules.
+   * `null` means the board source failed; module rows are still listed.
+   */
+  readonly boards?: () => Promise<RecordingTarget[] | null>;
 }
 
 export async function collectRecordings({
@@ -37,6 +42,7 @@ export async function collectRecordings({
   catalog,
   now,
   controller,
+  boards,
 }: RecordingCollectionInput) {
   const targetsByModule: RecordingTarget[][] = Array.from(
     { length: modules.length },
@@ -97,5 +103,19 @@ export async function collectRecordings({
   );
   if (failure) throw failure.error;
   if (controller.signal.aborted) throw new Error("TIMEOUT");
-  return catalog.replace(origin, targetsByModule.flat());
+  const targets = targetsByModule.flat();
+  // Board videos are all-or-nothing on their own: a board failure drops every
+  // board row and is reported, never a partial board list or a failed module list.
+  let boardsUnavailable = false;
+  if (boards) {
+    const boardTargets = await boards();
+    if (controller.signal.aborted) throw new Error("TIMEOUT");
+    if (!boardTargets || targets.length + boardTargets.length > 10000)
+      boardsUnavailable = true;
+    else targets.push(...boardTargets);
+  }
+  return {
+    recordings: catalog.replace(origin, targets),
+    boardsUnavailable,
+  };
 }

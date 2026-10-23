@@ -1,13 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 import {
   accessible,
+  playerEmbeds,
   recordingCandidate,
   recordingLabel,
 } from "../src/recordings";
 import { NavigationCatalog } from "../src/navigation-catalog";
 import { listQuery } from "../src/api/client";
 import { isRequest, parseResult } from "../src/protocol";
-import { navigationUrl } from "../src/security/navigation";
+import { navigationUrl, playerUrl } from "../src/security/navigation";
 import { openLmsTab } from "../src/open-tab";
 import { readUrl } from "../src/security/policy";
 const origin = "https://mylms.korea.ac.kr";
@@ -314,6 +315,7 @@ it.each(["course", "module", "item", "content"])(
         module: moduleName,
         title,
         type: "ExternalTool",
+        source: "module",
         lmsHandle: expect.any(String),
         launchHandle: expect.any(String),
       },
@@ -679,4 +681,156 @@ it("enforces the aggregate recording limit across modules", async () => {
     code: "LIMIT",
   });
   expect(replace).not.toHaveBeenCalled();
+});
+it.each([
+  "https://kucom.korea.ac.kr/em/6ace04083ab26",
+  "https://kucom.korea.ac.kr/em/0123456789abcdef0123456789abcdef",
+])("opens the canonical KU player page %s", (value) => {
+  expect(playerUrl(value)).toBe(value);
+  expect(navigationUrl(value, origin)).toBe(value);
+});
+it.each([
+  "https://kucom.korea.ac.kr/em/6ace04083ab26?autostart=1",
+  "https://kucom.korea.ac.kr/em/6ace04083ab26#t=10",
+  "https://kucom.korea.ac.kr/em/",
+  "https://kucom.korea.ac.kr/em/6ACE04083AB26",
+  "https://kucom.korea.ac.kr/em/6ace04083ab26/extra",
+  "https://kucom.korea.ac.kr/viewer/ssplayer/uniplayer_support/content.php",
+  "http://kucom.korea.ac.kr/em/6ace04083ab26",
+  "https://user:pw@kucom.korea.ac.kr/em/6ace04083ab26",
+  "https://kucom.korea.ac.kr.evil.invalid/em/6ace04083ab26",
+  `https://kucom.korea.ac.kr/em/${"a".repeat(33)}`,
+])("blocks non-canonical player navigation %s", (value) => {
+  expect(playerUrl(value)).toBeNull();
+  expect(navigationUrl(value, origin)).toBeNull();
+});
+it("reads only KU player iframes out of post HTML, once each, without options", () => {
+  const html = `
+    <p>백업본</p>
+    <iframe width="560" src="https://kucom.korea.ac.kr/em/6ace04083ab26?autostart=0&amp;x=1" allowfullscreen></iframe>
+    <iframe src='https://kucom.korea.ac.kr/em/6ace04083ab26'></iframe>
+    <iframe src="https://kucom.korea.ac.kr/em/6ac796651ce34#start"></iframe>
+    <iframe src="https://www.youtube.com/embed/abc"></iframe>
+    <iframe src="https://kucom.korea.ac.kr/viewer/ssplayer/uniplayer_support/content.php?content_id=6ace04083ab26"></iframe>
+    <iframe src="/em/6ace04083ab27"></iframe>
+    <video src="https://kucom.korea.ac.kr/em/6ace04083ab28"></video>
+    <a href="https://kucom.korea.ac.kr/em/6ace04083ab29">link</a>
+    <iframe data-src="https://kucom.korea.ac.kr/em/6ace04083ab30"></iframe>`;
+  expect(playerEmbeds(html)).toEqual([
+    "https://kucom.korea.ac.kr/em/6ace04083ab26",
+    "https://kucom.korea.ac.kr/em/6ac796651ce34",
+  ]);
+  expect(playerEmbeds("<p></p>")).toEqual([]);
+  expect(playerEmbeds(null)).toEqual([]);
+  expect(
+    playerEmbeds({ src: "https://kucom.korea.ac.kr/em/6ace04083ab26" }),
+  ).toEqual([]);
+  expect(
+    playerEmbeds(
+      '<iframe src="https://kucom.korea.ac.kr/em/6ace04083ab26">'.repeat(1) +
+        "x".repeat(500001),
+    ),
+  ).toEqual([]);
+  const many = Array.from(
+    { length: 30 },
+    (_, i) =>
+      `<iframe src="https://kucom.korea.ac.kr/em/${String(i).padStart(13, "0")}"></iframe>`,
+  ).join("");
+  expect(playerEmbeds(many)).toHaveLength(20);
+});
+it("reads malformed iframe HTML under the size limit in linear time", () => {
+  const unclosed = "<iframe ".repeat(62000);
+  const attributes = `<iframe ${" a".repeat(240000)}`;
+  const longTag = `<iframe ${"a".repeat(3000)} src="https://kucom.korea.ac.kr/em/6ace04083ab26">`;
+  const started = performance.now();
+  expect(playerEmbeds(unclosed)).toEqual([]);
+  expect(playerEmbeds(attributes)).toEqual([]);
+  expect(
+    playerEmbeds(
+      `${longTag}<iframe src="https://kucom.korea.ac.kr/em/6ac796651ce34"><iframe `,
+    ),
+  ).toEqual(["https://kucom.korea.ac.kr/em/6ac796651ce34"]);
+  expect(performance.now() - started).toBeLessThan(200);
+});
+it("lists board videos with a board tool page and a direct player launch, outside playback batches", () => {
+  const store = catalog();
+  const [video, lecture] = store.replace(
+    origin,
+    [
+      {
+        module: "게시판 · 강의자료실",
+        title: "10월 13일 수업 백업본",
+        courseId: "99416",
+        boardToolId: "5",
+        playerUrl: "https://kucom.korea.ac.kr/em/6ace04083ab26",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+      {
+        module: "Week",
+        title: "lecture",
+        courseId: "99416",
+        itemId: "501",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ],
+    now,
+  );
+  expect(video).toMatchObject({ source: "board", type: "ExternalTool" });
+  expect(lecture).toMatchObject({ source: "module" });
+  expect(JSON.stringify([video, lecture])).not.toMatch(
+    /kucom|external_tools|\/courses\//,
+  );
+  expect(
+    store.takeRecordingBatch(
+      [video!.launchHandle, lecture!.launchHandle],
+      origin,
+      now,
+    ),
+  ).toBeNull();
+  expect(
+    store.takeRecordingBatch([lecture!.launchHandle], origin, now),
+  ).toEqual([`${origin}/courses/99416/modules/items/501`]);
+  expect(store.take(video!.launchHandle, origin, now, "recording")).toBe(
+    "https://kucom.korea.ac.kr/em/6ace04083ab26",
+  );
+  expect(store.take(video!.launchHandle, origin, now)).toBeNull();
+  expect(store.take(video!.lmsHandle, origin, now, "recording")).toBe(
+    `${origin}/courses/99416/external_tools/5`,
+  );
+  expect(() =>
+    store.replace(
+      origin,
+      [
+        {
+          module: "게시판",
+          title: "bad",
+          courseId: "99416",
+          boardToolId: "5",
+          playerUrl: "https://kucom.korea.ac.kr/em/6ace04083ab26?autostart=1",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ],
+      now,
+    ),
+  ).toThrow("POLICY");
+});
+it("accepts the recording source through the public result schema only as module or board", () => {
+  const row = {
+    module: "게시판 · 강의자료실",
+    title: "백업본",
+    type: "ExternalTool",
+    lmsHandle: crypto.randomUUID(),
+    launchHandle: crypto.randomUUID(),
+  };
+  for (const source of ["module", "board"])
+    expect(
+      parseResult({ status: "success", recordings: [{ ...row, source }] }),
+    ).toEqual({ status: "success", recordings: [{ ...row, source }] });
+  for (const source of ["player", "", undefined, 1])
+    expect(
+      parseResult({ status: "success", recordings: [{ ...row, source }] }),
+    ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
 });
