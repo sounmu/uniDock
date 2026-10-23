@@ -68,6 +68,7 @@ export function useAiCaptions() {
   const [state, setState] = useState<AiCaptionState>(IDLE);
   const controller = useRef<AbortController | null>(null);
   const jobId = useRef<string | null>(null);
+  const jobTab = useRef<{ tabId: number; windowId: number } | null>(null);
   const phase = useRef<JobPhase>("idle");
   const generation = useRef(0);
   const mounted = useRef(false);
@@ -83,6 +84,7 @@ export function useAiCaptions() {
     const id = jobId.current;
     const active = !isTerminal(phase.current);
     jobId.current = null;
+    jobTab.current = null;
     phase.current = "idle";
     stopLocal();
     if (id) {
@@ -159,13 +161,26 @@ export function useAiCaptions() {
 
   useEffect(() => {
     mounted.current = true;
-    const changed = (_tabId: number, change: { status?: string; url?: string }) => {
-      if (change.status === "loading" || change.url !== undefined) discard();
+    // Only the player tab this job started from matters: its navigation or
+    // closing, or switching away from it in its own window. Other tabs and
+    // windows, and jobs restored on reopen (no tab), are left alone.
+    const changed = (tabId: number, change: { status?: string; url?: string }) => {
+      if (
+        tabId === jobTab.current?.tabId &&
+        (change.status === "loading" || change.url !== undefined)
+      )
+        discard();
     };
-    const switched = () => discard();
+    const removed = (tabId: number) => {
+      if (tabId === jobTab.current?.tabId) discard();
+    };
+    const switched = ({ tabId, windowId }: { tabId: number; windowId: number }) => {
+      const tab = jobTab.current;
+      if (tab && windowId === tab.windowId && tabId !== tab.tabId) discard();
+    };
     chrome.tabs.onActivated.addListener(switched);
     chrome.tabs.onUpdated.addListener(changed);
-    chrome.tabs.onRemoved.addListener(switched);
+    chrome.tabs.onRemoved.addListener(removed);
     // A job the server already accepted survives a closed panel; show it again.
     void loadActiveJob().then((id) => {
       if (!id || !mounted.current || jobId.current) return;
@@ -179,7 +194,7 @@ export function useAiCaptions() {
       mounted.current = false;
       chrome.tabs.onActivated.removeListener(switched);
       chrome.tabs.onUpdated.removeListener(changed);
-      chrome.tabs.onRemoved.removeListener(switched);
+      chrome.tabs.onRemoved.removeListener(removed);
       // Closing the panel stops local capture only; accepted jobs keep running.
       stopLocal();
     };
@@ -194,6 +209,7 @@ export function useAiCaptions() {
       if (!(await access)) throw new CaptionFlowError("PERMISSION");
       const media = await identifyMedia();
       if (!live()) return;
+      jobTab.current = { tabId: media.tabId, windowId: media.windowId };
       const key = await captionJobKey(media.contentId);
       const id = await createJob(
         key,

@@ -18,6 +18,8 @@ export interface MediaSource {
   mediaUrl: string;
   durationS: number;
   contentId: string;
+  tabId: number;
+  windowId: number;
 }
 
 /**
@@ -98,7 +100,8 @@ export async function identifyMedia(): Promise<MediaSource> {
   }
   for (const entry of results) {
     const found = entry.result;
-    if (found && allowedCaptionMediaUrl(found.mediaUrl)) return found;
+    if (found && allowedCaptionMediaUrl(found.mediaUrl))
+      return { ...found, tabId: tab.id, windowId: tab.windowId };
   }
   throw new MediaSourceError("UNSUPPORTED_MEDIA");
 }

@@ -73,10 +73,27 @@ const transcript = {
   segments: [{ start_ms: 0, end_ms: 1000, text: "안녕" }],
 };
 
+type Listener = (...args: unknown[]) => void;
+let tabEvents: Record<"activated" | "updated" | "removed", Listener[]>;
+function event(name: keyof typeof tabEvents) {
+  return {
+    addListener: (fn: Listener) => tabEvents[name].push(fn),
+    removeListener: (fn: Listener) =>
+      (tabEvents[name] = tabEvents[name].filter((f) => f !== fn)),
+  };
+}
+async function fire(name: keyof typeof tabEvents, ...args: unknown[]) {
+  await act(async () => tabEvents[name].forEach((fn) => fn(...args)));
+}
+
 beforeEach(() => {
-  const noop = { addListener: vi.fn(), removeListener: vi.fn() };
+  tabEvents = { activated: [], updated: [], removed: [] };
   vi.stubGlobal("chrome", {
-    tabs: { onActivated: noop, onUpdated: noop, onRemoved: noop },
+    tabs: {
+      onActivated: event("activated"),
+      onUpdated: event("updated"),
+      onRemoved: event("removed"),
+    },
   });
   requestCaptionMediaAccess.mockResolvedValue(true);
   identifyMedia.mockResolvedValue({
@@ -84,6 +101,8 @@ beforeEach(() => {
       "https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/0123456789abc/contents/media_files/screen.mp4",
     durationS: 100,
     contentId: "0123456789abc",
+    tabId: 7,
+    windowId: 1,
   });
   extractAudio.mockResolvedValue(new Blob(["a"], { type: "audio/mp4" }));
   createJob.mockResolvedValue("job_1");
@@ -201,4 +220,47 @@ it("cancels the server job and forgets it when the user cancels", async () => {
   expect(cancelJob).toHaveBeenCalledWith("job_1");
   expect(clearActiveJob).toHaveBeenCalled();
   expect(hook.state.phase).toBe("idle");
+});
+
+it("ignores loading, closing and activation of unrelated tabs and windows", async () => {
+  await startPendingJob();
+  await fire("updated", 999, { status: "loading" });
+  await fire("removed", 999);
+  await fire("activated", { tabId: 999, windowId: 2 });
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(clearActiveJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).not.toBe("idle");
+});
+
+it("cancels when the job's own tab navigates", async () => {
+  await startPendingJob();
+  await fire("updated", 7, { url: "https://kucom.korea.ac.kr/other" });
+  expect(cancelJob).toHaveBeenCalledWith("job_1");
+  expect(hook.state.phase).toBe("idle");
+});
+
+it("cancels when the job's tab closes or another tab in its window is selected", async () => {
+  await startPendingJob();
+  await fire("activated", { tabId: 8, windowId: 1 });
+  expect(cancelJob).toHaveBeenCalledWith("job_1");
+  await ui!.unmount();
+  cancelJob.mockClear();
+  saveActiveJob.mockClear();
+  await startPendingJob();
+  await fire("removed", 7);
+  expect(cancelJob).toHaveBeenCalledWith("job_1");
+});
+
+it("never cancels a job restored on reopen because of tab events", async () => {
+  loadActiveJob.mockResolvedValue("job_9");
+  getJob.mockReturnValue(new Promise(() => {}));
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(getJob).toHaveBeenCalledWith("job_9", expect.anything()));
+  });
+  await fire("removed", 7);
+  await fire("activated", { tabId: 8, windowId: 1 });
+  await fire("updated", 7, { status: "loading" });
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).toBe("queued");
 });
