@@ -134,12 +134,18 @@ async function popupGranted(): Promise<boolean> {
 
 /**
  * Worker side: the portal script is registered only while both the opt-in
- * boolean and the optional grant hold. An opt-in left without its grant (for
- * example revoked in chrome://extensions) is reset to off. Returns whether the
- * feature is active. Never removes the grant: the panel requests it before it
- * saves the opt-in, so a sync in between must not undo the request.
+ * boolean and the optional grant hold. Returns whether the feature is active.
+ * The worker never changes the grant itself: the panel requests it before it
+ * saves ON and returns it after it saves OFF, one change at a time, so a late
+ * worker task cannot undo a newer panel action.
+ *
+ * `resetOrphan` (worker start, grant revoked in chrome://extensions) also
+ * turns off an opt-in left without its grant, after a second read so a panel
+ * change in between is not mistaken for one.
  */
-export async function syncPopupAutoClose(): Promise<boolean> {
+export async function syncPopupAutoClose(
+  resetOrphan = false,
+): Promise<boolean> {
   const [{ enabled }, granted] = await Promise.all([
     readPopupAutoClose(),
     popupGranted(),
@@ -164,38 +170,88 @@ export async function syncPopupAutoClose(): Promise<boolean> {
     ]);
   else if (!active && registered)
     await chrome.scripting.unregisterContentScripts({ ids: [POPUP_SCRIPT.id] });
-  if (enabled && !granted) await chrome.storage.local.remove(popupAutoCloseKey);
+  if (resetOrphan && enabled && !granted) {
+    const [again, stillGranted] = await Promise.all([
+      readPopupAutoClose(),
+      popupGranted(),
+    ]);
+    if (again.enabled && !stillGranted)
+      await chrome.storage.local.remove(popupAutoCloseKey);
+  }
   return active;
 }
 
 /**
  * Worker side, after the opt-in changed (set, cleared or deleted). Open portal
- * pages reread first, while the grant still finds them. Turning on also
- * injects the script into portal tabs opened before the grant; a reinjected
- * script supersedes an older instance in the same document. Turning off
- * returns the optional grant.
+ * pages reread; turning on also injects the script into portal tabs opened
+ * before the grant (a reinjected script supersedes an older instance in the
+ * same document). Every step reads the current state, so a task that runs
+ * late only repeats the newest outcome.
  */
 export async function applyPopupAutoCloseChange(): Promise<void> {
   const active = await syncPopupAutoClose();
   await notifyPopupAutoCloseTabs();
-  if (active) {
-    await Promise.all(
-      (await popupTabs()).map((tabId) =>
-        chrome.scripting
-          .executeScript({
-            target: { tabId, frameIds: [0] },
-            files: [POPUP_SCRIPT.file],
-          })
-          .catch(() => {}),
-      ),
-    );
-    return;
-  }
+  if (!active) return;
+  await Promise.all(
+    (await popupTabs()).map((tabId) =>
+      chrome.scripting
+        .executeScript({
+          target: { tabId, frameIds: [0] },
+          files: [POPUP_SCRIPT.file],
+        })
+        .catch(() => {}),
+    ),
+  );
+}
+
+/** Returns the optional portal grant; a grant already gone is not an error. */
+export async function returnPopupGrant(): Promise<void> {
   try {
     await chrome.permissions.remove(POPUP_PERMISSION);
   } catch {
-    // Already removed; nothing is registered without the opt-in.
+    // Nothing is registered without the opt-in either way.
   }
+}
+
+// Panel side: grant and opt-in changes (the switch, local-data deletion) run
+// one at a time. The grant request has to start inside the click, so a busy
+// panel refuses a new change instead of queueing it, and shows it as busy.
+let popupChangeRunning = false;
+const popupChangeListeners = new Set<(busy: boolean) => void>();
+function setPopupChangeRunning(running: boolean) {
+  popupChangeRunning = running;
+  for (const listener of popupChangeListeners) listener(running);
+}
+export function watchPopupChangeBusy(
+  listener: (busy: boolean) => void,
+): () => void {
+  popupChangeListeners.add(listener);
+  listener(popupChangeRunning);
+  return () => popupChangeListeners.delete(listener);
+}
+/**
+ * Starts `task` synchronously (keeping the click's user gesture) unless
+ * another change is running; resolves false when refused.
+ */
+export function runPopupChange(task: () => Promise<void>): Promise<boolean> {
+  if (popupChangeRunning) return Promise.resolve(false);
+  setPopupChangeRunning(true);
+  let running: Promise<void>;
+  try {
+    running = task();
+  } catch (error) {
+    running = Promise.reject(error);
+  }
+  return running.then(
+    () => {
+      setPopupChangeRunning(false);
+      return true;
+    },
+    (error: unknown) => {
+      setPopupChangeRunning(false);
+      throw error;
+    },
+  );
 }
 
 /**

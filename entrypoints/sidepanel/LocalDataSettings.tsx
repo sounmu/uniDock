@@ -1,25 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { runPopupChange, watchPopupChangeBusy } from "../../src/popup-settings";
 
 export function LocalDataSettings() {
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState("");
+  // Deletion also clears the popup opt-in and returns its grant, so it takes
+  // the same one-at-a-time slot as the popup switch.
+  useEffect(() => watchPopupChangeBusy(setPending), []);
   async function erase() {
-    setPending(true);
     try {
-      const result = await chrome.runtime.sendMessage({
-        version: 1,
-        type: "LOCAL_DATA_DELETE_ALL",
+      const ran = await runPopupChange(async () => {
+        const result = await chrome.runtime.sendMessage({
+          version: 1,
+          type: "LOCAL_DATA_DELETE_ALL",
+        });
+        if (result?.status !== "success") throw new Error("STORAGE");
       });
-      if (result?.status !== "success") throw new Error("STORAGE");
+      if (!ran) return;
       setConfirm(false);
       setNotice(
         "로컬 데이터를 삭제했습니다. 이미 전송된 통계는 별도 삭제 요청이 필요합니다.",
       );
     } catch {
       setNotice("로컬 데이터를 삭제하지 못했습니다. 다시 시도하세요.");
-    } finally {
-      setPending(false);
     }
   }
   return (
@@ -62,6 +66,7 @@ export function LocalDataSettings() {
             ) : (
               <button
                 className="btn-secondary btn-danger"
+                disabled={pending}
                 onClick={() => setConfirm(true)}
               >
                 로컬 데이터 모두 삭제

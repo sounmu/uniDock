@@ -38,6 +38,7 @@ import {
   popupAutoCloseKey,
   popupPageSender,
   readPopupAutoClose,
+  returnPopupGrant,
   syncPopupAutoClose,
 } from "../src/popup-settings";
 
@@ -474,10 +475,10 @@ export default defineBackground(() => {
     __UNIDOCK_PLAYBACK__ && chrome.storage?.local && chrome.alarms?.onAlarm
       ? createChromePlaybackRuntime()
       : null;
-  // The panel requests the optional portal grant and writes the opt-in; this
-  // trusted side registers the portal script only while both hold, tells open
-  // portal pages to reread (including after local-data deletion) and returns
-  // the grant when the opt-in ends. Tasks run in order so quick toggles settle.
+  // The panel requests and returns the optional portal grant around the
+  // opt-in; this trusted side only keeps the portal script registered while
+  // both hold and tells open portal pages to reread (including after
+  // local-data deletion). Tasks run in order and read the current state.
   let popupSync: Promise<void> = Promise.resolve();
   const popupTask = (task: () => Promise<unknown>) => {
     popupSync = popupSync.then(task).then(
@@ -486,13 +487,13 @@ export default defineBackground(() => {
     );
   };
   if (typeof chrome.scripting?.getRegisteredContentScripts === "function")
-    popupTask(syncPopupAutoClose);
+    popupTask(() => syncPopupAutoClose(true));
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area === "local" && popupAutoCloseKey in changes)
       popupTask(applyPopupAutoCloseChange);
   });
   chrome.permissions?.onRemoved?.addListener(() =>
-    popupTask(syncPopupAutoClose),
+    popupTask(() => syncPopupAutoClose(true)),
   );
   const notifyPlayback = () => {
     try {
@@ -548,12 +549,16 @@ export default defineBackground(() => {
       void analytics
         .erase()
         .then(async () => {
+          // The opt-in goes first, then its optional grant, before the panel
+          // (which holds its popup change lock until this reply) may turn it on.
           if (!playback) {
             await chrome.storage.local.clear();
+            await returnPopupGrant();
             return { status: "success" };
           }
           // Playback erases only its own keys; reset the popup opt-in too.
           await chrome.storage.local.remove(popupAutoCloseKey);
+          await returnPopupGrant();
           return playback.command({
             version: 1,
             type: "LOCAL_DATA_DELETE_ALL",

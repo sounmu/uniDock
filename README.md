@@ -102,7 +102,7 @@ Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `sto
 
 `lms-popup` 콘텐츠 스크립트는 공지 포털 `https://lms.korea.ac.kr/*`에서 최상위 프레임만(`allFrames: false`) `document_idle`에 실행합니다. 활성화하면 `#xn-popup-wrapper > .xnp-item-wrapper[data-popup-id] > .xnp-item-close > button.xnp-item-close-button`에 해당하는 닫기 버튼만 클릭하며, 유지되는 팝업 wrapper의 자식 추가를 관찰해 나중에 추가된 팝업도 처리합니다. 같은 페이지의 미참여 설문 안내(`#xn-lms-term-survey-list`)는 `.xnlts-button-container > .xnlts-button.blue` 중 글자가 정확히 ‘설문 나가기’인 컨트롤만 클릭합니다. 같은 컨테이너의 ‘로그아웃’·‘새로고침’과 설문 항목은 클릭하지 않으며 설문에 참여·제출하지 않습니다. ‘오늘 하루 보지 않기’ 체크박스와 페이지의 콘텐츠 저장소는 조작하지 않습니다. 팝업 내용·식별자를 저장하거나 통계로 보내지 않으며 네트워크 API를 호출하지 않습니다. 포털은 선택 호스트 권한으로만 받으며 기존 Canvas API 허용 목록과 CSP는 넓히지 않습니다.
 
-이 스크립트는 manifest `content_scripts`에 없습니다. 패널이 켤 때(사용자 클릭 안에서) `chrome.permissions.request`로 포털 권한을 받은 뒤 boolean을 저장하면, 백그라운드가 켜짐과 권한이 모두 있을 때만 `scripting.registerContentScripts`로 등록하고, 이미 열려 있던 포털 탭에는 같은 파일을 `scripting.executeScript`로 한 번 넣습니다(같은 문서의 이전 인스턴스는 WXT가 정리합니다). 끄거나 로컬 데이터를 삭제하면 열린 탭에 먼저 알리고 등록을 해제한 뒤 권한을 반납합니다. 사용자가 `chrome://extensions`에서 권한을 거두면 설정도 꺼짐으로 되돌립니다. 백그라운드는 시작할 때마다 등록 상태를 설정·권한과 맞춥니다.
+이 스크립트는 manifest `content_scripts`에 없습니다. 패널이 켤 때(사용자 클릭 안에서) `chrome.permissions.request`로 포털 권한을 받은 뒤 boolean을 저장하면, 백그라운드가 켜짐과 권한이 모두 있을 때만 `scripting.registerContentScripts`로 등록하고, 이미 열려 있던 포털 탭에는 같은 파일을 `scripting.executeScript`로 한 번 넣습니다(같은 문서의 이전 인스턴스는 WXT가 정리합니다). 끄면 패널이 꺼짐을 먼저 저장하고(백그라운드가 열린 탭에 알리고 등록을 해제) 그다음 권한을 반납합니다. 로컬 데이터 삭제는 백그라운드가 설정을 지운 뒤 권한을 반납하고 응답합니다. 권한 요청·반납은 패널만 하며, 스위치와 로컬 데이터 삭제는 한 번에 하나씩만 실행되고 그동안 스위치는 비활성으로 표시됩니다. 그래서 빠르게 끄고 켜도 반납 중인 권한으로 켜짐을 저장하지 않습니다. 백그라운드는 매번 현재 설정·권한을 다시 읽어 등록만 맞추므로 늦게 실행된 작업이 새 설정을 되돌리지 않습니다. 사용자가 `chrome://extensions`에서 권한을 거두면 설정도 꺼짐으로 되돌리고, 백그라운드는 시작할 때마다 등록 상태를 설정·권한과 맞춥니다.
 
 ## 강의 자료 일괄 다운로드
 

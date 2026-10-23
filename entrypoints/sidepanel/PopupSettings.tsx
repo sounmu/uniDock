@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import {
   POPUP_PERMISSION,
   popupAutoCloseKey,
+  runPopupChange,
   watchPopupAutoClose,
+  watchPopupChangeBusy,
 } from "../../src/popup-settings";
 
 export function PopupSettings() {
@@ -20,23 +22,26 @@ export function PopupSettings() {
       () => setError("storage"),
     );
   }, []);
-  async function change(value: boolean) {
-    setPending(true);
+  // Shared with local-data deletion: one grant/opt-in change at a time.
+  useEffect(() => watchPopupChangeBusy(setPending), []);
+  function change(value: boolean) {
     setError(null);
-    try {
-      // The portal grant is optional and asked for here, inside the click:
-      // Chrome shows the prompt only for a user gesture. Turning off returns
-      // the grant from the service worker.
-      if (value && !(await chrome.permissions.request(POPUP_PERMISSION))) {
-        setError("denied");
+    // The grant request starts inside the click (Chrome prompts only for a
+    // user gesture) and before ON is saved; OFF is saved before the grant is
+    // returned. The switch stays busy until both steps finish, so a quick
+    // OFF -> ON can never request against a grant that is about to go away.
+    void runPopupChange(async () => {
+      if (value) {
+        if (!(await chrome.permissions.request(POPUP_PERMISSION))) {
+          setError("denied");
+          return;
+        }
+        await chrome.storage.local.set({ [popupAutoCloseKey]: true });
         return;
       }
-      await chrome.storage.local.set({ [popupAutoCloseKey]: value });
-    } catch {
-      setError("storage");
-    } finally {
-      setPending(false);
-    }
+      await chrome.storage.local.set({ [popupAutoCloseKey]: false });
+      await chrome.permissions.remove(POPUP_PERMISSION);
+    }).catch(() => setError("storage"));
   }
   const busy = !ready || pending;
   return (
@@ -70,7 +75,7 @@ export function PopupSettings() {
             aria-labelledby="popup-row-title"
             aria-describedby="popup-description"
             onClick={() => {
-              if (!busy) void change(!enabled);
+              if (!busy) change(!enabled);
             }}
           >
             <span className="switch-track" aria-hidden="true">
