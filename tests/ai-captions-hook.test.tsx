@@ -264,3 +264,29 @@ it("never cancels a job restored on reopen because of tab events", async () => {
   expect(cancelJob).not.toHaveBeenCalled();
   expect(hook.state.phase).toBe("queued");
 });
+
+it("drops a saved job that loads after a newer Generate started", async () => {
+  let resolveSaved!: (id: string | null) => void;
+  loadActiveJob.mockReturnValue(new Promise((resolve) => (resolveSaved = resolve)));
+  let grant!: (granted: boolean) => void;
+  requestCaptionMediaAccess.mockReturnValue(new Promise((resolve) => (grant = resolve)));
+  getJob
+    .mockResolvedValueOnce({ state: "awaiting_upload", expiresAt: "" })
+    .mockReturnValue(new Promise(() => {}));
+  ui = await mount(<Probe />);
+  await act(async () => {
+    void hook.generate();
+  });
+  expect(hook.state.phase).toBe("identifying");
+  await act(async () => {
+    resolveSaved("job_old");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    grant(true);
+    await vi.waitFor(() => expect(saveActiveJob).toHaveBeenCalledWith("job_1"));
+  });
+  expect(createJob).toHaveBeenCalledTimes(1);
+  expect(getJob).not.toHaveBeenCalledWith("job_old", expect.anything());
+  expect(hook.state.phase).toBe("queued");
+});

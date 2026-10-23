@@ -182,8 +182,17 @@ export function useAiCaptions() {
     chrome.tabs.onUpdated.addListener(changed);
     chrome.tabs.onRemoved.addListener(removed);
     // A job the server already accepted survives a closed panel; show it again.
+    // A Generate or cancel that starts while storage is read bumps the
+    // generation; the late restore must not replace it.
+    const restoreGeneration = generation.current;
     void loadActiveJob().then((id) => {
-      if (!id || !mounted.current || jobId.current) return;
+      if (
+        !id ||
+        !mounted.current ||
+        jobId.current ||
+        generation.current !== restoreGeneration
+      )
+        return;
       jobId.current = id;
       void run(async (ctx) => {
         ctx.set({ phase: "queued" });
