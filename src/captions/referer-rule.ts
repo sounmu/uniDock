@@ -5,8 +5,12 @@ export const CAPTION_RULE_PORT = "unidock-caption-rule";
 const RULE_ID_MIN = 1_947_000;
 const RULE_ID_SPAN = 1000;
 const PLAYER_REFERER = "https://kucom.korea.ac.kr/";
-const MAX_RECONNECTS = 20;
+const MAX_FAILED_RECONNECTS = 5;
+export const CAPTION_RULE_KEEPALIVE_MS = 20_000;
 export const CAPTION_RULE_SWEEP_GRACE_MS = 10_000;
+
+const isReady = (message: unknown) =>
+  (message as { type?: unknown } | null)?.type === "ready";
 
 const isCaptionRuleId = (id: number) =>
   Number.isInteger(id) && id >= RULE_ID_MIN && id < RULE_ID_MIN + RULE_ID_SPAN;
@@ -49,8 +53,11 @@ async function removeRules(ids: number[]): Promise<void> {
  * Run `fn` with a session rule that sets Referer on the extension's own request
  * for exactly `mediaUrl`. The panel removes the rule on success, failure and
  * cancel; the open port lets the background remove it if the panel closes.
- * If the worker restarts, the port drops and the panel reconnects under the
- * same name so the new worker sees the rule as live.
+ * While it runs the panel posts a keepalive on the port, because since Chrome
+ * 114 an open port alone does not keep the worker alive. If the worker still
+ * restarts, the port drops and the panel reconnects under the same name; each
+ * worker answers "ready", which resets the failure count and makes the panel
+ * re-add the same rule in case a sweep removed it.
  */
 export async function withCaptionMediaRule<T>(
   mediaUrl: string,
@@ -61,23 +68,50 @@ export async function withCaptionMediaRule<T>(
     RULE_ID_MIN + (crypto.getRandomValues(new Uint32Array(1))[0]! % RULE_ID_SPAN);
   const name = `${CAPTION_RULE_PORT}:${id}`;
   let finished = false;
-  let reconnects = 0;
+  let ruleAdded = false;
+  let failedReconnects = 0;
   let port!: chrome.runtime.Port;
+  const reassert = async () => {
+    if (finished || !ruleAdded) return;
+    try {
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [id],
+        addRules: [rule(mediaUrl, id)],
+      });
+    } catch {
+      safeLog("REQUEST_FAILED");
+    }
+  };
   const connect = () => {
-    port = chrome.runtime.connect({ name });
-    port.onDisconnect.addListener(() => {
+    const current = chrome.runtime.connect({ name });
+    port = current;
+    current.onMessage.addListener((message: unknown) => {
+      if (!isReady(message)) return;
+      failedReconnects = 0;
+      void reassert();
+    });
+    current.onDisconnect.addListener(() => {
       void chrome.runtime.lastError;
-      if (!finished && reconnects++ < MAX_RECONNECTS) connect();
+      if (!finished && failedReconnects++ < MAX_FAILED_RECONNECTS) connect();
     });
   };
   connect();
+  const keepalive = setInterval(() => {
+    try {
+      port.postMessage({ type: "keepalive" });
+    } catch {
+      // A dropped port is reconnected by its onDisconnect handler.
+    }
+  }, CAPTION_RULE_KEEPALIVE_MS);
   try {
     await chrome.declarativeNetRequest.updateSessionRules({
       addRules: [rule(mediaUrl, id)],
     });
+    ruleAdded = true;
     return await fn();
   } finally {
     finished = true;
+    clearInterval(keepalive);
     await removeRules([id]);
     port.disconnect();
   }
@@ -103,6 +137,9 @@ export function installCaptionRuleCleanup(
       return;
     }
     live.add(id);
+    // Keepalive messages need no reply; receiving them keeps the worker alive.
+    port.onMessage.addListener(() => undefined);
+    port.postMessage({ type: "ready" });
     port.onDisconnect.addListener(() => {
       live.delete(id);
       void removeRules([id]);

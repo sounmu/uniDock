@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  CAPTION_RULE_KEEPALIVE_MS,
   CAPTION_RULE_PORT,
   installCaptionRuleCleanup,
   withCaptionMediaRule,
@@ -12,8 +13,11 @@ let sessionRules: { id: number }[];
 interface PanelPort {
   name: string;
   disconnect: ReturnType<typeof vi.fn>;
+  postMessage: ReturnType<typeof vi.fn>;
   onDisconnect: { addListener(fn: () => void): void };
+  onMessage: { addListener(fn: (message: unknown) => void): void };
   drop(): void;
+  ready(): void;
 }
 let ports: PanelPort[];
 let onConnect: ((port: unknown) => void) | undefined;
@@ -28,11 +32,15 @@ beforeEach(() => {
       id: "abcdefghijklmnopabcdefghijklmnop",
       connect: vi.fn(({ name }: { name: string }) => {
         const listeners: (() => void)[] = [];
+        const messages: ((message: unknown) => void)[] = [];
         const port: PanelPort = {
           name,
           disconnect: vi.fn(),
+          postMessage: vi.fn(),
           onDisconnect: { addListener: (fn) => listeners.push(fn) },
+          onMessage: { addListener: (fn) => messages.push(fn) },
           drop: () => listeners.forEach((fn) => fn()),
+          ready: () => messages.forEach((fn) => fn({ type: "ready" })),
         };
         ports.push(port);
         return port;
@@ -96,6 +104,8 @@ function fakePort(name: string, sender: object) {
     name,
     sender,
     disconnect: vi.fn(),
+    postMessage: vi.fn(),
+    onMessage: { addListener: vi.fn() },
     onDisconnect: { addListener: (fn: () => void) => (disconnected = fn) },
     close: () => disconnected?.(),
   };
@@ -153,4 +163,85 @@ it("background start keeps a rule whose panel reconnects within the grace period
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("background does not sweep before the grace period ends", async () => {
+  vi.useFakeTimers();
+  try {
+    sessionRules = [{ id: 1947003 }];
+    const swept = installCaptionRuleCleanup(() => true, 10_000);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(updates).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await swept;
+    expect(updates).toEqual([{ removeRuleIds: [1947003] }]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("background answers ready and listens for keepalives on a panel rule port", async () => {
+  await installCaptionRuleCleanup(() => true, 0);
+  const port = fakePort(`${CAPTION_RULE_PORT}:1947004`, {});
+  onConnect!(port);
+  expect(port.postMessage).toHaveBeenCalledWith({ type: "ready" });
+  expect(port.onMessage.addListener).toHaveBeenCalled();
+});
+
+it("posts a keepalive on the rule port every 20 seconds while running", async () => {
+  vi.useFakeTimers();
+  try {
+    let finish!: () => void;
+    const running = withCaptionMediaRule(url, () => new Promise<void>((resolve) => (finish = resolve)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ports[0]!.postMessage).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(CAPTION_RULE_KEEPALIVE_MS);
+    expect(ports[0]!.postMessage).toHaveBeenCalledWith({ type: "keepalive" });
+    await vi.advanceTimersByTimeAsync(CAPTION_RULE_KEEPALIVE_MS);
+    expect(ports[0]!.postMessage).toHaveBeenCalledTimes(2);
+    finish();
+    await running;
+    await vi.advanceTimersByTimeAsync(CAPTION_RULE_KEEPALIVE_MS * 3);
+    expect(ports[0]!.postMessage).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps reconnecting across many restarts while each new worker answers ready", async () => {
+  let finish!: () => void;
+  const running = withCaptionMediaRule(url, () => new Promise<void>((resolve) => (finish = resolve)));
+  await vi.waitFor(() => expect(updates.some((u) => u.addRules)).toBe(true));
+  for (let restart = 0; restart < 30; restart++) {
+    ports.at(-1)!.drop();
+    ports.at(-1)!.ready();
+  }
+  expect(ports).toHaveLength(31);
+  finish();
+  await running;
+});
+
+it("stops reconnecting after five drops in a row with no ready answer", async () => {
+  let finish!: () => void;
+  const running = withCaptionMediaRule(url, () => new Promise<void>((resolve) => (finish = resolve)));
+  await vi.waitFor(() => expect(ports).toHaveLength(1));
+  for (let drop = 0; drop < 10; drop++) ports.at(-1)!.drop();
+  expect(ports).toHaveLength(6);
+  finish();
+  await running;
+});
+
+it("re-adds the same rule when a reconnected worker answers ready", async () => {
+  let finish!: () => void;
+  const running = withCaptionMediaRule(url, () => new Promise<void>((resolve) => (finish = resolve)));
+  await vi.waitFor(() => expect(updates.some((u) => u.addRules)).toBe(true));
+  const id = updates.find((u) => u.addRules)!.addRules![0]!.id;
+  updates = [];
+  ports.at(-1)!.drop();
+  ports.at(-1)!.ready();
+  await vi.waitFor(() => expect(updates).toHaveLength(1));
+  expect(updates[0]!.removeRuleIds).toEqual([id]);
+  expect(updates[0]!.addRules![0]!.id).toBe(id);
+  finish();
+  await running;
 });
