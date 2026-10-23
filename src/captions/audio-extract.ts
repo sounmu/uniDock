@@ -23,7 +23,7 @@ export type RangeFetch = (
   endInclusive: number,
 ) => Promise<ArrayBuffer>;
 
-const HEADER_BYTES = 16;
+const HEADER_BYTES = 8;
 const MAX_TOP_LEVEL_BOXES = 64;
 const MAX_MOOV_BYTES = 64 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
@@ -61,8 +61,25 @@ async function walkTopLevel(
   while (offset < totalSize) {
     if (found.length >= MAX_TOP_LEVEL_BOXES)
       throw new AudioExtractError("UNSUPPORTED_MEDIA");
+    // 8 bytes is the whole header unless size is 1 (64-bit largesize), so the
+    // read never reaches into the first sample after an mdat header.
     const end = Math.min(offset + HEADER_BYTES, totalSize);
-    const header = await fetchBytes(fetchRange, offset, end, signal);
+    let header = await fetchBytes(fetchRange, offset, end, signal);
+    const largesize =
+      header.length === HEADER_BYTES &&
+      new DataView(header.buffer, header.byteOffset).getUint32(0) === 1;
+    if (largesize) {
+      const large = await fetchBytes(
+        fetchRange,
+        end,
+        Math.min(end + HEADER_BYTES, totalSize),
+        signal,
+      );
+      const joined = new Uint8Array(header.length + large.length);
+      joined.set(header);
+      joined.set(large, header.length);
+      header = joined;
+    }
     const box = topLevelBox(header, offset, totalSize);
     found.push({ ...box, header: header.slice(0, Math.min(header.length, box.end - box.start)) });
     offset = box.end;

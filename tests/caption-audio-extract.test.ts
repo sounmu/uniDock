@@ -8,6 +8,8 @@ import { AudioExtractError, extractAudio } from "../src/captions/audio-extract";
 // ffmpeg -f lavfi -i testsrc=size=160x90:rate=10 -f lavfi -i sine=frequency=440:sample_rate=16000
 //   -t 3 -c:v mpeg4 -q:v 10 -c:a aac -b:a 32k -ac 1 -movflags +faststart front.mp4
 // ffmpeg -i front.mp4 -c copy tail.mp4   (moov after mdat)
+// video-first.mp4: the same command with -itsoffset 0.5 before the sine input and
+// no +faststart, so the first sample right after the mdat header is video.
 const dir = path.resolve(__dirname, "fixtures/media");
 
 interface Parsed {
@@ -34,9 +36,24 @@ function parse(bytes: ArrayBuffer): Parsed {
   return { info: parsed, samples };
 }
 
+// tail.mp4 is ftyp(28) free(8) mdat(...): rewrite free + the 8-byte mdat header
+// as one 16-byte largesize mdat header so sample offsets stay the same.
+function withLargesizeMdat(bytes: Buffer): Buffer {
+  const out = Buffer.from(bytes);
+  expect(out.toString("latin1", 32, 36)).toBe("free");
+  expect(out.toString("latin1", 40, 44)).toBe("mdat");
+  const mdatSize = out.readUInt32BE(36);
+  out.writeUInt32BE(1, 28);
+  out.write("mdat", 32, "latin1");
+  out.writeUInt32BE(0, 36);
+  out.writeUInt32BE(mdatSize + 8, 40);
+  return out;
+}
+
 function source(name: string) {
-  const bytes = readFileSync(path.join(dir, name));
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const raw = readFileSync(path.join(dir, name.replace(":largesize", "")));
+  const bytes = name.endsWith(":largesize") ? withLargesizeMdat(raw) : raw;
+  const buffer = new Uint8Array(bytes).buffer;
   const calls: [number, number][] = [];
   const fetchRange = async (start: number, end: number) => {
     calls.push([start, end]);
@@ -45,7 +62,7 @@ function source(name: string) {
   return { buffer, calls, fetchRange };
 }
 
-for (const name of ["front.mp4", "tail.mp4"]) {
+for (const name of ["front.mp4", "tail.mp4", "video-first.mp4", "tail.mp4:largesize"]) {
   describe(`real remux of ${name}`, () => {
     it("keeps only the audio track and never fetches video samples", async () => {
       const { buffer, calls, fetchRange } = source(name);
