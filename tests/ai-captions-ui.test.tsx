@@ -94,3 +94,16 @@ it("surfaces a failure message", async () => {
   await render();
   expect(ui.host.textContent).toContain("토큰");
 });
+
+it("explains a CDN refusal and a CDN network failure instead of a missing audio track", async () => {
+  for (const [errorCode, text] of [
+    ["MEDIA_DENIED", "강의 영상 서버가 요청을 거부했습니다"],
+    ["MEDIA_NETWORK", "강의 영상 서버에서 음성을 받지 못했습니다"],
+  ] as const) {
+    current = { phase: "failed", progress: null, errorCode, expiresAt: null, result: null };
+    await render();
+    expect(ui.host.textContent).toContain(text);
+    expect(ui.host.textContent).not.toContain("음성 트랙을 찾지 못했습니다");
+    await ui.unmount();
+  }
+});

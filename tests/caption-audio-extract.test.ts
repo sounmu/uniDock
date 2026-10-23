@@ -103,12 +103,12 @@ it("reports a non-MP4 body as UNSUPPORTED_MEDIA", async () => {
   ).rejects.toMatchObject({ code: "UNSUPPORTED_MEDIA" });
 });
 
-it("maps a failed range fetch to NETWORK", async () => {
+it("maps a failed range fetch to MEDIA_NETWORK", async () => {
   await expect(
     extractAudio(1000, async () => {
       throw new TypeError("Failed to fetch");
     }),
-  ).rejects.toMatchObject({ code: "NETWORK" });
+  ).rejects.toMatchObject({ code: "MEDIA_NETWORK" });
 });
 
 it("stops between audio ranges once aborted", async () => {

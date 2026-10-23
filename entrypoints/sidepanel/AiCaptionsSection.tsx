@@ -16,6 +16,9 @@ const errorText: Record<string, string> = {
   ACTIVATE_TAB: "KU 강의 플레이어 탭을 선택한 뒤 다시 시도하세요.",
   PERMISSION: "강의 영상 서버 접근을 허용해야 음성을 분리할 수 있습니다.",
   UNSUPPORTED_MEDIA: "이 강의에서는 음성 트랙을 찾지 못했습니다.",
+  MEDIA_DENIED:
+    "강의 영상 서버가 요청을 거부했습니다. 플레이어 탭을 새로 고친 뒤 다시 시도하세요.",
+  MEDIA_NETWORK: "강의 영상 서버에서 음성을 받지 못했습니다. 다시 시도하세요.",
   TOO_LARGE: "음성이 너무 깁니다. 서버 제한을 넘었습니다.",
   NO_SERVER: "자막 서버 주소가 설정되지 않았습니다.",
   NO_TOKEN: "정보 화면에서 자막 서버 토큰을 먼저 저장하세요.",

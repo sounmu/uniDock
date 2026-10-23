@@ -103,3 +103,22 @@ it("rejects a 206 whose range starts elsewhere but ends where requested", async 
     code: "UNSUPPORTED_MEDIA",
   });
 });
+
+it("reports a CDN 403 as MEDIA_DENIED, not as a file without audio", async () => {
+  for (const status of [401, 403]) {
+    vi.stubGlobal("fetch", vi.fn(async () => respond(status, new Uint8Array(0), {})));
+    const reader = mediaRangeReader(url, new AbortController().signal);
+    await expect(reader.totalSize()).rejects.toMatchObject({ code: "MEDIA_DENIED" });
+    await expect(reader.fetchRange(10, 12)).rejects.toMatchObject({ code: "MEDIA_DENIED" });
+  }
+});
+
+it("reports a failed CDN request as MEDIA_NETWORK, or ABORTED once cancelled", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+  const reader = mediaRangeReader(url, new AbortController().signal);
+  await expect(reader.totalSize()).rejects.toMatchObject({ code: "MEDIA_NETWORK" });
+  const controller = new AbortController();
+  controller.abort();
+  const cancelled = mediaRangeReader(url, controller.signal);
+  await expect(cancelled.fetchRange(0, 7)).rejects.toMatchObject({ code: "ABORTED" });
+});

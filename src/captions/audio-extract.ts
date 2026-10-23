@@ -9,7 +9,8 @@ import {
 export type AudioExtractErrorCode =
   | "UNSUPPORTED_MEDIA"
   | "TOO_LARGE"
-  | "NETWORK"
+  | "MEDIA_DENIED"
+  | "MEDIA_NETWORK"
   | "ABORTED";
 
 export class AudioExtractError extends Error {
@@ -43,7 +44,7 @@ async function fetchBytes(
     return new Uint8Array(await fetchRange(start, end - 1));
   } catch (error) {
     if (error instanceof AudioExtractError) throw error;
-    throw new AudioExtractError(signal?.aborted ? "ABORTED" : "NETWORK");
+    throw new AudioExtractError(signal?.aborted ? "ABORTED" : "MEDIA_NETWORK");
   }
 }
 

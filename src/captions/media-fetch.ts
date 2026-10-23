@@ -52,14 +52,25 @@ export function mediaRangeReader(mediaUrl: string, signal: AbortSignal) {
     const forward = () => local.abort();
     signal.addEventListener("abort", forward, { once: true });
     try {
-      const response = await fetch(mediaUrl, {
-        headers: { Range: `bytes=${start}-${endInclusive}` },
-        credentials: "omit",
-        cache: "no-store",
-        redirect: "error",
-        referrerPolicy: "no-referrer",
-        signal: local.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(mediaUrl, {
+          headers: { Range: `bytes=${start}-${endInclusive}` },
+          credentials: "omit",
+          cache: "no-store",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          signal: local.signal,
+        });
+      } catch {
+        throw new AudioExtractError(signal.aborted ? "ABORTED" : "MEDIA_NETWORK");
+      }
+      // The CDN answers 403 when the player Referer is missing; that is an
+      // access problem, not a file without audio.
+      if (response.status === 401 || response.status === 403) {
+        local.abort();
+        throw new AudioExtractError("MEDIA_DENIED");
+      }
       const range = parseContentRange(response.headers.get("content-range"));
       const length = response.headers.get("content-length");
       const expected = endInclusive - start + 1;
