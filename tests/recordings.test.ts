@@ -738,6 +738,20 @@ it("reads only KU player iframes out of post HTML, once each, without options", 
   ).join("");
   expect(playerEmbeds(many)).toHaveLength(20);
 });
+it("reads malformed iframe HTML under the size limit in linear time", () => {
+  const unclosed = "<iframe ".repeat(62000);
+  const attributes = `<iframe ${" a".repeat(240000)}`;
+  const longTag = `<iframe ${"a".repeat(3000)} src="https://kucom.korea.ac.kr/em/6ace04083ab26">`;
+  const started = performance.now();
+  expect(playerEmbeds(unclosed)).toEqual([]);
+  expect(playerEmbeds(attributes)).toEqual([]);
+  expect(
+    playerEmbeds(
+      `${longTag}<iframe src="https://kucom.korea.ac.kr/em/6ac796651ce34"><iframe `,
+    ),
+  ).toEqual(["https://kucom.korea.ac.kr/em/6ac796651ce34"]);
+  expect(performance.now() - started).toBeLessThan(200);
+});
 it("lists board videos with a board tool page and a direct player launch, outside playback batches", () => {
   const store = catalog();
   const [video, lecture] = store.replace(

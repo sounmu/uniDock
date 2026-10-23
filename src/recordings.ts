@@ -89,13 +89,22 @@ export function availabilitySnapshot(row: Metadata): Metadata {
 }
 // KU player videos embedded in post HTML. Only the canonical player page is
 // kept: no query, no other host, at most a few per post, in document order.
+// Each tag is cut at its own `>` before reading attributes, and scanning stops
+// at an unclosed tag, so malformed HTML is read once (linear in its length).
 export function playerEmbeds(content: unknown): string[] {
   if (typeof content !== "string" || content.length > 500000) return [];
   const urls: string[] = [];
-  for (const match of content.matchAll(
-    /<iframe\b[^>]*?\ssrc\s*=\s*["']([^"']{1,300})["']/gi,
-  )) {
-    const canonical = embeddedPlayer(match[1]!.replace(/&amp;/g, "&"));
+  const start = /<iframe\b/gi;
+  for (let match = start.exec(content); match; match = start.exec(content)) {
+    const end = content.indexOf(">", start.lastIndex);
+    if (end < 0) break;
+    start.lastIndex = end + 1;
+    if (end - match.index > 2000) continue;
+    const src = /\ssrc\s*=\s*["']([^"']{1,300})["']/i.exec(
+      content.slice(match.index, end),
+    );
+    if (!src) continue;
+    const canonical = embeddedPlayer(src[1]!.replace(/&amp;/g, "&"));
     if (!canonical || urls.includes(canonical)) continue;
     urls.push(canonical);
     if (urls.length >= 20) break;
