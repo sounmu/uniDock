@@ -35,14 +35,29 @@ export async function captionJobKey(contentId: string): Promise<string> {
   return `unidock-${hex(mac).slice(0, 40)}`;
 }
 
-export async function loadActiveJob(): Promise<string | null> {
-  const values = await chrome.storage.local.get(CAPTION_ACTIVE_JOB_KEY);
-  const value = values[CAPTION_ACTIVE_JOB_KEY];
-  return typeof value === "string" && /^[\w-]{1,128}$/.test(value) ? value : null;
+export interface ActiveJob {
+  jobId: string;
+  /** `captionJobKey` of the lecture the job belongs to. */
+  key: string;
 }
 
-export async function saveActiveJob(jobId: string): Promise<void> {
-  await chrome.storage.local.set({ [CAPTION_ACTIVE_JOB_KEY]: jobId });
+export async function loadActiveJob(): Promise<ActiveJob | null> {
+  const values = await chrome.storage.local.get(CAPTION_ACTIVE_JOB_KEY);
+  const value = values[CAPTION_ACTIVE_JOB_KEY] as Partial<ActiveJob> | undefined;
+  const jobId = value?.jobId;
+  const key = value?.key;
+  return typeof jobId === "string" &&
+    /^[\w-]{1,128}$/.test(jobId) &&
+    typeof key === "string" &&
+    /^unidock-[0-9a-f]{40}$/.test(key)
+    ? { jobId, key }
+    : null;
+}
+
+export async function saveActiveJob(job: ActiveJob): Promise<void> {
+  await chrome.storage.local.set({
+    [CAPTION_ACTIVE_JOB_KEY]: { jobId: job.jobId, key: job.key },
+  });
 }
 
 export async function clearActiveJob(): Promise<void> {

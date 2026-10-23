@@ -42,13 +42,21 @@ it("gives a different key on another install (salt)", async () => {
   expect(await captionJobKey("0123456789abc")).not.toBe(first);
 });
 
-it("stores, reads and clears the accepted job id", async () => {
+it("stores, reads and clears the accepted job with its lecture key", async () => {
+  const key = await captionJobKey("0123456789abc");
   expect(await loadActiveJob()).toBeNull();
-  await saveActiveJob("job_1");
-  expect(await loadActiveJob()).toBe("job_1");
-  store[CAPTION_ACTIVE_JOB_KEY] = "bad id/..";
-  expect(await loadActiveJob()).toBeNull();
-  await saveActiveJob("job_2");
+  await saveActiveJob({ jobId: "job_1", key });
+  expect(await loadActiveJob()).toEqual({ jobId: "job_1", key });
+  for (const bad of [
+    "job_1",
+    { jobId: "bad id/..", key },
+    { jobId: "job_1", key: "0123456789abc" },
+    { jobId: "job_1" },
+  ]) {
+    store[CAPTION_ACTIVE_JOB_KEY] = bad;
+    expect(await loadActiveJob()).toBeNull();
+  }
+  await saveActiveJob({ jobId: "job_2", key });
   await clearActiveJob();
   expect(await loadActiveJob()).toBeNull();
 });

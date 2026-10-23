@@ -145,7 +145,7 @@ it("creates the job first, then extracts, uploads, saves and shows the transcrip
     extractAudio.mock.invocationCallOrder[0]!,
   );
   expect(uploadAudio).toHaveBeenCalledWith("job_1", expect.any(Blob), expect.anything());
-  expect(saveActiveJob).toHaveBeenCalledWith("job_1");
+  expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_1", key: "unidock-hashedkey" });
 });
 
 it("shows an existing accepted job for a duplicate request without re-extracting", async () => {
@@ -185,7 +185,7 @@ it("reports a failure code when identification fails", async () => {
 });
 
 it("re-queries a saved accepted job when the panel opens again", async () => {
-  loadActiveJob.mockResolvedValue("job_9");
+  loadActiveJob.mockResolvedValue({ jobId: "job_9", key: "unidock-hashedkey" });
   getJob.mockResolvedValueOnce(succeeded);
   ui = await mount(<Probe />);
   await act(async () => {
@@ -202,7 +202,7 @@ async function startPendingJob() {
   ui = await mount(<Probe />);
   await act(async () => {
     void hook.generate();
-    await vi.waitFor(() => expect(saveActiveJob).toHaveBeenCalledWith("job_1"));
+    await vi.waitFor(() => expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_1", key: "unidock-hashedkey" }));
   });
 }
 
@@ -252,7 +252,7 @@ it("cancels when the job's tab closes or another tab in its window is selected",
 });
 
 it("never cancels a job restored on reopen because of tab events", async () => {
-  loadActiveJob.mockResolvedValue("job_9");
+  loadActiveJob.mockResolvedValue({ jobId: "job_9", key: "unidock-hashedkey" });
   getJob.mockReturnValue(new Promise(() => {}));
   ui = await mount(<Probe />);
   await act(async () => {
@@ -266,7 +266,7 @@ it("never cancels a job restored on reopen because of tab events", async () => {
 });
 
 it("drops a saved job that loads after a newer Generate started", async () => {
-  let resolveSaved!: (id: string | null) => void;
+  let resolveSaved!: (saved: { jobId: string; key: string } | null) => void;
   loadActiveJob.mockReturnValue(new Promise((resolve) => (resolveSaved = resolve)));
   let grant!: (granted: boolean) => void;
   requestCaptionMediaAccess.mockReturnValue(new Promise((resolve) => (grant = resolve)));
@@ -279,14 +279,41 @@ it("drops a saved job that loads after a newer Generate started", async () => {
   });
   expect(hook.state.phase).toBe("identifying");
   await act(async () => {
-    resolveSaved("job_old");
+    resolveSaved({ jobId: "job_old", key: "unidock-hashedkey" });
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   await act(async () => {
     grant(true);
-    await vi.waitFor(() => expect(saveActiveJob).toHaveBeenCalledWith("job_1"));
+    await vi.waitFor(() => expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_1", key: "unidock-hashedkey" }));
   });
   expect(createJob).toHaveBeenCalledTimes(1);
   expect(getJob).not.toHaveBeenCalledWith("job_old", expect.anything());
   expect(hook.state.phase).toBe("queued");
+});
+
+it("does not show a saved job on a different lecture", async () => {
+  loadActiveJob.mockResolvedValue({
+    jobId: "job_other",
+    key: "unidock-ffffffffffffffffffffffffffffffffffffffff",
+  });
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(identifyMedia).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(getJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).toBe("idle");
+});
+
+it("does not restore when the current tab is not a KU player", async () => {
+  const { MediaSourceError } = await import("../src/captions/media-source");
+  identifyMedia.mockRejectedValue(new MediaSourceError("ACTIVATE_TAB"));
+  loadActiveJob.mockResolvedValue({ jobId: "job_9", key: "unidock-hashedkey" });
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(identifyMedia).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(getJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).toBe("idle");
 });

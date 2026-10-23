@@ -185,20 +185,28 @@ export function useAiCaptions() {
     // A Generate or cancel that starts while storage is read bumps the
     // generation; the late restore must not replace it.
     const restoreGeneration = generation.current;
-    void loadActiveJob().then((id) => {
-      if (
-        !id ||
-        !mounted.current ||
-        jobId.current ||
-        generation.current !== restoreGeneration
-      )
+    const stale = () =>
+      !mounted.current ||
+      jobId.current !== null ||
+      generation.current !== restoreGeneration;
+    void (async () => {
+      const saved = await loadActiveJob();
+      if (!saved || stale()) return;
+      // Show the saved job only on the lecture it was made for.
+      let key: string;
+      try {
+        key = await captionJobKey((await identifyMedia()).contentId);
+      } catch {
         return;
+      }
+      if (key !== saved.key || stale()) return;
+      const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
         ctx.set({ phase: "queued" });
         await poll(id, ctx);
       });
-    });
+    })();
     return () => {
       mounted.current = false;
       chrome.tabs.onActivated.removeListener(switched);
@@ -242,7 +250,7 @@ export function useAiCaptions() {
         await uploadAudio(id, audio, signal);
       }
       if (!live()) return;
-      await saveActiveJob(id);
+      await saveActiveJob({ jobId: id, key });
       set({ phase: "queued" });
       await poll(id, ctx);
     });
