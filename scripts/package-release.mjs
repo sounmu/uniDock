@@ -113,7 +113,7 @@ for (const file of files) {
       "unidock-caption-rule",
       "captions_ai",
       "caption_server_",
-      "accounts.google.com",
+      "auth/handoff",
       "launchWebAuthFlow",
     ])
       assert(!code.includes(marker), `AI caption code leaked into ${file}`);

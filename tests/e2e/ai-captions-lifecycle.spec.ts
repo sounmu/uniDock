@@ -281,6 +281,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         chrome.storage.local.set({
           [key]: {
             id: "e2e-session-00000001",
+            loginId: "e2e-login-000000001",
             accessToken: token,
             accessExpiresAt: "2099-01-01T00:00:00Z",
             refreshToken: `e2e-refresh-${"y".repeat(32)}`,

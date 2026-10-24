@@ -17,10 +17,10 @@ export const CAPTION_SESSION_EPOCH_KEY = "unidock.caption-session-epoch.v1";
 // last may store its session; an earlier one that finishes later is dropped.
 const LOGIN_ATTEMPT_KEY = "unidock.caption-login-attempt.v1";
 
-const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
-// RFC 9207: Google's discovery document sets
-// authorization_response_iss_parameter_supported, so a response must carry it.
-const GOOGLE_ISSUER = "https://accounts.google.com";
+// The broker runs the Google login as its own web client (ADR-0012 in the
+// server repository); the extension only opens this page and receives a
+// one-use handoff code bound to its verifier.
+const LOGIN_START = "/v1/auth/google/start";
 const COMMIT_LOCK = "unidock-caption-commit";
 const REFRESH_LOCK = "unidock-caption-refresh";
 const REFRESH_MARGIN_MS = 30_000;
@@ -30,6 +30,11 @@ const REFRESH_TIMEOUT_MS = 15_000;
 export interface CaptionSession {
   /** Local generation id, new on every save; the identity commits compare. */
   id: string;
+  /**
+   * Lineage of one sign-in, kept across refreshes and new for every sign-in.
+   * A request started under one login is never retried under another.
+   */
+  loginId: string;
   accessToken: string;
   accessExpiresAt: string;
   refreshToken: string;
@@ -57,6 +62,7 @@ function parseSession(value: unknown): CaptionSession | null {
   const v = value as Partial<CaptionSession> | null | undefined;
   return v &&
     sessionId(v.id) &&
+    sessionId(v.loginId) &&
     token(v.accessToken) &&
     time(v.accessExpiresAt) &&
     token(v.refreshToken) &&
@@ -64,6 +70,7 @@ function parseSession(value: unknown): CaptionSession | null {
     email(v.email)
     ? {
         id: v.id,
+        loginId: v.loginId,
         accessToken: v.accessToken,
         accessExpiresAt: v.accessExpiresAt,
         refreshToken: v.refreshToken,
@@ -73,10 +80,14 @@ function parseSession(value: unknown): CaptionSession | null {
     : null;
 }
 
-export function sessionFromResponse(body: Record<string, unknown>): CaptionSession {
+export function sessionFromResponse(
+  body: Record<string, unknown>,
+  loginId: string = random(16),
+): CaptionSession {
   const user = body.user as { email?: unknown } | undefined;
   const session = parseSession({
     id: random(16),
+    loginId,
     accessToken: body.access_token,
     accessExpiresAt: body.access_token_expires_at,
     refreshToken: body.refresh_token,
@@ -105,7 +116,6 @@ export interface AuthorizationRequest {
   url: string;
   verifier: string;
   state: string;
-  nonce: string;
   redirectUri: string;
 }
 
@@ -117,21 +127,15 @@ export async function authorizationRequest(): Promise<AuthorizationRequest> {
     ),
   );
   const state = random(16);
-  const nonce = random(16);
   const redirectUri = chrome.identity.getRedirectURL();
-  const url = new URL(GOOGLE_AUTHORIZE);
+  const url = new URL(LOGIN_START, captionServerOrigin());
   url.search = new URLSearchParams({
-    client_id: __UNIDOCK_GOOGLE_CLIENT_ID__,
     redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "openid email",
-    code_challenge: challenge,
-    code_challenge_method: "S256",
     state,
-    nonce,
-    prompt: "select_account",
+    handoff_challenge: challenge,
+    handoff_challenge_method: "S256",
   }).toString();
-  return { url: url.toString(), verifier, state, nonce, redirectUri };
+  return { url: url.toString(), verifier, state, redirectUri };
 }
 
 export function authorizationCode(
@@ -149,12 +153,13 @@ export function authorizationCode(
   if (url.origin !== expected.origin || url.pathname !== expected.pathname)
     throw new CaptionServerError("LOGIN_FAILED");
   const params = url.searchParams;
-  if (params.get("state") !== state || params.get("iss") !== GOOGLE_ISSUER)
+  // RFC 9207 style: the response names its issuer, which must be our broker.
+  if (params.get("state") !== state || params.get("iss") !== captionServerOrigin())
     throw new CaptionServerError("LOGIN_FAILED");
   if (params.get("error") === "access_denied")
     throw new CaptionServerError("LOGIN_CANCELLED");
   const code = params.get("code");
-  if (params.has("error") || !code || code.length > 2048)
+  if (params.has("error") || !code || !/^[\w-]{43,128}$/.test(code))
     throw new CaptionServerError("LOGIN_FAILED");
   return code;
 }
@@ -166,9 +171,13 @@ const jsonInit = (body: unknown): RequestInit => ({
 });
 
 export async function signIn(): Promise<CaptionSession> {
-  const epoch = await readEpoch();
-  const loginAttempt = random(16);
-  await chrome.storage.session.set({ [LOGIN_ATTEMPT_KEY]: loginAttempt });
+  // Requested before any other await, so attempts are ordered by the commit
+  // lock's queue: the sign-in started last is the one that may store.
+  const { epoch, loginAttempt } = await withLock(COMMIT_LOCK, async () => {
+    const attempt = random(16);
+    await chrome.storage.session.set({ [LOGIN_ATTEMPT_KEY]: attempt });
+    return { epoch: await readEpoch(), loginAttempt: attempt };
+  });
   const request = await authorizationRequest();
   let responseUrl: string | undefined;
   try {
@@ -182,12 +191,11 @@ export async function signIn(): Promise<CaptionSession> {
   if (!responseUrl) throw new CaptionServerError("LOGIN_CANCELLED");
   const code = authorizationCode(responseUrl, request.redirectUri, request.state);
   const response = await serverFetch(
-    "/v1/auth/google",
+    "/v1/auth/handoff",
     jsonInit({
       code,
       code_verifier: request.verifier,
       redirect_uri: request.redirectUri,
-      nonce: request.nonce,
     }),
   );
   if (!response.ok) {
@@ -287,23 +295,26 @@ async function commit(
   });
 }
 
-let refreshing: Promise<CaptionSession | null> | null = null;
-
 /**
  * Exchange the refresh token of `stale` once. The refresh lock spans the
  * network call so two pages never spend the same refresh token (the broker
  * would revoke the whole session); the result is stored only through
- * `commit`. When another page already refreshed or the user signed in again,
- * the stored session is returned instead.
+ * `commit`. When another page already refreshed this login, its session is
+ * returned; a different login never is. There is deliberately no in-memory
+ * shared promise: callers queue on the lock and each re-checks the stored
+ * session under it, so a request of one login can never join another's refresh.
  */
 function refreshSession(stale: CaptionSession): Promise<CaptionSession | null> {
-  refreshing ??= withLock(REFRESH_LOCK, async () => {
+  return withLock(REFRESH_LOCK, async () => {
     const { epoch, session: current } = await withLock(COMMIT_LOCK, readSnapshot);
-    if (!current) return null;
-    if (current.id !== stale.id) return current;
+    // Another page already refreshed this login: use its result. A different
+    // login (or none) means the caller's work belonged to an ended session.
+    const sameLogin = (session: CaptionSession | null) =>
+      session && session.loginId === stale.loginId ? session : null;
+    if (!current || current.id !== stale.id) return sameLogin(current);
     const expect = { epoch, sessionId: current.id };
     const endWith = async (next: CaptionSession | null) =>
-      (await commit(expect, next)).applied ? next : loadSession();
+      (await commit(expect, next)).applied ? next : sameLogin(await loadSession());
     if (Date.parse(current.refreshExpiresAt) <= Date.now()) return endWith(null);
     let response: Response;
     try {
@@ -317,19 +328,17 @@ function refreshSession(stale: CaptionSession): Promise<CaptionSession | null> {
     }
     if (response.status === 401) return endWith(null);
     if (!response.ok) throw await errorFor(response);
-    const next = sessionFromResponse(await readJson(response));
+    const next = sessionFromResponse(await readJson(response), current.loginId);
     const stored = await endWith(next);
     if (stored !== next) revokeQuietly(next.accessToken);
     return stored;
-  }).finally(() => {
-    refreshing = null;
   });
-  return refreshing;
 }
 
-async function usableSession(): Promise<CaptionSession> {
+async function usableSession(loginId?: string): Promise<CaptionSession> {
   const session = await loadSession();
-  if (!session) throw new CaptionServerError("LOGIN_REQUIRED");
+  if (!session || (loginId !== undefined && session.loginId !== loginId))
+    throw new CaptionServerError("LOGIN_REQUIRED");
   if (Date.parse(session.accessExpiresAt) - REFRESH_MARGIN_MS > Date.now())
     return session;
   const next = await refreshSession(session);
@@ -354,8 +363,10 @@ export async function authorizedFetch(
   path: string,
   init: RequestInit,
   signal?: AbortSignal,
+  /** Send only under this login; another login means LOGIN_REQUIRED. */
+  loginId?: string,
 ): Promise<Response> {
-  let used = await usableSession();
+  let used = await usableSession(loginId);
   let response = await serverFetch(path, withBearer(init, used.accessToken), signal);
   if (response.status === 401 && (await serverErrorCode(response)) === "TOKEN_EXPIRED") {
     const next = await refreshSession(used);
@@ -376,13 +387,25 @@ export async function authorizedFetch(
  * ended.
  */
 export async function signOutEverywhere(): Promise<void> {
+  const started = await loadSession();
+  if (!started) return;
   try {
-    const response = await authorizedFetch("/v1/me/sessions", { method: "DELETE" });
+    const response = await authorizedFetch(
+      "/v1/me/sessions",
+      { method: "DELETE" },
+      undefined,
+      started.loginId,
+    );
     if (!response.ok) throw await errorFor(response);
   } catch (error) {
     if ((error as { code?: unknown }).code !== "LOGIN_REQUIRED") throw error;
   }
-  await revokeAndClear(() => chrome.storage.local.remove(CAPTION_SESSION_KEY));
+  // The broker already ended every session. Forget the local one only if it
+  // is still the login this started from; a sign-in completed meanwhile stays.
+  await withLock(COMMIT_LOCK, async () => {
+    if ((await loadSession())?.loginId === started.loginId)
+      await chrome.storage.local.remove(CAPTION_SESSION_KEY);
+  });
 }
 
 /** Best-effort logout: forget the session locally, then revoke it at the broker. */

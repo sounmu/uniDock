@@ -7,7 +7,6 @@ export default defineConfig({
     __UNIDOCK_PLAYBACK__: "true",
     __UNIDOCK_AI_CAPTIONS__: "true",
     __UNIDOCK_CAPTION_SERVER__: JSON.stringify("https://captions.test"),
-    __UNIDOCK_GOOGLE_CLIENT_ID__: JSON.stringify("test-client.apps.googleusercontent.com"),
   },
   test: {
     exclude: [...configDefaults.exclude, "tests/e2e/**"],

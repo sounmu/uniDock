@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:playback": "npm run build:playback && playwright test",
-    "test:e2e:ai-captions": "UNIDOCK_CAPTION_SERVER=https://captions.test UNIDOCK_GOOGLE_CLIENT_ID=e2e-client.apps.googleusercontent.com npm run build:ai-captions && playwright test",
+    "test:e2e:ai-captions": "UNIDOCK_CAPTION_SERVER=https://captions.test npm run build:ai-captions && playwright test",
     "test:e2e:analytics": "node scripts/test-analytics-e2e.mjs",
     "check": "npm run pages:check && npm run lint && npm run typecheck && npm test && npm run build",
     "pages:sync": "node scripts/pages.mjs",

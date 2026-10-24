@@ -197,12 +197,19 @@ describe("the client sends spec-shaped requests", () => {
     }
   });
 
-  it("signs in with a valid GoogleAuthRequest", async () => {
+  it("opens a valid login start and signs in with a valid HandoffRequest", async () => {
     launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
     const calls = mockServer(() => json(fixture("session.json")));
     await signIn();
     operation(calls[0]!);
-    expectValid("GoogleAuthRequest", JSON.parse(calls[0]!.body as string));
+    expectValid("HandoffRequest", JSON.parse(calls[0]!.body as string));
+    const start = new URL(launchWebAuthFlow.mock.calls[0]![0].url);
+    const params = spec.paths["/v1/auth/google/start"]!.get!.parameters as {
+      name: string;
+      schema: object;
+    }[];
+    expect([...start.searchParams.keys()].sort()).toEqual(params.map((p) => p.name).sort());
+    for (const param of params) expectParam(param.schema, start.searchParams.get(param.name) ?? "");
   });
 
   it("lists and ends device sessions through spec operations", async () => {
@@ -215,7 +222,6 @@ describe("the client sends spec-shaped requests", () => {
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /v1/me/sessions",
       "DELETE /v1/me/sessions",
-      "POST /v1/auth/logout",
     ]);
   });
 

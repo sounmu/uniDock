@@ -5,10 +5,12 @@ import { CAPTION_SESSION_KEY } from "../src/caption-server-settings";
 
 export const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 export const REDIRECT_URI = `https://${EXTENSION_ID}.chromiumapp.org/`;
-export const ISSUER = "https%3A%2F%2Faccounts.google.com";
-/** The redirect Google sends back for the request URL `url`. */
-export const googleRedirect = (url: string, extra = "") =>
-  `${REDIRECT_URI}?code=4/abc&state=${new URL(url).searchParams.get("state")}&iss=${ISSUER}${extra}`;
+/** The broker's issuer value in the handoff redirect (its origin). */
+export const ISSUER = encodeURIComponent(__UNIDOCK_CAPTION_SERVER__);
+export const HANDOFF_CODE = "h".repeat(43);
+/** The redirect the broker sends back for the login start URL `url`. */
+export const googleRedirect = (url: string, code = HANDOFF_CODE) =>
+  `${REDIRECT_URI}?code=${code}&state=${new URL(url).searchParams.get("state")}&iss=${ISSUER}`;
 
 export function fixture(name: string): Record<string, unknown> {
   return JSON.parse(
@@ -89,6 +91,7 @@ export function seedSession(
 ) {
   store[CAPTION_SESSION_KEY] = {
     id: "seed-session-0001",
+    loginId: "seed-login-000001",
     accessToken: `at_seed_${"s".repeat(40)}`,
     accessExpiresAt: "2099-01-01T00:00:00Z",
     refreshToken: `rt_${"b".repeat(40)}`,

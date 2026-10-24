@@ -14,10 +14,5 @@ declare global {
    * `UNIDOCK_CAPTION_SERVER`. Empty string in release builds.
    */
   const __UNIDOCK_CAPTION_SERVER__: string;
-  /**
-   * Google OAuth web client ID from `UNIDOCK_GOOGLE_CLIENT_ID` for the AI
-   * caption sign-in. Empty string in release builds.
-   */
-  const __UNIDOCK_GOOGLE_CLIENT_ID__: string;
 }
 export {};

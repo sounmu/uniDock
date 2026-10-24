@@ -8,18 +8,9 @@ const playback = process.env.UNIDOCK_PLAYBACK === "1";
 const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1";
 const CAPTION_CDN = "https://korea-cms-object.cdn.gov-ntruss.com";
 const captionServer = aiCaptions ? captionServerOrigin() : "";
-const googleClientId = aiCaptions ? captionGoogleClientId() : "";
 // Optional public key that pins the extension ID, so the OAuth redirect URI
-// (https://<id>.chromiumapp.org/) and the server's CORS allowlist stay valid.
+// (https://<id>.chromiumapp.org/) the broker allows and its CORS allowlist stay valid.
 const extensionKey = aiCaptions ? process.env.UNIDOCK_EXTENSION_KEY : undefined;
-function captionGoogleClientId(): string {
-  const value = process.env.UNIDOCK_GOOGLE_CLIENT_ID ?? "";
-  if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(value))
-    throw new Error(
-      "UNIDOCK_AI_CAPTIONS=1 requires UNIDOCK_GOOGLE_CLIENT_ID (a Google OAuth web client ID)",
-    );
-  return value;
-}
 function captionServerOrigin(): string {
   const value = process.env.UNIDOCK_CAPTION_SERVER;
   if (!value)
@@ -93,7 +84,6 @@ export default defineConfig({
       __UNIDOCK_PLAYBACK__: JSON.stringify(playback),
       __UNIDOCK_AI_CAPTIONS__: JSON.stringify(aiCaptions),
       __UNIDOCK_CAPTION_SERVER__: JSON.stringify(captionServer),
-      __UNIDOCK_GOOGLE_CLIENT_ID__: JSON.stringify(googleClientId),
     },
     build: { target: "chrome114", sourcemap: false },
   }),
