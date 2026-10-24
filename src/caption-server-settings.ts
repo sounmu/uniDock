@@ -383,12 +383,15 @@ export async function authorizedFetch(
 
 /**
  * End every session of this account at the broker (other devices included),
- * then forget the local one. A session the broker already rejects counts as
- * ended.
+ * then forget the local one. Resolves only when the broker confirmed it. When
+ * the broker rejects this session (401), other devices were NOT logged out:
+ * the local session is forgotten and LOGIN_REQUIRED is thrown so the caller
+ * can ask the user to sign in again first.
  */
 export async function signOutEverywhere(): Promise<void> {
   const started = await loadSession();
-  if (!started) return;
+  if (!started) throw new CaptionServerError("LOGIN_REQUIRED");
+  let rejected = false;
   try {
     const response = await authorizedFetch(
       "/v1/me/sessions",
@@ -399,13 +402,15 @@ export async function signOutEverywhere(): Promise<void> {
     if (!response.ok) throw await errorFor(response);
   } catch (error) {
     if ((error as { code?: unknown }).code !== "LOGIN_REQUIRED") throw error;
+    rejected = true;
   }
-  // The broker already ended every session. Forget the local one only if it
-  // is still the login this started from; a sign-in completed meanwhile stays.
+  // Forget the local session only if it is still the login this started from;
+  // a sign-in completed meanwhile stays.
   await withLock(COMMIT_LOCK, async () => {
     if ((await loadSession())?.loginId === started.loginId)
       await chrome.storage.local.remove(CAPTION_SESSION_KEY);
   });
+  if (rejected) throw new CaptionServerError("LOGIN_REQUIRED");
 }
 
 /** Best-effort logout: forget the session locally, then revoke it at the broker. */

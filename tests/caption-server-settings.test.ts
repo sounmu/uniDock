@@ -473,3 +473,11 @@ it("an old request never joins a refresh of a later login", async () => {
   expect(await old).toBe("LOGIN_REQUIRED");
   expect(calls.filter((c) => c.method === "POST" && c.path === "/v1/transcription-jobs")).toHaveLength(1);
 });
+
+it("does not report logging out everywhere when the broker rejects the session", async () => {
+  seedSession(store);
+  mockServer(() => json({ error: { code: "UNAUTHENTICATED" } }, 401));
+  await expect(signOutEverywhere()).rejects.toMatchObject({ code: "LOGIN_REQUIRED" });
+  expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+  await expect(signOutEverywhere()).rejects.toMatchObject({ code: "LOGIN_REQUIRED" });
+});

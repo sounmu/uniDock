@@ -82,8 +82,12 @@ export function CaptionServerSettings() {
     try {
       await signOutEverywhere();
       setNotice("모든 기기에서 로그아웃했습니다.");
-    } catch {
-      setNotice("모든 기기 로그아웃에 실패했습니다. 잠시 후 다시 시도하세요.");
+    } catch (error) {
+      setNotice(
+        (error as { code?: unknown }).code === "LOGIN_REQUIRED"
+          ? "로그인이 만료되어 다른 기기는 로그아웃하지 못했습니다. 다시 로그인한 뒤 시도하세요."
+          : "모든 기기 로그아웃에 실패했습니다. 잠시 후 다시 시도하세요.",
+      );
     } finally {
       setBusy(false);
     }

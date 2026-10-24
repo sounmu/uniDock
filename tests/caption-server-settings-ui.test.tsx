@@ -64,8 +64,13 @@ it("shows the account, weekly usage and worker state, and logs out", async () =>
   expect(ui.host.textContent).toContain("2 / 7회");
   expect(ui.host.textContent).toContain("꺼져 있음");
   expect(ui.host.textContent).toContain("3대");
+  signOutEverywhere.mockRejectedValueOnce(Object.assign(new Error("LOGIN_REQUIRED"), { code: "LOGIN_REQUIRED" }));
   await click("모든 기기에서 로그아웃");
   expect(signOutEverywhere).toHaveBeenCalledOnce();
+  expect(ui.host.textContent).toContain("다른 기기는 로그아웃하지 못했습니다");
+  expect(ui.host.textContent).not.toContain("모든 기기에서 로그아웃했습니다");
+  await click("모든 기기에서 로그아웃");
+  expect(ui.host.textContent).toContain("모든 기기에서 로그아웃했습니다");
   await click("로그아웃");
   expect(signOut).toHaveBeenCalledOnce();
   expect(ui.host.textContent).toContain("로그아웃했습니다");
