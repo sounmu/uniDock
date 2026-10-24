@@ -323,3 +323,23 @@ npm run pages:check
 3. 배포 완료 후 Pages에 표시된 사이트 주소에 `/privacy.html`을 붙여 비로그인 상태에서 접근을 확인하고, Chrome Web Store 개인정보처리방침 URL로 등록합니다.
 
 설정 방법: [GitHub Pages 배포 소스 공식 문서](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+## AI 자막 생성 (개발 빌드 전용)
+
+자막이 없는 KU 녹화 강의의 음성을 사용자가 지정한 자막 서버로 보내 자막을 만드는 기능입니다. 배포 빌드에는 포함되지 않고 `UNIDOCK_AI_CAPTIONS=1` 개발 빌드에서만 컴파일됩니다.
+
+빌드 방법:
+
+```sh
+UNIDOCK_AI_CAPTIONS=1 UNIDOCK_CAPTION_SERVER=https://<자막-서버-origin> npm run build:ai-captions
+```
+
+동작:
+
+1. 사용자가 확인 단계에서 `음성 보내기`를 누르면 패널이 강의 영상 서버(CDN) 선택 권한을 요청합니다.
+2. 패널이 사용자가 보고 있는 kucom 플레이어에서 본편 미디어 주소를 읽습니다.
+3. 패널이 자막 서버에 작업을 만듭니다. 서버가 같은 강의의 접수된 작업을 돌려주면 그 상태를 보여주고 4~5단계를 건너뜁니다.
+4. 패널이 확장 자신의 요청에만 Referer를 맞춰 오디오 트랙만 Range로 받고 `.m4a`로 분리합니다.
+5. 패널이 음성을 자막 서버로 보내고 결과 자막을 기존 자막 화면에 표시합니다.
+
+음성은 메모리에서만 처리합니다. 패널을 닫으면 진행 중인 취득은 멈추지만, 서버가 이미 접수한 작업은 계속되고 패널을 다시 열면 상태를 다시 조회합니다. 서버 토큰은 정보 화면에서 저장·삭제합니다. 자막 서버는 리서치 문서 4.5절의 자체 작업 API를 구현해야 합니다. 자세한 경계는 `documentation/SECURITY-REVIEW.md`를 참고하세요.

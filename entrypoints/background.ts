@@ -41,6 +41,12 @@ import {
   returnPopupGrant,
   syncPopupAutoClose,
 } from "../src/popup-settings";
+import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
+import { CAPTION_SERVER_TOKEN_KEY } from "../src/caption-server-settings";
+import {
+  CAPTION_ACTIVE_JOB_KEY,
+  CAPTION_INSTALL_SALT_KEY,
+} from "../src/captions/job-record";
 
 async function boundedMessage(
   tabId: number,
@@ -452,6 +458,12 @@ async function clearFallbackBadge() {
 }
 
 export default defineBackground(() => {
+  if (
+    __UNIDOCK_AI_CAPTIONS__ &&
+    chrome.declarativeNetRequest &&
+    chrome.runtime.onConnect
+  )
+    void installCaptionRuleCleanup(panelSender);
   chrome.runtime.onInstalled?.addListener((details) => {
     void markUpdate(details);
     void reinjectLmsContentScripts(details);
@@ -558,6 +570,12 @@ export default defineBackground(() => {
           }
           // Playback erases only its own keys; reset the popup opt-in too.
           await chrome.storage.local.remove(popupAutoCloseKey);
+          if (__UNIDOCK_AI_CAPTIONS__)
+            await chrome.storage.local.remove([
+              CAPTION_SERVER_TOKEN_KEY,
+              CAPTION_INSTALL_SALT_KEY,
+              CAPTION_ACTIVE_JOB_KEY,
+            ]);
           await returnPopupGrant();
           return playback.command({
             version: 1,

@@ -117,3 +117,27 @@ export function readUrl(
 export function courseUrl(value: string, origin: string): URL {
   return readUrl(value, origin, "/api/v1/courses");
 }
+export const CAPTION_MEDIA_HOST = "korea-cms-object.cdn.gov-ntruss.com";
+export const CAPTION_MEDIA_ORIGIN_PATTERN = `https://${CAPTION_MEDIA_HOST}/*`;
+// The one KU lecture media shape: a 13-hex content id under media_files.
+const CAPTION_MEDIA_PATH =
+  /^\/contents7\/kruniv1001\/[0-9a-f]{13}\/contents\/media_files\/[\w.-]+\.mp4$/;
+export function allowedCaptionMediaUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === "https:" &&
+    url.host === CAPTION_MEDIA_HOST &&
+    !url.port &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash &&
+    CAPTION_MEDIA_PATH.test(url.pathname)
+  );
+}

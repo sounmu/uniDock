@@ -12,6 +12,7 @@ import { DetailView, useDetail } from "./ui/DetailView";
 import { Notice } from "./ui/Notice";
 import { softDisabled } from "./ui/a11y";
 import { featureResult } from "./analytics";
+import { AiCaptionsSection } from "./AiCaptionsSection";
 const messages = {
   ACTIVATE_TAB:
     "강의 플레이어 탭을 선택하고 도구 모음의 uniDock 아이콘을 누른 뒤 다시 감지하세요.",
@@ -212,6 +213,9 @@ export function CaptionsPanel() {
           {state.status === "error" && (
             <Notice error>{messages[state.code]}</Notice>
           )}
+          {__UNIDOCK_AI_CAPTIONS__ &&
+            state.status === "error" &&
+            state.code === "NO_CAPTIONS" && <AiCaptionsSection />}
           {state.status === "success" && (
             <>
               <p className="count">

@@ -2,6 +2,30 @@ import { defineConfig } from "wxt";
 // Sequential playback is under review. Release builds leave it out entirely:
 // no player content script, no playback runtime, and no alarms grant.
 const playback = process.env.UNIDOCK_PLAYBACK === "1";
+// AI caption generation is a development-only build. Release packaging rejects
+// UNIDOCK_AI_CAPTIONS=1, so the CDN media access and server upload code never
+// ship to the store.
+const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1";
+const CAPTION_CDN = "https://korea-cms-object.cdn.gov-ntruss.com";
+const captionServer = aiCaptions ? captionServerOrigin() : "";
+function captionServerOrigin(): string {
+  const value = process.env.UNIDOCK_CAPTION_SERVER;
+  if (!value)
+    throw new Error(
+      "UNIDOCK_AI_CAPTIONS=1 requires UNIDOCK_CAPTION_SERVER as an https origin",
+    );
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    url.username ||
+    url.password
+  )
+    throw new Error("UNIDOCK_CAPTION_SERVER must be a bare https origin");
+  return url.origin;
+}
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   hooks: {
@@ -24,6 +48,7 @@ export default defineConfig({
       "downloads",
       "storage",
       ...(playback ? ["alarms"] : []),
+      ...(aiCaptions ? ["declarativeNetRequestWithHostAccess"] : []),
     ],
     host_permissions: [
       "https://mylms.korea.ac.kr/*",
@@ -32,7 +57,10 @@ export default defineConfig({
     ],
     // Requested only when the user turns on popup auto-close, so adding the
     // portal never re-prompts existing installs on update.
-    optional_host_permissions: ["https://lms.korea.ac.kr/*"],
+    optional_host_permissions: [
+      "https://lms.korea.ac.kr/*",
+      ...(aiCaptions ? [`${CAPTION_CDN}/*`] : []),
+    ],
     icons: {
       16: "icons/16.png",
       32: "icons/32.png",
@@ -44,12 +72,15 @@ export default defineConfig({
       default_icon: { 16: "icons/16.png", 32: "icons/32.png" },
     },
     content_security_policy: {
-      extension_pages:
-        "script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com; base-uri 'none'; form-action 'none'",
+      extension_pages: `script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com${aiCaptions ? ` ${CAPTION_CDN} ${captionServer}` : ""}; base-uri 'none'; form-action 'none'`,
     },
   },
   vite: () => ({
-    define: { __UNIDOCK_PLAYBACK__: JSON.stringify(playback) },
+    define: {
+      __UNIDOCK_PLAYBACK__: JSON.stringify(playback),
+      __UNIDOCK_AI_CAPTIONS__: JSON.stringify(aiCaptions),
+      __UNIDOCK_CAPTION_SERVER__: JSON.stringify(captionServer),
+    },
     build: { target: "chrome114", sourcemap: false },
   }),
 });
