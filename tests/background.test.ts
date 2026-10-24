@@ -592,8 +592,6 @@ it("erases analytics consent and the popup opt-in before the existing clear-data
   );
   expect(order).toEqual([
     "erase:unidock.analytics.v1",
-    // The caption session is revoked (and its key removed) before the rest.
-    "erase:unidock.caption-session.v1",
     "erase:unidock.popup-auto-close.v1",
     "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1",
     "playback",
@@ -865,6 +863,10 @@ function statefulPopupChrome(local: Record<string, unknown>, granted: boolean) {
           delete state.local[key];
         }),
         setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn().mockResolvedValue(undefined),
       },
       onChanged: {
         addListener: (listener: typeof changed) => {

@@ -45,7 +45,10 @@ export function mockServer(handler: (call: Call) => Response | Promise<Response>
   return calls;
 }
 
-export function stubCaptionChrome(store: Record<string, unknown> = {}) {
+export function stubCaptionChrome(
+  store: Record<string, unknown> = {},
+  sessionStore: Record<string, unknown> = {},
+) {
   const launchWebAuthFlow = vi.fn<(details: { url: string }) => Promise<string | undefined>>();
   vi.stubGlobal("chrome", {
     storage: {
@@ -64,7 +67,13 @@ export function stubCaptionChrome(store: Record<string, unknown> = {}) {
       launchWebAuthFlow,
     },
   });
-  return { store, launchWebAuthFlow };
+  (chrome.storage as unknown as { session: unknown }).session = {
+    get: vi.fn(async (key: string) => ({ [key]: sessionStore[key] })),
+    set: vi.fn(async (values: Record<string, unknown>) => {
+      Object.assign(sessionStore, values);
+    }),
+  };
+  return { store, sessionStore, launchWebAuthFlow };
 }
 
 export function seedSession(

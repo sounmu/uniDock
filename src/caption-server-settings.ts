@@ -8,6 +8,11 @@ import {
 
 // Only the broker session is stored; Google tokens never reach the extension's storage.
 export const CAPTION_SESSION_KEY = "unidock.caption-session.v1";
+// A random marker rewritten by every logout and data deletion. A sign-in or
+// refresh that started before the marker changed must not store its result.
+// It lives in memory-only session storage (shared by every extension context),
+// so deleting all local data leaves nothing behind on disk.
+export const CAPTION_SESSION_EPOCH_KEY = "unidock.caption-session-epoch.v1";
 
 const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
 const REFRESH_MARGIN_MS = 30_000;
@@ -151,6 +156,7 @@ const jsonInit = (body: unknown): RequestInit => ({
 });
 
 export async function signIn(): Promise<CaptionSession> {
+  const epoch = await readEpoch();
   const request = await authorizationRequest();
   let responseUrl: string | undefined;
   try {
@@ -179,8 +185,29 @@ export async function signIn(): Promise<CaptionSession> {
       : error;
   }
   const session = sessionFromResponse(await readJson(response));
-  await saveSession(session);
+  await withSessionLock(async () => {
+    if ((await readEpoch()) !== epoch) {
+      revokeQuietly(session.accessToken);
+      throw new CaptionServerError("LOGIN_CANCELLED");
+    }
+    await saveSession(session);
+  });
   return session;
+}
+
+async function readEpoch(): Promise<string | undefined> {
+  const value = (await chrome.storage.session.get(CAPTION_SESSION_EPOCH_KEY))[
+    CAPTION_SESSION_EPOCH_KEY
+  ];
+  return typeof value === "string" ? value : undefined;
+}
+
+function revokeQuietly(accessToken: string): void {
+  void serverFetch(
+    "/v1/auth/logout",
+    withBearer({ method: "POST" }, accessToken),
+    AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+  ).catch(() => undefined);
 }
 
 function withSessionLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -198,6 +225,7 @@ let refreshing: Promise<CaptionSession | null> | null = null;
  */
 function refreshSession(stale: string): Promise<CaptionSession | null> {
   refreshing ??= withSessionLock(async () => {
+    const epoch = await readEpoch();
     const current = await loadSession();
     if (!current) return null;
     if (current.accessToken !== stale) return current;
@@ -215,6 +243,12 @@ function refreshSession(stale: string): Promise<CaptionSession | null> {
     }
     if (!response.ok) throw await errorFor(response);
     const next = sessionFromResponse(await readJson(response));
+    // The lock already orders this against logout; this also holds where
+    // Web Locks are unavailable.
+    if ((await readEpoch()) !== epoch || !(await loadSession())) {
+      revokeQuietly(next.accessToken);
+      return null;
+    }
     await saveSession(next);
     return next;
   }).finally(() => {
@@ -268,17 +302,31 @@ export async function authorizedFetch(
  * Best-effort logout: revoke the broker session, then forget it locally. The
  * local session is removed even when the broker cannot be reached.
  */
-export async function signOut(): Promise<void> {
-  try {
-    const session = await loadSession();
-    if (session && __UNIDOCK_CAPTION_SERVER__)
-      await serverFetch(
-        "/v1/auth/logout",
-        withBearer({ method: "POST" }, session.accessToken),
-        AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
-      );
-  } catch {
-    // The local session is cleared below either way.
-  }
-  await clearSession();
+export function signOut(): Promise<void> {
+  return revokeAndClear(clearSession);
+}
+
+/**
+ * Under the session lock: revoke the broker session (best effort), run `clear`,
+ * then write a fresh epoch so no sign-in or refresh already in flight can store
+ * its result afterwards. Data deletion passes its own `clear`.
+ */
+export function revokeAndClear(clear: () => Promise<void>): Promise<void> {
+  return withSessionLock(async () => {
+    try {
+      const session = await loadSession();
+      if (session && __UNIDOCK_CAPTION_SERVER__)
+        await serverFetch(
+          "/v1/auth/logout",
+          withBearer({ method: "POST" }, session.accessToken),
+          AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+        );
+    } catch {
+      // The local session is cleared below either way.
+    }
+    await clear();
+    await chrome.storage.session.set({
+      [CAPTION_SESSION_EPOCH_KEY]: random(16),
+    });
+  });
 }

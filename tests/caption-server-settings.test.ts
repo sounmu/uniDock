@@ -2,11 +2,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   authorizationCode,
   authorizationRequest,
+  CAPTION_SESSION_EPOCH_KEY,
   CAPTION_SESSION_KEY,
   loadSession,
+  revokeAndClear,
   signIn,
   signOut,
 } from "../src/caption-server-settings";
+import { getJob } from "../src/captions/job-client";
 import {
   fixture,
   json,
@@ -17,9 +20,10 @@ import {
 } from "./caption-server-helpers";
 
 let store: Record<string, unknown>;
+let sessionStore: Record<string, unknown>;
 let launchWebAuthFlow: ReturnType<typeof stubCaptionChrome>["launchWebAuthFlow"];
 beforeEach(() => {
-  ({ store, launchWebAuthFlow } = stubCaptionChrome());
+  ({ store, sessionStore, launchWebAuthFlow } = stubCaptionChrome());
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -106,4 +110,84 @@ it("revokes the session at the broker and clears it even when offline", async ()
 it("ignores a malformed stored session", async () => {
   store[CAPTION_SESSION_KEY] = { accessToken: "short", email: "x" };
   expect(await loadSession()).toBeNull();
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+it("drops a sign-in that the broker answers after logout", async () => {
+  launchWebAuthFlow.mockImplementation(
+    async ({ url }) => `${REDIRECT_URI}?code=4/abc&state=${new URL(url).searchParams.get("state")}`,
+  );
+  const exchange = deferred<Response>();
+  const calls = mockServer((call) =>
+    call.path === "/v1/auth/google" ? exchange.promise : new Response(null, { status: 204 }),
+  );
+  const pending = signIn();
+  await vi.waitFor(() => expect(calls.some((c) => c.path === "/v1/auth/google")).toBe(true));
+  await signOut();
+  exchange.resolve(json(fixture("session.json")));
+  await expect(pending).rejects.toMatchObject({ code: "LOGIN_CANCELLED" });
+  expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+  // The late session is revoked at the broker rather than silently kept.
+  await vi.waitFor(() =>
+    expect(
+      calls.some(
+        (c) =>
+          c.path === "/v1/auth/logout" &&
+          c.headers.Authorization === `Bearer ${fixture("session.json").access_token}`,
+      ),
+    ).toBe(true),
+  );
+});
+
+it.each([
+  ["with Web Locks", false],
+  ["without Web Locks", true],
+])("never keeps a refresh that races with deleting all data (%s)", async (_name, noLocks) => {
+  if (noLocks) vi.stubGlobal("navigator", {});
+  seedSession(store, { accessExpiresAt: "2000-01-01T00:00:00Z" });
+  const refresh = deferred<Response>();
+  const calls = mockServer((call) =>
+    call.path === "/v1/auth/refresh"
+      ? refresh.promise
+      : call.path === "/v1/auth/logout"
+        ? new Response(null, { status: 204 })
+        : json(fixture("job-queued.json")),
+  );
+  const pending = getJob("j");
+  await vi.waitFor(() => expect(calls.some((c) => c.path === "/v1/auth/refresh")).toBe(true));
+  // With Web Locks the deletion waits for the refresh and then revokes it;
+  // without them the late refresh sees the new epoch. Either way it is gone.
+  const wiping = revokeAndClear(async () => {
+    for (const key of Object.keys(store)) delete store[key];
+  });
+  refresh.resolve(json(fixture("session.json")));
+  await Promise.allSettled([pending]);
+  await wiping;
+  expect(store).toEqual({});
+  expect(typeof sessionStore[CAPTION_SESSION_EPOCH_KEY]).toBe("string");
+  await vi.waitFor(() =>
+    expect(
+      calls.some(
+        (c) =>
+          c.path === "/v1/auth/logout" &&
+          c.headers.Authorization === `Bearer ${fixture("session.json").access_token}`,
+      ),
+    ).toBe(true),
+  );
+});
+
+it("writes a new epoch on every logout", async () => {
+  seedSession(store);
+  mockServer(() => new Response(null, { status: 204 }));
+  await signOut();
+  const first = sessionStore[CAPTION_SESSION_EPOCH_KEY];
+  expect(typeof first).toBe("string");
+  await signOut();
+  expect(sessionStore[CAPTION_SESSION_EPOCH_KEY]).not.toBe(first);
+  expect(store[CAPTION_SESSION_EPOCH_KEY]).toBeUndefined();
 });

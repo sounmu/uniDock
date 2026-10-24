@@ -42,7 +42,7 @@ import {
   syncPopupAutoClose,
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
-import { CAPTION_SESSION_KEY, signOut } from "../src/caption-server-settings";
+import { CAPTION_SESSION_KEY, revokeAndClear } from "../src/caption-server-settings";
 import {
   CAPTION_ACTIVE_JOB_KEY,
   CAPTION_INSTALL_SALT_KEY,
@@ -561,23 +561,27 @@ export default defineBackground(() => {
       void analytics
         .erase()
         .then(async () => {
-          // Revoke the caption server session before its key disappears.
-          if (__UNIDOCK_AI_CAPTIONS__) await signOut();
           // The opt-in goes first, then its optional grant, before the panel
           // (which holds its popup change lock until this reply) may turn it on.
+          // Playback erases only its own keys; reset the popup opt-in too.
+          const erase = async () => {
+            if (!playback) return chrome.storage.local.clear();
+            await chrome.storage.local.remove(popupAutoCloseKey);
+            if (__UNIDOCK_AI_CAPTIONS__)
+              await chrome.storage.local.remove([
+                CAPTION_SESSION_KEY,
+                CAPTION_INSTALL_SALT_KEY,
+                CAPTION_ACTIVE_JOB_KEY,
+              ]);
+          };
+          // The caption session is revoked and erased under its lock, so a
+          // sign-in or refresh answered later cannot store tokens again.
+          if (__UNIDOCK_AI_CAPTIONS__) await revokeAndClear(erase);
+          else await erase();
           if (!playback) {
-            await chrome.storage.local.clear();
             await returnPopupGrant();
             return { status: "success" };
           }
-          // Playback erases only its own keys; reset the popup opt-in too.
-          await chrome.storage.local.remove(popupAutoCloseKey);
-          if (__UNIDOCK_AI_CAPTIONS__)
-            await chrome.storage.local.remove([
-              CAPTION_SESSION_KEY,
-              CAPTION_INSTALL_SALT_KEY,
-              CAPTION_ACTIVE_JOB_KEY,
-            ]);
           await returnPopupGrant();
           return playback.command({
             version: 1,
