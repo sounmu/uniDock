@@ -333,12 +333,11 @@ npm run pages:check
 ```sh
 UNIDOCK_AI_CAPTIONS=1 \
   UNIDOCK_CAPTION_SERVER=https://<자막-서버-origin> \
-  UNIDOCK_GOOGLE_CLIENT_ID=<웹 OAuth client ID>.apps.googleusercontent.com \
   UNIDOCK_EXTENSION_KEY=<선택: manifest key 공개키> \
   npm run build:ai-captions
 ```
 
-`UNIDOCK_GOOGLE_CLIENT_ID`는 필수입니다. Google Cloud의 Web application OAuth client에 `https://<확장 ID>.chromiumapp.org/`를 redirect URI로 등록해야 합니다. 확장 ID가 바뀌면 이 주소와 자막 서버의 CORS 허용 목록도 바뀌므로, 공유하는 개발 빌드는 `UNIDOCK_EXTENSION_KEY`로 ID를 고정합니다.
+Google 로그인은 자막 서버가 자기 Web application OAuth client로 처리하므로 확장에는 Google client ID가 없습니다. 확장은 로그인 창에서 서버의 시작 주소를 열고, 서버가 Google 검증을 마친 뒤 넘겨주는 1회용 연결 코드를 세션으로 바꿉니다. 서버는 `https://<확장 ID>.chromiumapp.org/`만 돌려보낼 주소로 허용하므로, 공유하는 개발 빌드는 `UNIDOCK_EXTENSION_KEY`로 확장 ID를 고정합니다.
 
 동작:
 

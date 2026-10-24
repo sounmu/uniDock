@@ -96,7 +96,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 | --- | --- |
 | `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, duration_hint_s?, language?}`. 음원 크기는 첫 PATCH의 `Upload-Length`로 선언한다. 키는 강의별 고정 값이며 실패·취소·자막 만료 시 서버가 푼다(unidock-captions ADR-0010). 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
 | `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
-| `POST /v1/auth/google`, `POST /v1/auth/refresh`, `GET /v1/me` | Google 로그인, 세션 갱신, 이번 주 quota |
+| `GET /v1/auth/google/start`(창 이동), `POST /v1/auth/handoff`, `POST /v1/auth/refresh`, `GET /v1/me` | broker 콜백 Google 로그인과 1회용 연결 코드 교환, 세션 갱신, 이번 주 quota |
 | `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
 | `POST /v1/transcription-jobs/{id}/cancel` | |
 | `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마. `expires_at`(최초 생성 + 6개월)은 여기와 `GET /v1/transcripts` 목록에 있다 |
@@ -176,7 +176,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 | `src/captions/job-state.ts` (신규) | `idle → identifying → extracting → uploading → queued → running → succeeded | failed | cancelled`. 진행률은 관측 가능한 값만(분리된 바이트, 업로드 바이트, 서버 `progress`) |
 | `src/captions/transcript.ts` | 서버 JSON(`segments[{start_ms,end_ms,text}]`) → 기존 `Transcript` 투영 함수 추가. 기존 추출 경로의 동작은 바꾸지 않는다 |
 | `src/captions/download.ts` | 기존 TXT 내보내기가 AI 자막에도 동작하도록. 파일명에 `AI` 표시. SRT/VTT는 이번 범위 밖 |
-| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | Google 로그인(`chrome.identity.launchWebAuthFlow`, code + PKCE)과 세션 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 세션 키와 매핑 키를 모두 지우게 한다 |
+| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | 로그인(`chrome.identity.launchWebAuthFlow`로 broker 시작 주소를 열고 연결 코드 + handoff verifier 교환)과 세션 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 세션 키와 매핑 키를 모두 지우게 한다 |
 
 #### 3-5. UI
 
@@ -220,7 +220,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 테스트:
 
 - Vitest: `media-source`(descriptor-only 읽기, 패턴 거부), `referer-rule`(추가·제거·예외 시 제거·잔존 규칙 정리), `audio-extract`(작은 합성 MP4 fixture로 오디오만 남는지, 영상 샘플이 버퍼에 없는지, 메모리 상한), `job-client`(스키마 거부, 크기 상한, 오류 코드), `job-state` 전이, `transcript` 투영, `CaptionsPanel`의 버튼 노출 조건과 확인 다이얼로그. 로그인: PKCE verifier·S256 challenge, state·nonce 생성과 검증, redirect URL 파싱(다른 호스트·state 불일치·`error` 파라미터 거부), refresh 단일 비행(동시 401 여러 개에도 refresh 1회), `REFRESH_REUSED` 처리, quota 표시. 커버리지 80% 유지.
-- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 실제 Google 화면은 자동화하지 않는다. 가짜 broker가 `/v1/auth/google`에서 테스트 코드를 받아들이고, `chrome.identity.launchWebAuthFlow`는 테스트 페이지에서 대체해 고정 redirect URL을 돌려준다. 로그인 전 버튼 숨김, 로그인 후 생성, `QUOTA_EXCEEDED` 표시를 검증한다.
+- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 실제 Google 화면은 자동화하지 않는다. 가짜 broker가 `/v1/auth/handoff`에서 테스트 연결 코드를 받아들이고, `chrome.identity.launchWebAuthFlow`는 테스트 페이지에서 대체해 고정 redirect URL을 돌려준다. 로그인 전 버튼 숨김, 로그인 후 생성, `QUOTA_EXCEEDED` 표시를 검증한다.
 - `npm run check` 통과. release 빌드 E2E(`npm run test:e2e`)가 그대로 통과.
 
 수동 게이트(에이전트가 완료를 주장하지 않는다):
