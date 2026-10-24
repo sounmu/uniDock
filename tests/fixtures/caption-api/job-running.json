@@ -1,0 +1,17 @@
+{
+  "id": "0193c0de-7a1b-7c2d-8e3f-123456789abc",
+  "state": "running",
+  "upload": {
+    "url": "/v1/transcription-jobs/0193c0de-7a1b-7c2d-8e3f-123456789abc/audio",
+    "offset": 31457280,
+    "size_bytes": 31457280,
+    "chunk_size": 8388608
+  },
+  "progress": {
+    "stage": "transcribing",
+    "done": 600,
+    "total": 3938
+  },
+  "created_at": "2026-10-24T03:00:00Z",
+  "updated_at": "2026-10-24T03:05:00Z"
+}

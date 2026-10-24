@@ -3,6 +3,7 @@ import { downloadCaption } from "../../src/captions/download";
 import { Notice } from "./ui/Notice";
 import { featureResult } from "./analytics";
 import { useAiCaptions } from "./useAiCaptions";
+import { useCaptionSession } from "./useCaptionSession";
 
 const phaseText: Record<string, string> = {
   identifying: "강의 영상을 확인하고 있습니다…",
@@ -21,15 +22,34 @@ const errorText: Record<string, string> = {
   MEDIA_NETWORK: "강의 영상 서버에서 음성을 받지 못했습니다. 다시 시도하세요.",
   TOO_LARGE: "음성이 너무 깁니다. 서버 제한을 넘었습니다.",
   NO_SERVER: "자막 서버 주소가 설정되지 않았습니다.",
-  NO_TOKEN: "정보 화면에서 자막 서버 토큰을 먼저 저장하세요.",
-  AUTH: "자막 서버 토큰이 거부되었습니다. 토큰을 다시 확인하세요.",
-  RATE_LIMITED: "요청이 한도를 넘었습니다. 잠시 후 다시 시도하세요.",
+  LOGIN_REQUIRED: "로그인이 끝났습니다. 정보 화면에서 Google 계정으로 다시 로그인하세요.",
+  ACCOUNT_NOT_ALLOWED: "이 Google 계정으로는 AI 자막을 쓸 수 없습니다.",
+  QUOTA_EXCEEDED:
+    "이번 주 사용 횟수(주 7회)를 모두 썼습니다. 매주 월요일 0시(KST)에 다시 채워집니다.",
+  ACTIVE_JOB_EXISTS:
+    "다른 강의의 AI 자막 생성이 진행 중입니다. 끝난 뒤 다시 시도하세요.",
+  RATE_LIMITED: "요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
+  UPLOAD_CONFLICT: "업로드가 서버 기록과 맞지 않습니다. 취소한 뒤 다시 시도하세요.",
+  UNAVAILABLE: "자막 서버가 점검 중입니다. 잠시 후 다시 시도하세요.",
   EXPIRED: "자막이 만료되었거나 작업을 찾을 수 없습니다.",
   NETWORK: "자막 서버에 연결하지 못했습니다.",
+  UNSUPPORTED_AUDIO: "서버가 이 음성 형식을 처리하지 못했습니다.",
+  DURATION_TOO_LONG: "4시간을 넘는 강의는 지원하지 않습니다.",
+  SIZE_MISMATCH: "업로드가 손상됐습니다. 다시 시도하세요.",
+  UPLOAD_EXPIRED: "업로드가 끝나지 않아 취소됐습니다. 다시 시도하세요.",
+  INFERENCE_TIMEOUT: "처리 시간이 초과됐습니다. 이번 사용 횟수는 돌려받습니다.",
+  INFERENCE_FAILED: "자막 생성에 실패했습니다. 이번 사용 횟수는 돌려받습니다.",
 };
+
+function serverProgressText(progress: { done?: number; total?: number } | null) {
+  if (!progress?.total || progress.done === undefined) return "";
+  const minutes = (seconds: number) => Math.floor(seconds / 60);
+  return `${minutes(progress.done)}분 / ${minutes(progress.total)}분 처리`;
+}
 
 export function AiCaptionsSection() {
   const { state, generate, cancel, serverOrigin } = useAiCaptions();
+  const session = useCaptionSession();
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
   const running =
@@ -61,8 +81,9 @@ export function AiCaptionsSection() {
       <div className="settings-card" role="group" aria-label="AI 자막 생성 확인">
         <p className="hint">
           현재 강의의 음성을 {serverOrigin} 으로 보냅니다. 음성은 자막 생성 후
-          서버에서 삭제되고, 자막은 서버가 작업을 받을 때 알려 주는 만료일까지
-          보관됩니다. 만료일은 진행 화면에 표시됩니다. 결과는 추론으로 만든
+          서버에서 삭제되고, 자막은 최대 6개월 보관됩니다. 같은 강의의 기존
+          자막에 연결되면 남은 기간이 더 짧을 수 있고, 실제 만료일은 완료 후
+          표시됩니다. 이번 주 사용 횟수가 1회 차감됩니다. 결과는 추론으로 만든
           자막이라 원본 자막과 다를 수 있습니다. 강의 영상 서버 접근 권한을
           묻는 창이 열리면 허용해야 합니다.
         </p>
@@ -86,6 +107,14 @@ export function AiCaptionsSection() {
     );
   }
 
+  if (session === undefined) return null;
+  if (session === null && !running && state.phase !== "succeeded")
+    return (
+      <Notice>
+        AI 자막을 쓰려면 정보 화면에서 Google 계정으로 로그인하세요.
+      </Notice>
+    );
+
   return (
     <div aria-live="polite" aria-busy={running}>
       {state.phase === "idle" && (
@@ -100,9 +129,12 @@ export function AiCaptionsSection() {
       {running && (
         <div className="row-actions">
           <p className="count">{phaseText[state.phase] ?? "진행 중…"}</p>
-          {state.expiresAt && (
+          {state.phase === "running" && serverProgressText(state.serverProgress) && (
+            <p className="row-sub">{serverProgressText(state.serverProgress)}</p>
+          )}
+          {state.phase === "queued" && state.workerOffline && (
             <p className="row-sub">
-              자막 보관 만료일: {new Date(state.expiresAt).toLocaleString()}
+              처리 서버가 꺼져 있어 대기합니다. 켜지면 이어서 처리합니다.
             </p>
           )}
           <button

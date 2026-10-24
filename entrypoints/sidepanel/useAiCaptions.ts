@@ -11,7 +11,9 @@ import {
   createJob,
   getJob,
   getTranscript,
+  getWorkerStatus,
   uploadAudio,
+  type JobProgress,
 } from "../../src/captions/job-client";
 import {
   captionJobKey,
@@ -32,7 +34,10 @@ export interface AiCaptionResult {
 
 export interface AiCaptionState {
   phase: JobPhase;
+  /** Bytes extracted, then bytes uploaded. */
   progress: number | null;
+  serverProgress: JobProgress | null;
+  workerOffline: boolean;
   errorCode: string | null;
   expiresAt: string | null;
   result: AiCaptionResult | null;
@@ -41,11 +46,14 @@ export interface AiCaptionState {
 const IDLE: AiCaptionState = {
   phase: "idle",
   progress: null,
+  serverProgress: null,
+  workerOffline: false,
   errorCode: null,
   expiresAt: null,
   result: null,
 };
-const POLL_MS = 4000;
+const POLL_QUEUED_MS = 10_000;
+const POLL_RUNNING_MS = 5_000;
 
 interface Run {
   signal: AbortSignal;
@@ -121,10 +129,14 @@ export function useAiCaptions() {
       if (!live()) return;
       const next = serverPhase(status.state);
       if (!next) return set({ phase: "failed", errorCode: "RESPONSE" });
+      const workerOffline =
+        next === "queued" &&
+        (await getWorkerStatus(signal).catch(() => "online" as const)) === "offline";
+      if (!live()) return;
       set({
         phase: next === "succeeded" ? phase.current : next,
-        progress: status.progress ?? null,
-        expiresAt: status.expiresAt || null,
+        serverProgress: status.progress ?? null,
+        workerOffline,
       });
       if (next === "succeeded") {
         if (!status.transcriptId)
@@ -134,6 +146,7 @@ export function useAiCaptions() {
         const items = projectServerSegments(server.segments);
         set({
           phase: "succeeded",
+          expiresAt: server.expiresAt || null,
           result: {
             transcript: {
               sourceUrl: "https://kucom.korea.ac.kr/",
@@ -155,7 +168,9 @@ export function useAiCaptions() {
           errorCode: next === "failed" ? status.errorCode || "FAILED" : null,
         });
       }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      await new Promise((resolve) =>
+        setTimeout(resolve, next === "running" ? POLL_RUNNING_MS : POLL_QUEUED_MS),
+      );
     }
   }, []);
 
@@ -222,21 +237,23 @@ export function useAiCaptions() {
     discard();
     await run(async (ctx) => {
       const { signal, live, set } = ctx;
-      set({ phase: "identifying", errorCode: null, result: null, progress: null });
+      set({ ...IDLE, phase: "identifying" });
       if (!(await access)) throw new CaptionFlowError("PERMISSION");
       const media = await identifyMedia();
       if (!live()) return;
       jobTab.current = { tabId: media.tabId, windowId: media.windowId };
       const key = await captionJobKey(media.contentId);
-      const id = await createJob(
+      // The per-lecture key returns this user's existing job for the lecture,
+      // so a repeat request skips extraction and upload entirely.
+      const job = await createJob(
         key,
         { durationHintS: media.durationS || undefined },
         signal,
       );
+      const id = job.id;
       jobId.current = id;
-      const status = await getJob(id, signal);
       if (!live()) return;
-      if (status.state === "awaiting_upload") {
+      if (job.state === "awaiting_upload") {
         set({ phase: "extracting", progress: 0 });
         const reader = mediaRangeReader(media.mediaUrl, signal);
         const audio = await withCaptionMediaRule(media.mediaUrl, async () =>
@@ -246,8 +263,8 @@ export function useAiCaptions() {
           }),
         );
         if (!live()) return;
-        set({ phase: "uploading" });
-        await uploadAudio(id, audio, signal);
+        set({ phase: "uploading", progress: 0 });
+        await uploadAudio(id, audio, signal, (bytes) => set({ progress: bytes }));
       }
       if (!live()) return;
       await saveActiveJob({ jobId: id, key });

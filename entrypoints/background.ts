@@ -42,7 +42,7 @@ import {
   syncPopupAutoClose,
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
-import { CAPTION_SERVER_TOKEN_KEY } from "../src/caption-server-settings";
+import { CAPTION_SESSION_KEY, signOut } from "../src/caption-server-settings";
 import {
   CAPTION_ACTIVE_JOB_KEY,
   CAPTION_INSTALL_SALT_KEY,
@@ -561,6 +561,8 @@ export default defineBackground(() => {
       void analytics
         .erase()
         .then(async () => {
+          // Revoke the caption server session before its key disappears.
+          if (__UNIDOCK_AI_CAPTIONS__) await signOut();
           // The opt-in goes first, then its optional grant, before the panel
           // (which holds its popup change lock until this reply) may turn it on.
           if (!playback) {
@@ -572,7 +574,7 @@ export default defineBackground(() => {
           await chrome.storage.local.remove(popupAutoCloseKey);
           if (__UNIDOCK_AI_CAPTIONS__)
             await chrome.storage.local.remove([
-              CAPTION_SERVER_TOKEN_KEY,
+              CAPTION_SESSION_KEY,
               CAPTION_INSTALL_SALT_KEY,
               CAPTION_ACTIVE_JOB_KEY,
             ]);

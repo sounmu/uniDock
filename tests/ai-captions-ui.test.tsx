@@ -7,6 +7,16 @@ const generate = vi.hoisted(() => vi.fn());
 const cancel = vi.hoisted(() => vi.fn());
 const downloadCaption = vi.hoisted(() => vi.fn());
 let current: AiCaptionState;
+let session: { email: string } | null = { email: "student@example.com" };
+const base: AiCaptionState = {
+  phase: "idle",
+  progress: null,
+  serverProgress: null,
+  workerOffline: false,
+  errorCode: null,
+  expiresAt: null,
+  result: null,
+};
 
 vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
   useAiCaptions: () => ({
@@ -17,17 +27,15 @@ vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
   }),
 }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
+vi.mock("../entrypoints/sidepanel/useCaptionSession", () => ({
+  useCaptionSession: () => session,
+}));
 
 let ui: Awaited<ReturnType<typeof mount>>;
 
 beforeEach(() => {
-  current = {
-    phase: "idle",
-    progress: null,
-    errorCode: null,
-    expiresAt: null,
-    result: null,
-  };
+  current = { ...base };
+  session = { email: "student@example.com" };
   vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => undefined) } });
   downloadCaption.mockResolvedValue({ status: "complete" });
 });
@@ -48,6 +56,8 @@ it("confirms the server and audio before generating", async () => {
   await render();
   await click("AI 자막 생성");
   expect(ui.host.textContent).toContain("https://captions.test");
+  expect(ui.host.textContent).toContain("최대 6개월");
+  expect(ui.host.textContent).toContain("1회 차감");
   expect(generate).not.toHaveBeenCalled();
   await click("음성 보내기");
   expect(generate).toHaveBeenCalledOnce();
@@ -55,10 +65,9 @@ it("confirms the server and audio before generating", async () => {
 
 it("shows the engine and offers download on success", async () => {
   current = {
+    ...base,
     phase: "succeeded",
-    progress: null,
-    errorCode: null,
-    expiresAt: null,
+    expiresAt: "2027-04-24T03:05:00Z",
     result: {
       engine: "whisper-large-v3-turbo",
       modelRevision: "r1",
@@ -84,15 +93,9 @@ it("shows the engine and offers download on success", async () => {
 });
 
 it("surfaces a failure message", async () => {
-  current = {
-    phase: "failed",
-    progress: null,
-    errorCode: "NO_TOKEN",
-    expiresAt: null,
-    result: null,
-  };
+  current = { ...base, phase: "failed", errorCode: "LOGIN_REQUIRED" };
   await render();
-  expect(ui.host.textContent).toContain("토큰");
+  expect(ui.host.textContent).toContain("Google 계정으로 다시 로그인");
 });
 
 it("explains a CDN refusal and a CDN network failure instead of a missing audio track", async () => {
@@ -100,10 +103,33 @@ it("explains a CDN refusal and a CDN network failure instead of a missing audio 
     ["MEDIA_DENIED", "강의 영상 서버가 요청을 거부했습니다"],
     ["MEDIA_NETWORK", "강의 영상 서버에서 음성을 받지 못했습니다"],
   ] as const) {
-    current = { phase: "failed", progress: null, errorCode, expiresAt: null, result: null };
+    current = { ...base, phase: "failed", errorCode };
     await render();
     expect(ui.host.textContent).toContain(text);
     expect(ui.host.textContent).not.toContain("음성 트랙을 찾지 못했습니다");
     await ui.unmount();
   }
+});
+
+it("asks for Google login instead of offering generation when signed out", async () => {
+  session = null;
+  await render();
+  expect(ui.host.textContent).toContain("Google 계정으로 로그인");
+  expect([...ui.host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain(
+    "AI 자막 생성",
+  );
+});
+
+it("shows the weekly quota, an offline worker and transcription progress", async () => {
+  current = { ...base, phase: "failed", errorCode: "QUOTA_EXCEEDED" };
+  await render();
+  expect(ui.host.textContent).toContain("주 7회");
+  await ui.unmount();
+  current = { ...base, phase: "queued", workerOffline: true };
+  await render();
+  expect(ui.host.textContent).toContain("처리 서버가 꺼져 있어");
+  await ui.unmount();
+  current = { ...base, phase: "running", serverProgress: { stage: "transcribing", done: 600, total: 3938 } };
+  await render();
+  expect(ui.host.textContent).toContain("10분 / 65분 처리");
 });
