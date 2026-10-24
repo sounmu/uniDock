@@ -14,7 +14,10 @@ const CDN_HOST = "korea-cms-object.cdn.gov-ntruss.com";
 const CDN_PATH =
   "/contents7/kruniv1001/0123456789abc/contents/media_files/screen.mp4";
 const CDN_URL = `https://${CDN_HOST}${CDN_PATH}`;
-const TOKEN = "e2e-token-0001";
+const TOKEN = `e2e-access-${"x".repeat(32)}`;
+const SESSION_KEY = "unidock.caption-session.v1";
+const JOB_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e0";
+const TRANSCRIPT_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e1";
 
 interface CdnHit {
   referer: string | undefined;
@@ -48,6 +51,9 @@ async function fakeServices(directory: string) {
   const uploads: Buffer[] = [];
   const idempotencyKeys: string[] = [];
   let cancels = 0;
+  let received: Buffer[] = [];
+  let declaredLength: number | undefined;
+  let refuseQuota = false;
   let hold: { reached: () => void; release: Promise<void> } | undefined;
 
   const server = createServer(
@@ -109,56 +115,90 @@ async function fakeServices(directory: string) {
         response.setHeader("Access-Control-Allow-Origin", request.headers.origin ?? "*");
         response.setHeader(
           "Access-Control-Allow-Headers",
-          "authorization, content-type, idempotency-key",
+          "authorization, content-type, idempotency-key, tus-resumable, upload-offset, upload-length",
         );
-        response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+        response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, HEAD, PATCH");
+        response.setHeader(
+          "Access-Control-Expose-Headers",
+          "upload-offset, upload-length, upload-defer-length, tus-resumable, retry-after, location",
+        );
         if (request.method === "OPTIONS") {
           response.writeHead(204);
           response.end();
           return;
         }
-        if (request.headers.authorization !== `Bearer ${TOKEN}`) {
-          response.writeHead(401);
-          response.end();
-          return;
-        }
-        const json = (body: unknown) => {
-          response.writeHead(200, { "Content-Type": "application/json" });
+        const json = (body: unknown, status = 200) => {
+          response.writeHead(status, { "Content-Type": "application/json" });
           response.end(JSON.stringify(body));
         };
+        if (request.headers.authorization !== `Bearer ${TOKEN}`)
+          return json({ error: { code: "UNAUTHENTICATED" } }, 401);
+        const audioPath = `/v1/transcription-jobs/${JOB_ID}/audio`;
+        const done = uploads.length > 0;
+        const job = () => ({
+          id: JOB_ID,
+          state: done ? "succeeded" : "awaiting_upload",
+          upload: {
+            url: audioPath,
+            offset: received.reduce((n, b) => n + b.length, 0),
+            ...(declaredLength ? { size_bytes: declaredLength } : {}),
+            chunk_size: 8388608,
+          },
+          ...(done ? { transcript_id: TRANSCRIPT_ID } : {}),
+          created_at: "2026-10-24T00:00:00Z",
+          updated_at: "2026-10-24T00:00:00Z",
+        });
+        if (url.pathname === "/v1/service-status") return json({ worker: "online" });
         if (request.method === "POST" && url.pathname === "/v1/transcription-jobs") {
+          if (refuseQuota)
+            return json({ error: { code: "QUOTA_EXCEEDED", retry_after_s: 3600 } }, 429);
           idempotencyKeys.push(String(request.headers["idempotency-key"]));
-          return json({ id: "job_e2e" });
+          return json(job(), 201);
         }
-        if (url.pathname === "/v1/transcription-jobs/job_e2e")
-          return json({
-            state: uploads.length ? "succeeded" : "awaiting_upload",
-            transcript_id: uploads.length ? "tr_e2e" : undefined,
-            expires_at: "2099-01-01T00:00:00Z",
-          });
-        if (url.pathname === "/v1/transcription-jobs/job_e2e/audio") {
+        if (url.pathname === `/v1/transcription-jobs/${JOB_ID}`) return json(job());
+        if (url.pathname === audioPath) {
+          const offset = received.reduce((n, b) => n + b.length, 0);
+          if (request.method === "HEAD") {
+            response.writeHead(200, {
+              "Tus-Resumable": "1.0.0",
+              "Upload-Offset": String(offset),
+              ...(declaredLength
+                ? { "Upload-Length": String(declaredLength) }
+                : { "Upload-Defer-Length": "1" }),
+            });
+            response.end();
+            return;
+          }
+          if (Number(request.headers["upload-offset"]) !== offset)
+            return json({ error: { code: "UPLOAD_OFFSET_MISMATCH" } }, 409);
+          declaredLength ??= Number(request.headers["upload-length"]);
           const chunks: Buffer[] = [];
           for await (const chunk of request) chunks.push(chunk as Buffer);
-          uploads.push(Buffer.concat(chunks));
-          response.writeHead(202);
+          received.push(Buffer.concat(chunks));
+          const next = offset + chunks.reduce((n, b) => n + b.length, 0);
+          if (next === declaredLength) {
+            uploads.push(Buffer.concat(received));
+            received = [];
+          }
+          response.writeHead(204, { "Tus-Resumable": "1.0.0", "Upload-Offset": String(next) });
           response.end();
           return;
         }
-        if (url.pathname === "/v1/transcription-jobs/job_e2e/cancel") {
+        if (url.pathname === `/v1/transcription-jobs/${JOB_ID}/cancel`) {
           cancels++;
-          response.writeHead(202);
-          response.end();
-          return;
+          return json(job());
         }
-        if (url.pathname === "/v1/transcripts/tr_e2e")
+        if (url.pathname === `/v1/transcripts/${TRANSCRIPT_ID}`)
           return json({
             schema_version: 1,
+            id: TRANSCRIPT_ID,
             language: "ko",
             engine: "fake-engine",
             model_revision: "e2e",
             pipeline_version: "1",
             created_at: "2026-10-23T00:00:00Z",
             expires_at: "2099-01-01T00:00:00Z",
+            duration_ms: 3000,
             segments: [{ start_ms: 0, end_ms: 1500, text: "합성 자막 문장" }],
           });
       }
@@ -179,6 +219,9 @@ async function fakeServices(directory: string) {
     uploads,
     idempotencyKeys,
     cancels: () => cancels,
+    refuseQuota: () => {
+      refuseQuota = true;
+    },
     holdNextCdnResponse() {
       let reached!: () => void;
       let release!: () => void;
@@ -234,8 +277,19 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
       context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
     extensionId = new URL(worker.url()).host;
     await worker.evaluate(
-      (token) => chrome.storage.local.set({ "unidock.caption-server-token.v1": token }),
-      TOKEN,
+      ([key, token]) =>
+        chrome.storage.local.set({
+          [key]: {
+            id: "e2e-session-00000001",
+            loginId: "e2e-login-000000001",
+            accessToken: token,
+            accessExpiresAt: "2099-01-01T00:00:00Z",
+            refreshToken: `e2e-refresh-${"y".repeat(32)}`,
+            refreshExpiresAt: "2099-02-01T00:00:00Z",
+            email: "e2e@example.com",
+          },
+        }),
+      [SESSION_KEY, TOKEN] as const,
     );
     // Headless Chrome cannot answer the optional host prompt; grant it the
     // way chrome://extensions does so the panel's request resolves silently.
@@ -259,7 +313,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     await rm(profile, { recursive: true, force: true });
   });
 
-  async function openPanelOnPlayer() {
+  async function detectOnPlayer() {
     const player = await context.newPage();
     await player.goto("https://kucom.korea.ac.kr/player");
     const panel = await context.newPage();
@@ -267,8 +321,13 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     await player.bringToFront();
     await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
     await panel.getByRole("button", { name: "자막 감지" }).click();
-    await panel.getByRole("button", { name: "AI 자막 생성" }).click();
     return { player, panel };
+  }
+
+  async function openPanelOnPlayer() {
+    const opened = await detectOnPlayer();
+    await opened.panel.getByRole("button", { name: "AI 자막 생성" }).click();
+    return opened;
   }
 
   const probe = (panel: import("@playwright/test").Page) =>
@@ -399,5 +458,23 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     held.release();
     expect(services.uploads).toHaveLength(0);
     expect(services.cancels()).toBe(0);
+  });
+
+  test("without a session the panel asks for Google login and sends nothing", async () => {
+    await worker.evaluate((key) => chrome.storage.local.remove(key), SESSION_KEY);
+    const { panel } = await detectOnPlayer();
+    await expect(panel.getByText(/Google 계정으로 로그인하세요/)).toBeVisible();
+    await expect(panel.getByRole("button", { name: "AI 자막 생성" })).toHaveCount(0);
+    expect(services.idempotencyKeys).toEqual([]);
+    expect(services.cdn).toEqual([]);
+  });
+
+  test("a weekly quota refusal is shown before any media is read", async () => {
+    services.refuseQuota();
+    const { panel } = await openPanelOnPlayer();
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await expect(panel.getByText(/주 7회/)).toBeVisible();
+    expect(services.cdn).toEqual([]);
+    expect(services.uploads).toHaveLength(0);
   });
 });

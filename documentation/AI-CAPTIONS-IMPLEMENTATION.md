@@ -28,14 +28,15 @@
 
 | 구성 요소 | 위치 | 역할 | 갖는 자격증명 |
 | --- | --- | --- | --- |
-| 확장 | 사용자 Chrome | CDN에서 음원 트랙만 분리, broker로 업로드, 결과 표시 | 사용자 토큰 |
+| 확장 | 사용자 Chrome | Google 로그인, CDN에서 음원 트랙만 분리, broker로 업로드, 결과 표시 | broker 세션 토큰 |
 | broker | 오라클 인스턴스 | 공개 API, 업로드 spool, 검증, 작업·lease 관리, 결과 제공 | DB 비밀번호, R2 버킷 토큰 |
 | PostgreSQL | broker와 같은 인스턴스 | 작업·lease·attempt·사용자·자막 메타데이터·만료·삭제 대기열. **유일한 진실 원천** | — |
 | R2 | Cloudflare | 자막 JSON, DB 백업. 비공개 버킷 | — |
 | worker | Mac mini | lease 수령, 음원 수신, 추론, 결과 제출 | 워커 토큰 (사용자 토큰과 별개) |
 
 ```text
-(1) 확장 → broker   POST /v1/transcription-jobs (Idempotency-Key)            → awaiting_upload
+(1) 확장 → broker   POST /v1/transcription-jobs (Idempotency-Key = 강의별 고정 키)
+                    같은 키의 기존 작업이 있으면 그 작업을 반환 → (2)를 건너뜀   → awaiting_upload
 (2) 확장 → broker   음원 트랙 업로드 → 오라클 로컬 spool 파일에 offset 순서대로 기록
 (3) broker          업로드 완료 → SHA-256 계산 → ffprobe(로컬 파일) 검증       → queued
                     (같은 캐시 키의 성공 자막이 있으면 추론 없이 연결          → succeeded)
@@ -51,7 +52,7 @@
 불변 조건:
 
 - **CDN에 요청하는 것은 확장뿐이다.** 미디어 URL, LMS URL, 과목 ID, 강의 제목은 브라우저 밖으로 나가지 않는다. broker와 worker는 URL을 받지도, 외부에서 미디어를 받아 오지도 않는다.
-- **확장이 연결하는 출처는 broker 하나다.** 확장은 R2나 worker에 직접 연결하지 않는다. `connect-src`에는 broker origin 하나만 추가한다.
+- **확장이 연결하는 서버 쪽 출처는 broker 하나다.** `connect-src`에는 음성을 받는 CDN과 broker origin만 추가한다. 확장은 R2나 worker에 직접 연결하지 않는다.
 - **Mac은 inbound를 받지 않는다.** 모든 연결은 worker가 tailnet을 통해 broker로 먼저 연다. 공인 인터넷에 열린 Mac 포트는 없다.
 - **음원은 R2에 저장하지 않는다.** 사본은 오라클 spool 파일과 Mac 작업 디렉터리 두 곳뿐이다. 성공 즉시 삭제와 실패 시 24시간 보관은 두 사본 모두에 적용한다.
 - **worker와 확장은 R2 자격증명을 갖지 않는다.** R2 읽기·쓰기는 broker만 한다. 결과도 broker가 검증한 뒤 저장한다.
@@ -93,9 +94,9 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | API | 비고 |
 | --- | --- |
-| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, size_bytes, duration_hint_s?, language?}`. 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
+| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, duration_hint_s?, language?}`. 음원 크기는 첫 PATCH의 `Upload-Length`로 선언한다. 키는 강의별 고정 값이며 실패·취소·자막 만료 시 서버가 푼다(unidock-captions ADR-0010). 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
 | `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
-| `POST /v1/auth/google`, `POST /v1/auth/refresh`, `GET /v1/me` | Google 로그인, 세션 갱신, 이번 주 quota |
+| `GET /v1/auth/google/start`(창 이동), `POST /v1/auth/handoff`, `POST /v1/auth/refresh`, `GET /v1/me` | broker 콜백 Google 로그인과 1회용 연결 코드 교환, 세션 갱신, 이번 주 quota |
 | `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
 | `POST /v1/transcription-jobs/{id}/cancel` | |
 | `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마. `expires_at`(최초 생성 + 6개월)은 여기와 `GET /v1/transcripts` 목록에 있다 |
@@ -139,7 +140,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`와 `identity`, manifest `key`(확장 ID 고정. OAuth redirect URI와 broker CORS 허용 목록이 이 ID에 묶인다), `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
+| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`와 `identity`, manifest `key`(확장 ID 고정. broker가 연결 코드를 돌려보내는 `https://<ID>.chromiumapp.org/` 허용 목록과 CORS 허용 목록이 이 ID에 묶인다), `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
 | `src/build-flags.d.ts` | 두 상수 선언 추가 |
 | `package.json` | `build:ai-captions`, `test:e2e:ai-captions` 스크립트 추가 |
 | `scripts/package-release.mjs` | `UNIDOCK_AI_CAPTIONS=1`이면 실패. 번들에서 `declarativeNetRequest`, CDN 호스트, 아래 메시지 타입 마커가 발견되면 실패 |
@@ -171,11 +172,11 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `src/captions/job-client.ts` (신규) | 공개 API(`public.openapi.yaml`)를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 세션 토큰은 `chrome.storage.local`의 `unidock.caption-session.v1`에서 읽고, `TOKEN_EXPIRED`면 refresh 후 한 번 재시도한다. 강의 ↔ 작업·자막 매핑은 `unidock.caption-jobs.v1`에 둔다(서버는 강의를 모른다). 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
+| `src/captions/job-client.ts` (신규) | 공개 API(`public.openapi.yaml`)를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 세션 토큰은 `chrome.storage.local`의 `unidock.caption-session.v1`에서 읽고, `TOKEN_EXPIRED`면 refresh 후 한 번 재시도한다. 진행 중 작업과 그 강의 키는 `unidock.caption-active-job.v1`에 둔다(서버는 강의를 모른다). 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
 | `src/captions/job-state.ts` (신규) | `idle → identifying → extracting → uploading → queued → running → succeeded | failed | cancelled`. 진행률은 관측 가능한 값만(분리된 바이트, 업로드 바이트, 서버 `progress`) |
 | `src/captions/transcript.ts` | 서버 JSON(`segments[{start_ms,end_ms,text}]`) → 기존 `Transcript` 투영 함수 추가. 기존 추출 경로의 동작은 바꾸지 않는다 |
 | `src/captions/download.ts` | 기존 TXT 내보내기가 AI 자막에도 동작하도록. 파일명에 `AI` 표시. SRT/VTT는 이번 범위 밖 |
-| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | Google 로그인(`chrome.identity.launchWebAuthFlow`, code + PKCE)과 세션 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 세션 키와 매핑 키를 모두 지우게 한다 |
+| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | 로그인(`chrome.identity.launchWebAuthFlow`로 broker 시작 주소를 열고 연결 코드 + handoff verifier 교환)과 세션 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 세션 키와 매핑 키를 모두 지우게 한다 |
 
 #### 3-5. UI
 
@@ -213,20 +214,20 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 - 영상 바이트는 메모리 밖(`storage`, `downloads`, 서버)으로 나가지 않는다. `chrome.downloads`는 자막 TXT에만 호출된다.
 - 미디어 URL은 현재 탭의 `uniPlayerConfig`에서만 오고, 패턴 검사를 통과하지 않으면 요청하지 않는다. 임의 URL을 받는 코드 경로가 없다.
 - 서버 요청 본문·로그·analytics에 LMS URL, 과목 ID, 강의 제목, 토큰이 들어가지 않는다. 기존 `redactText` 경계를 지킨다.
-- Google 토큰은 확장에 남지 않는다. 인가 코드와 PKCE verifier는 broker로 한 번 보내고 버린다. `chrome.storage.local`에는 broker 세션만 저장한다. redirect URL은 `https://<고정 ID>.chromiumapp.org/`이고 state가 일치할 때만 처리한다.
+- Google 토큰과 Google 인가 코드는 확장에 오지 않는다(broker가 Google 콜백을 받는다). 확장은 broker가 `https://<고정 ID>.chromiumapp.org/`로 돌려준 1회용 연결 코드를 state와 `iss`(= broker origin)가 맞을 때만 handoff verifier와 함께 한 번 보내고 버린다. `chrome.storage.local`에는 broker 세션만 저장한다.
 - `npm run build`(플래그 없음)의 manifest에 `identity`와 `key`가 없다.
 
 테스트:
 
 - Vitest: `media-source`(descriptor-only 읽기, 패턴 거부), `referer-rule`(추가·제거·예외 시 제거·잔존 규칙 정리), `audio-extract`(작은 합성 MP4 fixture로 오디오만 남는지, 영상 샘플이 버퍼에 없는지, 메모리 상한), `job-client`(스키마 거부, 크기 상한, 오류 코드), `job-state` 전이, `transcript` 투영, `CaptionsPanel`의 버튼 노출 조건과 확인 다이얼로그. 로그인: PKCE verifier·S256 challenge, state·nonce 생성과 검증, redirect URL 파싱(다른 호스트·state 불일치·`error` 파라미터 거부), refresh 단일 비행(동시 401 여러 개에도 refresh 1회), `REFRESH_REUSED` 처리, quota 표시. 커버리지 80% 유지.
-- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 실제 Google 화면은 자동화하지 않는다. 가짜 broker가 `/v1/auth/google`에서 테스트 코드를 받아들이고, `chrome.identity.launchWebAuthFlow`는 테스트 페이지에서 대체해 고정 redirect URL을 돌려준다. 로그인 전 버튼 숨김, 로그인 후 생성, `QUOTA_EXCEEDED` 표시를 검증한다.
+- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 로그인 흐름은 e2e로 돌리지 않는다. 실제 Google 화면도, broker 시작 주소·연결 코드 교환도 자동화하지 않고, 로그인된 경우는 저장소에 세션을 미리 넣어 시작한다. e2e가 확인하는 것은 다섯 가지다: 세션 규칙만으로 CDN 403이 206이 되고 오디오만 올라감, 워커가 20번 넘게 재시작해도 규칙이 유지되고 작업이 끝남, 패널을 닫으면 background가 규칙을 지움, 세션이 없으면 로그인 안내만 보이고 아무 요청도 보내지 않음, `QUOTA_EXCEEDED`면 미디어를 읽기 전에 안내함. 로그인(시작 주소, state·`iss` 확인, 연결 코드 교환), refresh, 로그아웃, 모든 기기 로그아웃과 그 경합은 단위 테스트(`tests/caption-server-settings.test.ts`, `tests/caption-api-contract.test.ts`)로만 확인한다. CI는 이 e2e를 돌리지 않는다.
 - `npm run check` 통과. release 빌드 E2E(`npm run test:e2e`)가 그대로 통과.
 
 수동 게이트(에이전트가 완료를 주장하지 않는다):
 
 - 실제 LMS·실제 CDN·실제 서버로 한 강의 전체를 처리해 자막이 나온다.
 - Chrome 114에서 플래그 빌드가 로드된다(DNR 세션 규칙은 Chrome 84+, `declarativeNetRequestWithHostAccess`는 96+).
-- Google Cloud에 Web application OAuth client를 만들고 고정 확장 ID의 redirect URI를 등록한 뒤, 실제 Google 계정으로 로그인 → 생성 → 로그아웃이 된다.
+- Google Cloud에 Web application OAuth client를 만들어 redirect URI로 broker 콜백(`https://<broker>/v1/auth/google/callback`) 하나만 등록하고, broker 허용 목록에 고정 확장 ID를 넣은 뒤, 실제 Google 계정으로 로그인 → 생성 → 로그아웃 → 모든 기기 로그아웃이 된다.
 
 ### 4단계. 스토어 제출 준비 (이번 범위 밖)
 

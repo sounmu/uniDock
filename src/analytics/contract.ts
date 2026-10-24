@@ -67,9 +67,9 @@ export const actions = [
         "captions_ai_generate",
         "captions_ai_confirm",
         "captions_ai_cancel",
-        "caption_server_save",
-        "caption_server_clear",
-        "caption_server_test",
+        "caption_server_login",
+        "caption_server_logout",
+        "caption_server_logout_all",
       ] as const)
     : []),
 ] as const;

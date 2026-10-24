@@ -11,6 +11,7 @@ const uploadAudio = vi.hoisted(() => vi.fn());
 const getJob = vi.hoisted(() => vi.fn());
 const getTranscript = vi.hoisted(() => vi.fn());
 const cancelJob = vi.hoisted(() => vi.fn());
+const getWorkerStatus = vi.hoisted(() => vi.fn());
 const loadActiveJob = vi.hoisted(() => vi.fn());
 const saveActiveJob = vi.hoisted(() => vi.fn());
 const clearActiveJob = vi.hoisted(() => vi.fn());
@@ -40,6 +41,7 @@ vi.mock("../src/captions/job-client", async (orig) => ({
   getJob,
   getTranscript,
   cancelJob,
+  getWorkerStatus,
 }));
 vi.mock("../src/captions/job-record", () => ({
   captionJobKey: async () => "unidock-hashedkey",
@@ -57,11 +59,13 @@ function Probe() {
 }
 let ui: Awaited<ReturnType<typeof mount>> | undefined;
 
-const succeeded = {
-  state: "succeeded",
-  transcriptId: "t_1",
-  expiresAt: "2027-01-01T00:00:00Z",
-};
+const job = (state: string, extra: Record<string, unknown> = {}) => ({
+  id: "job_1",
+  state,
+  cancelRequested: false,
+  ...extra,
+});
+const succeeded = job("succeeded", { transcriptId: "t_1" });
 const transcript = {
   schemaVersion: 1,
   language: "ko",
@@ -69,7 +73,8 @@ const transcript = {
   modelRevision: "r1",
   pipelineVersion: "p1",
   createdAt: "",
-  expiresAt: "",
+  expiresAt: "2027-01-01T00:00:00Z",
+  durationMs: 1000,
   segments: [{ start_ms: 0, end_ms: 1000, text: "안녕" }],
 };
 
@@ -105,7 +110,8 @@ beforeEach(() => {
     windowId: 1,
   });
   extractAudio.mockResolvedValue(new Blob(["a"], { type: "audio/mp4" }));
-  createJob.mockResolvedValue("job_1");
+  createJob.mockResolvedValue(job("awaiting_upload"));
+  getWorkerStatus.mockResolvedValue("online");
   uploadAudio.mockResolvedValue(undefined);
   cancelJob.mockResolvedValue(undefined);
   getTranscript.mockResolvedValue(transcript);
@@ -128,9 +134,7 @@ async function generate() {
 }
 
 it("creates the job first, then extracts, uploads, saves and shows the transcript", async () => {
-  getJob
-    .mockResolvedValueOnce({ state: "awaiting_upload", expiresAt: "" })
-    .mockResolvedValueOnce(succeeded);
+  getJob.mockResolvedValueOnce(succeeded);
   await generate();
   expect(hook.state.phase).toBe("succeeded");
   expect(hook.state.result?.engine).toBe("whisper");
@@ -144,13 +148,18 @@ it("creates the job first, then extracts, uploads, saves and shows the transcrip
   expect(createJob.mock.invocationCallOrder[0]).toBeLessThan(
     extractAudio.mock.invocationCallOrder[0]!,
   );
-  expect(uploadAudio).toHaveBeenCalledWith("job_1", expect.any(Blob), expect.anything());
+  expect(uploadAudio).toHaveBeenCalledWith(
+    "job_1",
+    expect.any(Blob),
+    expect.anything(),
+    expect.any(Function),
+  );
   expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_1", key: "unidock-hashedkey" });
 });
 
 it("shows an existing accepted job for a duplicate request without re-extracting", async () => {
-  getJob.mockResolvedValueOnce({ state: "running", expiresAt: "" });
-  getJob.mockResolvedValueOnce(succeeded);
+  createJob.mockResolvedValue(job("running"));
+  getJob.mockResolvedValueOnce(job("running")).mockResolvedValueOnce(succeeded);
   vi.useFakeTimers({ toFake: ["setTimeout"] });
   try {
     ui = await mount(<Probe />);
@@ -196,9 +205,7 @@ it("re-queries a saved accepted job when the panel opens again", async () => {
 });
 
 async function startPendingJob() {
-  getJob
-    .mockResolvedValueOnce({ state: "awaiting_upload", expiresAt: "" })
-    .mockReturnValue(new Promise(() => {}));
+  getJob.mockReturnValue(new Promise(() => {}));
   ui = await mount(<Probe />);
   await act(async () => {
     void hook.generate();
@@ -270,9 +277,7 @@ it("drops a saved job that loads after a newer Generate started", async () => {
   loadActiveJob.mockReturnValue(new Promise((resolve) => (resolveSaved = resolve)));
   let grant!: (granted: boolean) => void;
   requestCaptionMediaAccess.mockReturnValue(new Promise((resolve) => (grant = resolve)));
-  getJob
-    .mockResolvedValueOnce({ state: "awaiting_upload", expiresAt: "" })
-    .mockReturnValue(new Promise(() => {}));
+  getJob.mockReturnValue(new Promise(() => {}));
   ui = await mount(<Probe />);
   await act(async () => {
     void hook.generate();
@@ -303,6 +308,69 @@ it("does not show a saved job on a different lecture", async () => {
   });
   expect(getJob).not.toHaveBeenCalled();
   expect(hook.state.phase).toBe("idle");
+});
+
+it("tells the panel when a queued job waits for an offline worker", async () => {
+  createJob.mockResolvedValue(job("queued"));
+  let answer!: (status: "offline") => void;
+  getWorkerStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+  getJob.mockResolvedValueOnce(job("queued"));
+  ui = await mount(<Probe />);
+  await act(async () => {
+    void hook.generate();
+    await vi.waitFor(() => expect(getWorkerStatus).toHaveBeenCalled());
+  });
+  await act(async () => answer("offline"));
+  expect(hook.state.phase).toBe("queued");
+  expect(hook.state.workerOffline).toBe(true);
+  expect(extractAudio).not.toHaveBeenCalled();
+});
+
+it("reports a quota refusal from job creation without touching the media", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  createJob.mockRejectedValue(new JobError("QUOTA_EXCEEDED", 3600));
+  await generate();
+  expect(hook.state.phase).toBe("failed");
+  expect(hook.state.errorCode).toBe("QUOTA_EXCEEDED");
+  expect(extractAudio).not.toHaveBeenCalled();
+});
+
+it("cancels a job whose upload length conflicts and uploads once into a fresh job", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  createJob
+    .mockResolvedValueOnce(job("awaiting_upload"))
+    .mockResolvedValueOnce({ ...job("awaiting_upload"), id: "job_2" });
+  uploadAudio.mockRejectedValueOnce(new JobError("UPLOAD_CONFLICT")).mockResolvedValueOnce(undefined);
+  getJob.mockResolvedValueOnce({ ...succeeded, id: "job_2" });
+  await generate();
+  expect(cancelJob).toHaveBeenCalledWith("job_1", expect.anything());
+  expect(createJob).toHaveBeenNthCalledWith(2, "unidock-hashedkey", expect.anything(), expect.anything());
+  expect(uploadAudio.mock.calls.map((call) => call[0])).toEqual(["job_1", "job_2"]);
+  expect(extractAudio).toHaveBeenCalledOnce();
+  expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_2", key: "unidock-hashedkey" });
+  expect(hook.state.phase).toBe("succeeded");
+});
+
+it("stops after one recovery when the fresh job conflicts too", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  createJob
+    .mockResolvedValueOnce(job("awaiting_upload"))
+    .mockResolvedValueOnce({ ...job("awaiting_upload"), id: "job_2" });
+  uploadAudio.mockRejectedValue(new JobError("UPLOAD_CONFLICT"));
+  await generate();
+  expect(uploadAudio).toHaveBeenCalledTimes(2);
+  expect(createJob).toHaveBeenCalledTimes(2);
+  expect(hook.state.phase).toBe("failed");
+  expect(hook.state.errorCode).toBe("UPLOAD_CONFLICT");
+});
+
+it("follows the job when its upload was already completed elsewhere", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  uploadAudio.mockRejectedValueOnce(new JobError("UPLOAD_CLOSED"));
+  getJob.mockResolvedValueOnce(succeeded);
+  await generate();
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).toBe("succeeded");
 });
 
 it("does not restore when the current tab is not a KU player", async () => {

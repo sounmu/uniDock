@@ -1,0 +1,17 @@
+{
+  "access_token": "at_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "access_token_expires_at": "2026-10-24T03:15:00Z",
+  "refresh_token": "rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "refresh_token_expires_at": "2026-11-23T03:00:00Z",
+  "user": {
+    "id": "0193c0de-7a1b-7c2d-8e3f-000000000001",
+    "email": "student@example.com",
+    "plan": "free",
+    "quota": {
+      "limit": 7,
+      "used": 2,
+      "reserved": 0,
+      "resets_at": "2026-10-26T15:00:00Z"
+    }
+  }
+}
