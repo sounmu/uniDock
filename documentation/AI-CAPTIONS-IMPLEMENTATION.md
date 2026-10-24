@@ -20,8 +20,43 @@
 | 취득 방식 | 확장 background/sidepanel에서 `declarativeNetRequestWithHostAccess` **세션 규칙**으로 자기 요청에만 Referer를 붙여 스트리밍으로 읽는다 |
 | 전송 형식 | 영상은 버리고 **오디오 트랙만** 보낸다. 1순위 AAC 재다중화(`.m4a`, 재인코딩 없음), 2순위 WebCodecs → Opus. MP3는 쓰지 않는다 |
 | 배포 | `UNIDOCK_AI_CAPTIONS=1` 빌드에서만 컴파일된다. release 패키징은 이 빌드를 거부한다. 스토어 제출은 이 브리프 범위 밖이다 |
-| 추론 | 운영자 Mac mini M4 16GB. 1순위 Whisper `large-v3-turbo` (`mlx-whisper` 또는 `whisper.cpp`), 비교 후보 `large-v3`, Qwen3-ASR-1.7B, 한국어 fine-tune |
-| 서버 | Go 모놀리스 하나. 개인용 1단계는 SQLite 허용. 음원은 성공 즉시 삭제, 자막은 학기 종료일까지 |
+| 추론 | 운영자 Mac mini M4 16GB. 1순위 Whisper `large-v3-turbo`. 엔진은 `whisper.cpp` 우선(2026-10-24 운영자 결정, Python 런타임 없음), `mlx-whisper`는 PoC 비교용. 비교 후보 `large-v3`, Qwen3-ASR-1.7B, 한국어 fine-tune |
+| 서버 | 3계층: 오라클 broker(Go, PostgreSQL) + Mac mini worker(Go 감독 프로세스 + `whisper.cpp` 자식 프로세스) + Cloudflare R2(자막·백업). 다른 사용자도 쓰는 구성이다. 배치와 흐름은 아래 "배치와 데이터 흐름"이 기준이다. 음원은 성공 즉시 삭제, 자막은 최초 생성 후 6개월 |
+| 인증·quota | Google OAuth 로그인 후에만 사용. 사용자당 주 7회(KST 월요일 초기화). 같은 음원은 공유 캐시로 제공. API 계약은 `unidock-captions/api/public.openapi.yaml`, 결정 근거는 같은 저장소 `docs/adr/` |
+
+### 배치와 데이터 흐름 (2026-10-24 확정)
+
+| 구성 요소 | 위치 | 역할 | 갖는 자격증명 |
+| --- | --- | --- | --- |
+| 확장 | 사용자 Chrome | CDN에서 음원 트랙만 분리, broker로 업로드, 결과 표시 | 사용자 토큰 |
+| broker | 오라클 인스턴스 | 공개 API, 업로드 spool, 검증, 작업·lease 관리, 결과 제공 | DB 비밀번호, R2 버킷 토큰 |
+| PostgreSQL | broker와 같은 인스턴스 | 작업·lease·attempt·사용자·자막 메타데이터·만료·삭제 대기열. **유일한 진실 원천** | — |
+| R2 | Cloudflare | 자막 JSON, DB 백업. 비공개 버킷 | — |
+| worker | Mac mini | lease 수령, 음원 수신, 추론, 결과 제출 | 워커 토큰 (사용자 토큰과 별개) |
+
+```text
+(1) 확장 → broker   POST /v1/transcription-jobs (Idempotency-Key)            → awaiting_upload
+(2) 확장 → broker   음원 트랙 업로드 → 오라클 로컬 spool 파일에 offset 순서대로 기록
+(3) broker          업로드 완료 → SHA-256 계산 → ffprobe(로컬 파일) 검증       → queued
+                    (같은 캐시 키의 성공 자막이 있으면 추론 없이 연결          → succeeded)
+(4) worker → broker [tailnet] lease 요청 → {job_id, attempt, lease_expires_at}  → running
+(5) worker → broker [tailnet] 음원 GET → Mac 작업 디렉터리 → whisper.cpp → 시간축 검증
+                    처리 중 heartbeat로 lease 연장
+(6) worker → broker [tailnet] 결과 JSON 제출(job_id, attempt)
+                    → broker 스키마·시간축 검증 → R2 저장 → PostgreSQL 완료 커밋 → succeeded
+(7) broker          spool 음원 삭제. worker는 제출 ack를 받은 뒤 로컬 음원 삭제
+(8) 확장 → broker   GET 상태 / GET /v1/transcripts/{id} → 소유·만료 확인 후 R2에서 읽어 응답
+```
+
+불변 조건:
+
+- **CDN에 요청하는 것은 확장뿐이다.** 미디어 URL, LMS URL, 과목 ID, 강의 제목은 브라우저 밖으로 나가지 않는다. broker와 worker는 URL을 받지도, 외부에서 미디어를 받아 오지도 않는다.
+- **확장이 연결하는 출처는 broker 하나다.** 확장은 R2나 worker에 직접 연결하지 않는다. `connect-src`에는 broker origin 하나만 추가한다.
+- **Mac은 inbound를 받지 않는다.** 모든 연결은 worker가 tailnet을 통해 broker로 먼저 연다. 공인 인터넷에 열린 Mac 포트는 없다.
+- **음원은 R2에 저장하지 않는다.** 사본은 오라클 spool 파일과 Mac 작업 디렉터리 두 곳뿐이다. 성공 즉시 삭제와 실패 시 24시간 보관은 두 사본 모두에 적용한다.
+- **worker와 확장은 R2 자격증명을 갖지 않는다.** R2 읽기·쓰기는 broker만 한다. 결과도 broker가 검증한 뒤 저장한다.
+- **캐시 키의 digest는 서버가 계산한다**(3번 단계). 클라이언트가 보낸 해시로 다른 사용자의 자막을 내주지 않는다. 업로드 전에 해시만 보고 결과를 주는 중복 제거는 별도 소유 증명(BL-01 지문 챌린지)을 갖춘 뒤에만 검토한다.
+- **PostgreSQL이 기준이다.** 커밋된 행이 없는 R2 객체는 고아로 보고 정리 작업이 지운다. 삭제·만료는 DB에 먼저 tombstone을 남기고 객체를 지우며, 늦게 도착한 attempt 결과는 tombstone이나 다음 attempt를 이기지 못한다.
 
 ## 1. 단계
 
@@ -48,38 +83,51 @@
 - 선택 엔진·모델·설정이 한 줄로 확정돼 있다.
 - 결과 요약을 `documentation/FEATURE-RESEARCH-2026-10.md` 4.4절 끝에 "실측" 소제목으로 추가한다 (이 저장소에서 유일하게 바뀌는 파일).
 
-### 2단계. 개인용 최소 서버 (별도 저장소)
+### 2단계. 서버 (별도 저장소)
 
-목적: 확장이 업로드할 대상과, 결과를 가져올 API를 만든다. 다중 사용자·공유 캐시·알림은 넣지 않는다.
+목적: 확장이 업로드할 대상과, 결과를 가져올 API를 만든다. 알림은 넣지 않는다. 다중 사용자(Google OAuth), quota, 공유 캐시는 `unidock-captions`의 명세와 `docs/STATE-MACHINE.md`를 따른다.
 
-위치: `unidock-captions` 저장소. 언어는 Go. 워커는 같은 바이너리 안의 goroutine이든 별도 프로세스든 상관없지만, **추론 실패가 API 프로세스를 죽이지 않아야** 한다.
+위치: `unidock-captions` 저장소. 언어는 Go. broker(오라클)와 worker(Mac)는 별도 바이너리이며 배치는 0장 "배치와 데이터 흐름"을 따른다. worker 안에서도 `whisper.cpp`는 자식 프로세스로 실행해 **추론 실패가 worker 감독 루프와 broker를 죽이지 않게** 한다.
 
-API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
+API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 요약이며, 다르면 명세를 따른다.
 
 | API | 비고 |
 | --- | --- |
-| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{source_digest_hint?, duration_hint_s?}` 정도로 최소 |
-| `POST /v1/transcription-jobs/{id}/audio` | `audio/mp4` 또는 `audio/ogg`. 크기 상한(기본 200 MB)과 길이 상한(기본 4시간)을 넘으면 413 |
-| `GET /v1/transcription-jobs/{id}` | `{state, error_code?, progress?, transcript_id?, expires_at}` |
+| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, size_bytes, duration_hint_s?, language?}`. 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
+| `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
+| `POST /v1/auth/google`, `POST /v1/auth/refresh`, `GET /v1/me` | Google 로그인, 세션 갱신, 이번 주 quota |
+| `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
 | `POST /v1/transcription-jobs/{id}/cancel` | |
-| `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마 |
-| `DELETE /v1/transcripts/{id}` | |
+| `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마. `expires_at`(최초 생성 + 6개월)은 여기와 `GET /v1/transcripts` 목록에 있다 |
+| `DELETE /v1/transcripts/{id}` | 내 연결만 끊는다. 공유 자막은 만료일까지 남는다 |
 
 규칙:
 
-- 인증은 운영자가 발급한 **설치 토큰 하나**(`Authorization: Bearer`). 토큰은 서버 설정 파일에만 있고 회수 가능하다. 확장 번들에 넣지 않는다.
+- 인증은 Google OAuth 로그인 후 broker가 발급한 세션 토큰(`Authorization: Bearer`)이다(ADR-0006). 정적 비밀을 확장 번들에 넣지 않는다. quota는 사용자당 주 7회다(ADR-0008).
 - 업로드 완료 후 FFmpeg(`ffprobe`)로 코덱·채널·길이를 검증하고 나서야 `queued`로 바꾼다. MIME만 믿지 않는다. FFmpeg는 인자 배열로 호출하고 시간·메모리 제한을 건다.
 - 상태는 `awaiting_upload → queued → running → succeeded | failed | cancelled`. 워커는 lease와 attempt 번호를 받고, 늦은 attempt의 결과는 버린다.
 - 성공 즉시 원본 음원을 삭제한다. 실패 시 보관은 24시간으로 제한한다.
-- `expires_at`은 설정 파일의 학기 종료일 고정값이다. 만료 시 API는 404를 주고, 파일은 별도 정리 작업이 지운다.
+- `expires_at`은 자막 최초 생성 후 6개월이며 연장하지 않는다(ADR-0008). 만료 시 API는 404를 주고, 객체는 별도 정리 작업이 지운다.
 - 로그에 음원 내용·자막 본문·토큰을 남기지 않는다. 작업 ID·상태·소요 시간·오류 코드만 남긴다.
+
+공개 서버(broker) 규칙:
+
+- 공인 IP에는 443 하나만 연다. OCI security list와 인스턴스 방화벽 양쪽에 같은 규칙을 둔다. 인증서는 TLS-ALPN-01(Caddy 또는 Go `autocert`)로 받아 80도 열지 않는다.
+- SSH와 worker API는 tailnet 인터페이스에만 bind한다. Tailscale ACL은 `tag:caption-worker` → `tag:caption-broker`의 worker API 포트만 허용한다. 서버 노드는 태그로 등록해 키 만료로 연결이 끊기지 않게 한다.
+- 업로드 본문은 메모리에 모으지 않고 spool 파일로 스트리밍한다. 선언된 총 크기와 실제 누적 바이트를 모두 검사하고(`http.MaxBytesReader`), 상한을 넘으면 즉시 중단하고 413을 준다.
+- `ReadHeaderTimeout`과 진행 없는 업로드 idle timeout으로 느린 연결이 자원을 붙잡지 못하게 한다.
+- rate limit: 사용자 토큰별 작업 생성 수·동시 업로드 수·일일 총 음원 길이, IP별 인증 실패 횟수.
+- ffprobe는 spool 로컬 파일만 입력으로 받는다(`-protocol_whitelist file`). URL을 입력으로 넘기지 않는다.
+- R2 버킷은 비공개로 둔다(public bucket URL·`r2.dev` 비활성). API 토큰은 broker용 하나를 버킷 단위 권한으로 발급한다.
+- R2 토큰, DB 비밀번호, 워커 토큰은 서버 설정·환경 변수에만 두고 저장소에 커밋하지 않는다. 각각 독립적으로 회수할 수 있어야 한다.
+- OS 보안 업데이트는 자동 적용한다.
 
 완료 조건:
 
 - `curl`만으로 생성 → 업로드 → 대기 → 자막 조회 → 삭제가 된다.
 - 손상 파일, 크기 초과, 잘못된 토큰, 중복 Idempotency-Key, 처리 중 워커 강제 종료 후 재시작, 완료와 취소의 경합을 다루는 테스트가 있다.
 - 워커 재시작 뒤 `running`이던 작업이 lease 만료 후 다시 처리된다.
-- README에 Mac에서의 실행·재부팅 후 자동 시작·토큰 발급·학기 종료일 설정 방법이 있다.
+- README에 Mac에서의 실행·재부팅 후 자동 시작·워커 토큰 발급·Google OAuth client 설정 방법이 있다(`docs/OPERATIONS.md`).
 
 ### 3단계. 확장: 음원 취득·업로드·결과 표시 (이 저장소)
 
@@ -91,7 +139,7 @@ API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
 
 | 파일 | 변경 |
 | --- | --- |
-| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`, `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
+| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`와 `identity`, manifest `key`(확장 ID 고정. OAuth redirect URI와 broker CORS 허용 목록이 이 ID에 묶인다), `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
 | `src/build-flags.d.ts` | 두 상수 선언 추가 |
 | `package.json` | `build:ai-captions`, `test:e2e:ai-captions` 스크립트 추가 |
 | `scripts/package-release.mjs` | `UNIDOCK_AI_CAPTIONS=1`이면 실패. 번들에서 `declarativeNetRequest`, CDN 호스트, 아래 메시지 타입 마커가 발견되면 실패 |
@@ -123,19 +171,19 @@ API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
 
 | 파일 | 변경 |
 | --- | --- |
-| `src/captions/job-client.ts` (신규) | 2단계 API 6개를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 토큰은 `chrome.storage.local`의 `unidock.caption-server-token.v1`에서 읽는다. 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
+| `src/captions/job-client.ts` (신규) | 공개 API(`public.openapi.yaml`)를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 세션 토큰은 `chrome.storage.local`의 `unidock.caption-session.v1`에서 읽고, `TOKEN_EXPIRED`면 refresh 후 한 번 재시도한다. 강의 ↔ 작업·자막 매핑은 `unidock.caption-jobs.v1`에 둔다(서버는 강의를 모른다). 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
 | `src/captions/job-state.ts` (신규) | `idle → identifying → extracting → uploading → queued → running → succeeded | failed | cancelled`. 진행률은 관측 가능한 값만(분리된 바이트, 업로드 바이트, 서버 `progress`) |
 | `src/captions/transcript.ts` | 서버 JSON(`segments[{start_ms,end_ms,text}]`) → 기존 `Transcript` 투영 함수 추가. 기존 추출 경로의 동작은 바꾸지 않는다 |
 | `src/captions/download.ts` | 기존 TXT 내보내기가 AI 자막에도 동작하도록. 파일명에 `AI` 표시. SRT/VTT는 이번 범위 밖 |
-| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | 토큰 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 이 키도 지우게 한다 |
+| `src/popup-settings.ts` 옆 `src/caption-server-settings.ts` (신규) | Google 로그인(`chrome.identity.launchWebAuthFlow`, code + PKCE)과 세션 저장·삭제. `LocalDataSettings.tsx`의 "로컬 데이터 삭제"가 세션 키와 매핑 키를 모두 지우게 한다 |
 
 #### 3-5. UI
 
 | 파일 | 변경 |
 | --- | --- |
-| `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 `<만료일>`까지 보관됩니다"를 보여주고 확인을 받는다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
+| `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 최대 6개월 보관됩니다"를 보여주고 확인을 받는다. 같은 음원의 기존 자막에 연결되면 남은 기간이 더 짧을 수 있으므로, 실제 만료일은 완료 후 자막의 `expires_at`으로 표시한다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
 | `entrypoints/sidepanel/useAiCaptions.ts` (신규) | 3-2~3-4를 묶는 훅. 탭·문서가 바뀌면 진행 중 작업을 취소하고 결과를 폐기한다(기존 `CaptionsPanel`의 탭 변경 처리와 같은 규칙) |
-| `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | 토큰 입력·삭제, 서버 origin 표시(수정 불가), 연결 확인 버튼. 정보 화면에 `PopupSettings` 옆에 둔다 |
+| `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | Google 로그인·로그아웃, 이번 주 남은 횟수, 서버 origin 표시(수정 불가), worker 상태(`/v1/service-status`). 정보 화면에 `PopupSettings` 옆에 둔다 |
 
 모든 UI 코드는 `__UNIDOCK_AI_CAPTIONS__` 가드 안에 있어야 한다. release 빌드에서는 버튼도 설정도 존재하지 않는다(playback처럼 비활성 항목을 남기지 않는다).
 
@@ -154,6 +202,9 @@ API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
 - `UNIDOCK_AI_CAPTIONS=1 UNIDOCK_CAPTION_SERVER=https://… npm run build:ai-captions` 결과를 로드하고, 자막 없는 KU 영상에서 `AI 자막 생성` → 확인 → 분리 → 업로드 → 대기 → 자막 표시 → TXT 내보내기가 된다.
 - 같은 영상을 두 번 요청하면 서버가 Idempotency-Key로 중복을 막고 패널은 기존 작업 상태를 보여준다.
 - 패널을 닫았다가 열면 서버에 접수된 작업의 상태를 다시 조회해 보여주고, 접수 전이던 작업은 사라진다.
+- 로그인하지 않으면 `AI 자막 생성` 대신 Google 로그인 안내가 보인다. 로그인 → 사용 → access 만료 후 자동 refresh → 로그아웃이 된다. `REFRESH_REUSED`나 refresh 실패면 세션을 지우고 로그인 안내로 돌아간다.
+- `QUOTA_EXCEEDED`면 버튼을 비활성화하고 초기화 시각(`quota.resets_at`)을 보여준다. `ACTIVE_JOB_EXISTS`면 진행 중인 작업 화면으로 간다. `/v1/service-status`가 `offline`이면 생성은 허용하되 "처리 서버가 꺼져 있어 대기합니다"를 표시한다.
+- "로컬 데이터 모두 삭제"가 세션과 강의 ↔ 작업 매핑을 지우고 서버 세션도 폐기(`POST /v1/auth/logout`)한다.
 
 보안·경계:
 
@@ -162,21 +213,24 @@ API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
 - 영상 바이트는 메모리 밖(`storage`, `downloads`, 서버)으로 나가지 않는다. `chrome.downloads`는 자막 TXT에만 호출된다.
 - 미디어 URL은 현재 탭의 `uniPlayerConfig`에서만 오고, 패턴 검사를 통과하지 않으면 요청하지 않는다. 임의 URL을 받는 코드 경로가 없다.
 - 서버 요청 본문·로그·analytics에 LMS URL, 과목 ID, 강의 제목, 토큰이 들어가지 않는다. 기존 `redactText` 경계를 지킨다.
+- Google 토큰은 확장에 남지 않는다. 인가 코드와 PKCE verifier는 broker로 한 번 보내고 버린다. `chrome.storage.local`에는 broker 세션만 저장한다. redirect URL은 `https://<고정 ID>.chromiumapp.org/`이고 state가 일치할 때만 처리한다.
+- `npm run build`(플래그 없음)의 manifest에 `identity`와 `key`가 없다.
 
 테스트:
 
-- Vitest: `media-source`(descriptor-only 읽기, 패턴 거부), `referer-rule`(추가·제거·예외 시 제거·잔존 규칙 정리), `audio-extract`(작은 합성 MP4 fixture로 오디오만 남는지, 영상 샘플이 버퍼에 없는지, 메모리 상한), `job-client`(스키마 거부, 크기 상한, 오류 코드), `job-state` 전이, `transcript` 투영, `CaptionsPanel`의 버튼 노출 조건과 확인 다이얼로그. 커버리지 80% 유지.
-- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip.
+- Vitest: `media-source`(descriptor-only 읽기, 패턴 거부), `referer-rule`(추가·제거·예외 시 제거·잔존 규칙 정리), `audio-extract`(작은 합성 MP4 fixture로 오디오만 남는지, 영상 샘플이 버퍼에 없는지, 메모리 상한), `job-client`(스키마 거부, 크기 상한, 오류 코드), `job-state` 전이, `transcript` 투영, `CaptionsPanel`의 버튼 노출 조건과 확인 다이얼로그. 로그인: PKCE verifier·S256 challenge, state·nonce 생성과 검증, redirect URL 파싱(다른 호스트·state 불일치·`error` 파라미터 거부), refresh 단일 비행(동시 401 여러 개에도 refresh 1회), `REFRESH_REUSED` 처리, quota 표시. 커버리지 80% 유지.
+- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 실제 Google 화면은 자동화하지 않는다. 가짜 broker가 `/v1/auth/google`에서 테스트 코드를 받아들이고, `chrome.identity.launchWebAuthFlow`는 테스트 페이지에서 대체해 고정 redirect URL을 돌려준다. 로그인 전 버튼 숨김, 로그인 후 생성, `QUOTA_EXCEEDED` 표시를 검증한다.
 - `npm run check` 통과. release 빌드 E2E(`npm run test:e2e`)가 그대로 통과.
 
 수동 게이트(에이전트가 완료를 주장하지 않는다):
 
 - 실제 LMS·실제 CDN·실제 서버로 한 강의 전체를 처리해 자막이 나온다.
 - Chrome 114에서 플래그 빌드가 로드된다(DNR 세션 규칙은 Chrome 84+, `declarativeNetRequestWithHostAccess`는 96+).
+- Google Cloud에 Web application OAuth client를 만들고 고정 확장 ID의 redirect URI를 등록한 뒤, 실제 Google 계정으로 로그인 → 생성 → 로그아웃이 된다.
 
 ### 4단계. 스토어 제출 준비 (이번 범위 밖)
 
-리서치 문서 4.2.2의 조치를 갖춘 뒤 별도 브리프로 다룬다. 3단계에서 미리 해 둘 것은 "숨기지 않기"뿐이다: 규칙·권한·흐름이 코드에서 그대로 읽히게 쓴다.
+리서치 문서 4.2.2의 조치를 갖춘 뒤 별도 브리프로 다룬다. Google 로그인으로 이메일을 수집하므로 `public/privacy.html`과 스토어 Privacy practices에 계정 정보 수집과 보관·삭제(계정 삭제 API)를 추가하는 것도 그 범위다. 3단계에서 미리 해 둘 것은 "숨기지 않기"뿐이다: 규칙·권한·흐름이 코드에서 그대로 읽히게 쓴다.
 
 ## 2. 비범위 (하지 말 것)
 
@@ -186,8 +240,8 @@ API (리서치 문서 4.5의 제안 계약을 그대로 쓴다):
 - **영상 또는 음원 파일 제공.** MP4·m4a·Opus를 사용자에게 저장하게 하는 버튼·단축키·숨은 경로를 두지 않는다. 결과물은 자막뿐이다.
 - **Referer 외 헤더 수정, 정적 DNR 규칙, 탭 요청에 적용되는 규칙.** 규칙은 확장 자신의 요청 하나에만 붙는다.
 - **CDN 외 호스트 권한 확대, `connect-src` 와일드카드, `cookies`·broad `tabs`·all-sites 권한.**
-- **서버에 LMS 쿠키·토큰·signed URL·과목 ID·강의 제목 전송.** 서버는 음원과 익명 작업 메타데이터만 받는다.
-- **공유 캐시, 다중 사용자 인증, 알림(Telegram·Discord), SRT/VTT 내보내기, 번역·요약.** 모두 후속 단계다.
+- **서버에 LMS 쿠키·토큰·signed URL·과목 ID·강의 제목 전송.** 서버는 음원, 작업 메타데이터(형식·크기·길이·언어), 그리고 quota와 소유 확인에 필요한 Google 계정 식별자(`sub`, 이메일)만 받는다. 작업은 사용자에게 연결되지만, 어느 과목·강의인지는 서버가 알 수 없다.
+- **알림(Telegram·Discord), SRT/VTT 내보내기, 번역·요약.** 모두 후속 단계다. (공유 캐시와 Google OAuth 다중 사용자는 2026-10-24 결정으로 범위에 들어왔다.)
 - **기존 자막 감지 경로 변경.** `detectCaptions`, `extract.ts`, `normalize.ts`의 동작과 contract fixture는 건드리지 않는다. `UNSAFE_CAPTION`을 AI 생성으로 자동 전환하지 않는다.
 - **release 빌드에 흔적 남기기.** 비활성 버튼, 안내 문구, 설정 항목 어느 것도 release 빌드에 넣지 않는다.
 - **`public/privacy.html`·스토어 자산 수정.** 4단계에서 다룬다.
