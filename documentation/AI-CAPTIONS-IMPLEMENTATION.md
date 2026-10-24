@@ -93,13 +93,13 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | API | 비고 |
 | --- | --- |
-| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{source_digest_hint?, duration_hint_s?}` 정도로 최소 |
+| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, size_bytes, duration_hint_s?, language?}`. 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
 | `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
 | `POST /v1/auth/google`, `POST /v1/auth/refresh`, `GET /v1/me` | Google 로그인, 세션 갱신, 이번 주 quota |
-| `GET /v1/transcription-jobs/{id}` | `{state, error_code?, progress?, transcript_id?, expires_at}` |
+| `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
 | `POST /v1/transcription-jobs/{id}/cancel` | |
-| `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마 |
-| `DELETE /v1/transcripts/{id}` | |
+| `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마. `expires_at`(최초 생성 + 6개월)은 여기와 `GET /v1/transcripts` 목록에 있다 |
+| `DELETE /v1/transcripts/{id}` | 내 연결만 끊는다. 공유 자막은 만료일까지 남는다 |
 
 규칙:
 
@@ -181,7 +181,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 `<만료일>`까지 보관됩니다"를 보여주고 확인을 받는다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
+| `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 최대 6개월 보관됩니다"를 보여주고 확인을 받는다. 같은 음원의 기존 자막에 연결되면 남은 기간이 더 짧을 수 있으므로, 실제 만료일은 완료 후 자막의 `expires_at`으로 표시한다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
 | `entrypoints/sidepanel/useAiCaptions.ts` (신규) | 3-2~3-4를 묶는 훅. 탭·문서가 바뀌면 진행 중 작업을 취소하고 결과를 폐기한다(기존 `CaptionsPanel`의 탭 변경 처리와 같은 규칙) |
 | `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | Google 로그인·로그아웃, 이번 주 남은 횟수, 서버 origin 표시(수정 불가), worker 상태(`/v1/service-status`). 정보 화면에 `PopupSettings` 옆에 둔다 |
 
@@ -240,7 +240,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 - **영상 또는 음원 파일 제공.** MP4·m4a·Opus를 사용자에게 저장하게 하는 버튼·단축키·숨은 경로를 두지 않는다. 결과물은 자막뿐이다.
 - **Referer 외 헤더 수정, 정적 DNR 규칙, 탭 요청에 적용되는 규칙.** 규칙은 확장 자신의 요청 하나에만 붙는다.
 - **CDN 외 호스트 권한 확대, `connect-src` 와일드카드, `cookies`·broad `tabs`·all-sites 권한.**
-- **서버에 LMS 쿠키·토큰·signed URL·과목 ID·강의 제목 전송.** 서버는 음원과 익명 작업 메타데이터만 받는다.
+- **서버에 LMS 쿠키·토큰·signed URL·과목 ID·강의 제목 전송.** 서버는 음원, 작업 메타데이터(형식·크기·길이·언어), 그리고 quota와 소유 확인에 필요한 Google 계정 식별자(`sub`, 이메일)만 받는다. 작업은 사용자에게 연결되지만, 어느 과목·강의인지는 서버가 알 수 없다.
 - **알림(Telegram·Discord), SRT/VTT 내보내기, 번역·요약.** 모두 후속 단계다. (공유 캐시와 Google OAuth 다중 사용자는 2026-10-24 결정으로 범위에 들어왔다.)
 - **기존 자막 감지 경로 변경.** `detectCaptions`, `extract.ts`, `normalize.ts`의 동작과 contract fixture는 건드리지 않는다. `UNSAFE_CAPTION`을 AI 생성으로 자동 전환하지 않는다.
 - **release 빌드에 흔적 남기기.** 비활성 버튼, 안내 문구, 설정 항목 어느 것도 release 빌드에 넣지 않는다.
