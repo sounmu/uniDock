@@ -147,6 +147,14 @@ it("refuses an upload whose declared length differs or whose offset goes backwar
   await expect(uploadAudio("j", new Blob([new Uint8Array(10)]))).rejects.toMatchObject({
     code: "UPLOAD_CONFLICT",
   });
+  // More bytes already stored than the new audio has: also a conflict, so the
+  // panel cancels and starts a fresh job instead of failing every retry.
+  for (const length of [undefined, 20]) {
+    mockServer(() => headResponse(20, length));
+    await expect(uploadAudio("j", new Blob([new Uint8Array(10)]))).rejects.toMatchObject({
+      code: "UPLOAD_CONFLICT",
+    });
+  }
   mockServer((call) => (call.method === "HEAD" ? headResponse(4) : patched(4)));
   await expect(uploadAudio("j", new Blob([new Uint8Array(10)]))).rejects.toMatchObject({
     code: "RESPONSE",

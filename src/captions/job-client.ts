@@ -159,8 +159,10 @@ async function uploadOffset(id: string, total: number, signal?: AbortSignal) {
   );
   const offset = headerCount(response, "Upload-Offset");
   const declared = headerCount(response, "Upload-Length");
-  if (offset === undefined || offset > total) throw new CaptionServerError("RESPONSE");
-  if (declared !== undefined && declared !== total)
+  if (offset === undefined) throw new CaptionServerError("RESPONSE");
+  // Bytes or a length recorded for different audio: the panel recovers by
+  // cancelling this job and uploading into a fresh one.
+  if (offset > total || (declared !== undefined && declared !== total))
     throw new CaptionServerError("UPLOAD_CONFLICT");
   return offset;
 }
