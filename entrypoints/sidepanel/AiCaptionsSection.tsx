@@ -29,7 +29,8 @@ const errorText: Record<string, string> = {
   ACTIVE_JOB_EXISTS:
     "다른 강의의 AI 자막 생성이 진행 중입니다. 끝난 뒤 다시 시도하세요.",
   RATE_LIMITED: "요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
-  UPLOAD_CONFLICT: "업로드가 서버 기록과 맞지 않습니다. 취소한 뒤 다시 시도하세요.",
+  UPLOAD_CONFLICT:
+    "업로드가 서버 기록과 계속 맞지 않아 멈췄습니다. 잠시 후 다시 시도하세요.",
   UNAVAILABLE: "자막 서버가 점검 중입니다. 잠시 후 다시 시도하세요.",
   EXPIRED: "자막이 만료되었거나 작업을 찾을 수 없습니다.",
   NETWORK: "자막 서버에 연결하지 못했습니다.",

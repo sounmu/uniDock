@@ -250,7 +250,7 @@ export function useAiCaptions() {
         { durationHintS: media.durationS || undefined },
         signal,
       );
-      const id = job.id;
+      let id = job.id;
       jobId.current = id;
       if (!live()) return;
       if (job.state === "awaiting_upload") {
@@ -264,7 +264,32 @@ export function useAiCaptions() {
         );
         if (!live()) return;
         set({ phase: "uploading", progress: 0 });
-        await uploadAudio(id, audio, signal, (bytes) => set({ progress: bytes }));
+        const upload = (target: string) =>
+          uploadAudio(target, audio, signal, (bytes) => set({ progress: bytes }));
+        try {
+          await upload(id);
+        } catch (error) {
+          const code = errorCode(error);
+          // UPLOAD_CLOSED: another upload of this job already finished, so the
+          // job is simply followed below.
+          if (code === "UPLOAD_CONFLICT") {
+            // The job holds a different length (e.g. an older extraction).
+            // The same key would return the same job, so cancel it to release
+            // the key and upload once into a fresh job.
+            await cancelJob(id, signal);
+            const fresh = await createJob(
+              key,
+              { durationHintS: media.durationS || undefined },
+              signal,
+            );
+            if (!live()) return;
+            if (fresh.id === id || fresh.state !== "awaiting_upload") throw error;
+            id = fresh.id;
+            jobId.current = id;
+            set({ progress: 0 });
+            await upload(id);
+          } else if (code !== "UPLOAD_CLOSED") throw error;
+        }
       }
       if (!live()) return;
       await saveActiveJob({ jobId: id, key });

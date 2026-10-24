@@ -335,6 +335,44 @@ it("reports a quota refusal from job creation without touching the media", async
   expect(extractAudio).not.toHaveBeenCalled();
 });
 
+it("cancels a job whose upload length conflicts and uploads once into a fresh job", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  createJob
+    .mockResolvedValueOnce(job("awaiting_upload"))
+    .mockResolvedValueOnce({ ...job("awaiting_upload"), id: "job_2" });
+  uploadAudio.mockRejectedValueOnce(new JobError("UPLOAD_CONFLICT")).mockResolvedValueOnce(undefined);
+  getJob.mockResolvedValueOnce({ ...succeeded, id: "job_2" });
+  await generate();
+  expect(cancelJob).toHaveBeenCalledWith("job_1", expect.anything());
+  expect(createJob).toHaveBeenNthCalledWith(2, "unidock-hashedkey", expect.anything(), expect.anything());
+  expect(uploadAudio.mock.calls.map((call) => call[0])).toEqual(["job_1", "job_2"]);
+  expect(extractAudio).toHaveBeenCalledOnce();
+  expect(saveActiveJob).toHaveBeenCalledWith({ jobId: "job_2", key: "unidock-hashedkey" });
+  expect(hook.state.phase).toBe("succeeded");
+});
+
+it("stops after one recovery when the fresh job conflicts too", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  createJob
+    .mockResolvedValueOnce(job("awaiting_upload"))
+    .mockResolvedValueOnce({ ...job("awaiting_upload"), id: "job_2" });
+  uploadAudio.mockRejectedValue(new JobError("UPLOAD_CONFLICT"));
+  await generate();
+  expect(uploadAudio).toHaveBeenCalledTimes(2);
+  expect(createJob).toHaveBeenCalledTimes(2);
+  expect(hook.state.phase).toBe("failed");
+  expect(hook.state.errorCode).toBe("UPLOAD_CONFLICT");
+});
+
+it("follows the job when its upload was already completed elsewhere", async () => {
+  const { JobError } = await import("../src/captions/job-client");
+  uploadAudio.mockRejectedValueOnce(new JobError("UPLOAD_CLOSED"));
+  getJob.mockResolvedValueOnce(succeeded);
+  await generate();
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(hook.state.phase).toBe("succeeded");
+});
+
 it("does not restore when the current tab is not a KU player", async () => {
   const { MediaSourceError } = await import("../src/captions/media-source");
   identifyMedia.mockRejectedValue(new MediaSourceError("ACTIVATE_TAB"));

@@ -57,6 +57,10 @@ it("maps the spec's error codes, not just HTTP status", async () => {
   });
   mockServer(() => json({ error: { code: "NOT_FOUND" } }, 404));
   await expect(getJob("j")).rejects.toMatchObject({ code: "EXPIRED" });
+  mockServer(() => json({ error: { code: "UPLOAD_NOT_ACCEPTING" } }, 409));
+  await expect(getJob("j")).rejects.toMatchObject({ code: "UPLOAD_CLOSED" });
+  mockServer(() => json({ error: { code: "UPLOAD_LENGTH_MISMATCH" } }, 409));
+  await expect(getJob("j")).rejects.toMatchObject({ code: "UPLOAD_CONFLICT" });
   mockServer(() => new Response("bad gateway", { status: 502 }));
   await expect(getJob("j")).rejects.toMatchObject({ code: "SERVER" });
   mockServer(() => json({ state: "nonsense", id: "j" }));
