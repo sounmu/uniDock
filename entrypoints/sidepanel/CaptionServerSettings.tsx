@@ -3,9 +3,11 @@ import {
   captionServerOrigin,
   signIn,
   signOut,
+  signOutEverywhere,
 } from "../../src/caption-server-settings";
 import {
   getAccount,
+  getSessionCount,
   getWorkerStatus,
   type CaptionAccount,
 } from "../../src/captions/job-client";
@@ -25,6 +27,7 @@ export function CaptionServerSettings() {
   const session = useCaptionSession();
   const [account, setAccount] = useState<CaptionAccount | null>(null);
   const [worker, setWorker] = useState<"online" | "offline" | null>(null);
+  const [devices, setDevices] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const origin = captionServerOrigin();
@@ -34,6 +37,7 @@ export function CaptionServerSettings() {
     if (!signedIn) {
       setAccount(null);
       setWorker(null);
+      setDevices(null);
       return;
     }
     let live = true;
@@ -44,6 +48,10 @@ export function CaptionServerSettings() {
     void getWorkerStatus().then(
       (value) => live && setWorker(value),
       () => live && setWorker(null),
+    );
+    void getSessionCount().then(
+      (value) => live && setDevices(value),
+      () => live && setDevices(null),
     );
     return () => {
       live = false;
@@ -67,6 +75,18 @@ export function CaptionServerSettings() {
     await signOut();
     setBusy(false);
     setNotice("로그아웃했습니다.");
+  }
+
+  async function logoutEverywhere() {
+    setBusy(true);
+    try {
+      await signOutEverywhere();
+      setNotice("모든 기기에서 로그아웃했습니다.");
+    } catch {
+      setNotice("모든 기기 로그아웃에 실패했습니다. 잠시 후 다시 시도하세요.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -115,6 +135,14 @@ export function CaptionServerSettings() {
                 >
                   로그아웃
                 </button>
+                <button
+                  className="btn-ghost"
+                  disabled={busy}
+                  data-analytics-action="caption_server_logout_all"
+                  onClick={() => void logoutEverywhere()}
+                >
+                  모든 기기에서 로그아웃
+                </button>
               </div>
             </div>
             <div className="settings-row">
@@ -126,6 +154,14 @@ export function CaptionServerSettings() {
                         account.quota.resetsAt,
                       ).toLocaleString()}에 초기화`
                     : "확인하지 못했습니다."}
+                </p>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="row-text">
+                <p className="row-title">로그인된 기기</p>
+                <p className="row-sub">
+                  {devices === null ? "확인하지 못했습니다." : `${devices}대 (최대 10대)`}
                 </p>
               </div>
             </div>

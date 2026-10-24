@@ -283,6 +283,14 @@ export async function getAccount(signal?: AbortSignal): Promise<CaptionAccount> 
   return { email: str(body.email), quota: { limit, used, reserved, resetsAt } };
 }
 
+export async function getSessionCount(signal?: AbortSignal): Promise<number> {
+  const body = await readJson(
+    await ok(await authorizedFetch("/v1/me/sessions", { method: "GET" }, signal)),
+  );
+  if (!Array.isArray(body.items)) throw new CaptionServerError("RESPONSE");
+  return body.items.length;
+}
+
 export async function getWorkerStatus(
   signal?: AbortSignal,
 ): Promise<"online" | "offline"> {

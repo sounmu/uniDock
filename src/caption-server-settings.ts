@@ -13,13 +13,23 @@ export const CAPTION_SESSION_KEY = "unidock.caption-session.v1";
 // It lives in memory-only session storage (shared by every extension context),
 // so deleting all local data leaves nothing behind on disk.
 export const CAPTION_SESSION_EPOCH_KEY = "unidock.caption-session-epoch.v1";
+// The latest sign-in attempt. When two sign-ins overlap, only the one started
+// last may store its session; an earlier one that finishes later is dropped.
+const LOGIN_ATTEMPT_KEY = "unidock.caption-login-attempt.v1";
 
 const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
+// RFC 9207: Google's discovery document sets
+// authorization_response_iss_parameter_supported, so a response must carry it.
+const GOOGLE_ISSUER = "https://accounts.google.com";
+const COMMIT_LOCK = "unidock-caption-commit";
+const REFRESH_LOCK = "unidock-caption-refresh";
 const REFRESH_MARGIN_MS = 30_000;
 const LOGOUT_TIMEOUT_MS = 3_000;
 const REFRESH_TIMEOUT_MS = 15_000;
 
 export interface CaptionSession {
+  /** Local generation id, new on every save; the identity commits compare. */
+  id: string;
   accessToken: string;
   accessExpiresAt: string;
   refreshToken: string;
@@ -40,15 +50,20 @@ const time = (value: unknown): value is string =>
 const email = (value: unknown): value is string =>
   typeof value === "string" && value.length <= 320 && value.includes("@");
 
+const sessionId = (value: unknown): value is string =>
+  typeof value === "string" && /^[\w-]{16,64}$/.test(value);
+
 function parseSession(value: unknown): CaptionSession | null {
   const v = value as Partial<CaptionSession> | null | undefined;
   return v &&
+    sessionId(v.id) &&
     token(v.accessToken) &&
     time(v.accessExpiresAt) &&
     token(v.refreshToken) &&
     time(v.refreshExpiresAt) &&
     email(v.email)
     ? {
+        id: v.id,
         accessToken: v.accessToken,
         accessExpiresAt: v.accessExpiresAt,
         refreshToken: v.refreshToken,
@@ -61,6 +76,7 @@ function parseSession(value: unknown): CaptionSession | null {
 export function sessionFromResponse(body: Record<string, unknown>): CaptionSession {
   const user = body.user as { email?: unknown } | undefined;
   const session = parseSession({
+    id: random(16),
     accessToken: body.access_token,
     accessExpiresAt: body.access_token_expires_at,
     refreshToken: body.refresh_token,
@@ -76,13 +92,6 @@ export async function loadSession(): Promise<CaptionSession | null> {
   return parseSession(values[CAPTION_SESSION_KEY]);
 }
 
-async function saveSession(session: CaptionSession): Promise<void> {
-  await chrome.storage.local.set({ [CAPTION_SESSION_KEY]: session });
-}
-
-export async function clearSession(): Promise<void> {
-  await chrome.storage.local.remove(CAPTION_SESSION_KEY);
-}
 
 function base64url(bytes: Uint8Array): string {
   let text = "";
@@ -140,7 +149,7 @@ export function authorizationCode(
   if (url.origin !== expected.origin || url.pathname !== expected.pathname)
     throw new CaptionServerError("LOGIN_FAILED");
   const params = url.searchParams;
-  if (params.get("state") !== state)
+  if (params.get("state") !== state || params.get("iss") !== GOOGLE_ISSUER)
     throw new CaptionServerError("LOGIN_FAILED");
   if (params.get("error") === "access_denied")
     throw new CaptionServerError("LOGIN_CANCELLED");
@@ -158,6 +167,8 @@ const jsonInit = (body: unknown): RequestInit => ({
 
 export async function signIn(): Promise<CaptionSession> {
   const epoch = await readEpoch();
+  const loginAttempt = random(16);
+  await chrome.storage.session.set({ [LOGIN_ATTEMPT_KEY]: loginAttempt });
   const request = await authorizationRequest();
   let responseUrl: string | undefined;
   try {
@@ -186,13 +197,13 @@ export async function signIn(): Promise<CaptionSession> {
       : error;
   }
   const session = sessionFromResponse(await readJson(response));
-  await withSessionLock(async () => {
-    if ((await readEpoch()) !== epoch) {
-      revokeQuietly(session.accessToken);
-      throw new CaptionServerError("LOGIN_CANCELLED");
-    }
-    await saveSession(session);
-  });
+  const { applied, previous } = await commit({ epoch, loginAttempt }, session);
+  if (!applied) {
+    revokeQuietly(session.accessToken);
+    throw new CaptionServerError("LOGIN_CANCELLED");
+  }
+  // A new sign-in ends the session it replaces (ASVS 5.0 V7.2.4).
+  if (previous) revokeQuietly(previous.accessToken);
   return session;
 }
 
@@ -211,35 +222,89 @@ function revokeQuietly(accessToken: string): void {
   ).catch(() => undefined);
 }
 
-function withSessionLock<T>(
-  fn: () => Promise<T>,
-  options: { steal?: boolean } = {},
-): Promise<T> {
+function withLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
   const locks = (globalThis.navigator as { locks?: LockManager } | undefined)
     ?.locks;
-  return locks ? locks.request("unidock-caption-session", options, fn) : fn();
+  return locks ? locks.request(name, fn) : fn();
 }
 
-const stolen = (error: unknown) =>
-  error instanceof DOMException && error.name === "AbortError";
+interface Snapshot {
+  epoch: string | undefined;
+  session: CaptionSession | null;
+}
+
+let trustedOnly: Promise<void> | null = null;
+
+/**
+ * Tokens are written only after storage.local is restricted to extension pages
+ * and workers. The background sets this at startup without waiting, so the
+ * first token write in any context waits for it here; if it fails, no token is
+ * stored.
+ */
+function restrictStorage(): Promise<void> {
+  trustedOnly ??= chrome.storage.local
+    .setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
+    .catch(() => {
+      trustedOnly = null;
+      throw new CaptionServerError("UNAVAILABLE");
+    });
+  return trustedOnly;
+}
+
+async function readSnapshot(): Promise<Snapshot> {
+  return { epoch: await readEpoch(), session: await loadSession() };
+}
+
+/**
+ * The only writer of the stored session. Under the commit lock (held for
+ * storage calls only, never across the network, never stolen) it applies
+ * `next` (a session, or null to clear) only while the epoch and the stored
+ * session id are still the ones the caller started from. Comparing inside the
+ * lock is what makes it a compare-and-swap: a late answer for an older session
+ * can neither overwrite nor delete a newer one.
+ */
+async function commit(
+  expect: { epoch?: string | undefined; sessionId?: string | null; loginAttempt?: string },
+  next: CaptionSession | null,
+): Promise<{ applied: boolean; previous: CaptionSession | null }> {
+  return withLock(COMMIT_LOCK, async () => {
+    const { epoch, session } = await readSnapshot();
+    const attempt =
+      "loginAttempt" in expect
+        ? (await chrome.storage.session.get(LOGIN_ATTEMPT_KEY))[LOGIN_ATTEMPT_KEY]
+        : undefined;
+    const stale =
+      ("epoch" in expect && epoch !== expect.epoch) ||
+      ("sessionId" in expect && (session?.id ?? null) !== expect.sessionId) ||
+      ("loginAttempt" in expect && attempt !== expect.loginAttempt);
+    if (stale) return { applied: false, previous: session };
+    if (next) {
+      await restrictStorage();
+      await chrome.storage.local.set({ [CAPTION_SESSION_KEY]: next });
+    }
+    else await chrome.storage.local.remove(CAPTION_SESSION_KEY);
+    return { applied: true, previous: session };
+  });
+}
 
 let refreshing: Promise<CaptionSession | null> | null = null;
 
 /**
- * Exchange the refresh token once. If another page already replaced the access
- * token we were using, its session is returned instead, so two pages never
- * spend the same refresh token (the broker would revoke the whole session).
+ * Exchange the refresh token of `stale` once. The refresh lock spans the
+ * network call so two pages never spend the same refresh token (the broker
+ * would revoke the whole session); the result is stored only through
+ * `commit`. When another page already refreshed or the user signed in again,
+ * the stored session is returned instead.
  */
-function refreshSession(stale: string): Promise<CaptionSession | null> {
-  refreshing ??= withSessionLock(async () => {
-    const epoch = await readEpoch();
-    const current = await loadSession();
+function refreshSession(stale: CaptionSession): Promise<CaptionSession | null> {
+  refreshing ??= withLock(REFRESH_LOCK, async () => {
+    const { epoch, session: current } = await withLock(COMMIT_LOCK, readSnapshot);
     if (!current) return null;
-    if (current.accessToken !== stale) return current;
-    if (Date.parse(current.refreshExpiresAt) <= Date.now()) {
-      await clearSession();
-      return null;
-    }
+    if (current.id !== stale.id) return current;
+    const expect = { epoch, sessionId: current.id };
+    const endWith = async (next: CaptionSession | null) =>
+      (await commit(expect, next)).applied ? next : loadSession();
+    if (Date.parse(current.refreshExpiresAt) <= Date.now()) return endWith(null);
     let response: Response;
     try {
       response = await serverFetch(
@@ -250,40 +315,26 @@ function refreshSession(stale: string): Promise<CaptionSession | null> {
     } catch {
       throw new CaptionServerError("NETWORK");
     }
-    if (response.status === 401) {
-      await clearSession();
-      return null;
-    }
+    if (response.status === 401) return endWith(null);
     if (!response.ok) throw await errorFor(response);
     const next = sessionFromResponse(await readJson(response));
-    // Logout steals the lock instead of waiting, so a refresh that outlived it
-    // finds a new epoch (or no session) here and must not store its answer.
-    if ((await readEpoch()) !== epoch || !(await loadSession())) {
-      revokeQuietly(next.accessToken);
-      return null;
-    }
-    await saveSession(next);
-    return next;
-  })
-    // A logout that stole the lock ends this refresh as signed out.
-    .catch((error: unknown) => {
-      if (stolen(error)) return null;
-      throw error;
-    })
-    .finally(() => {
-      refreshing = null;
-    });
+    const stored = await endWith(next);
+    if (stored !== next) revokeQuietly(next.accessToken);
+    return stored;
+  }).finally(() => {
+    refreshing = null;
+  });
   return refreshing;
 }
 
-async function accessToken(): Promise<string> {
+async function usableSession(): Promise<CaptionSession> {
   const session = await loadSession();
   if (!session) throw new CaptionServerError("LOGIN_REQUIRED");
   if (Date.parse(session.accessExpiresAt) - REFRESH_MARGIN_MS > Date.now())
-    return session.accessToken;
-  const next = await refreshSession(session.accessToken);
+    return session;
+  const next = await refreshSession(session);
   if (!next) throw new CaptionServerError("LOGIN_REQUIRED");
-  return next.accessToken;
+  return next;
 }
 
 function withBearer(init: RequestInit, bearer: string): RequestInit {
@@ -295,61 +346,72 @@ function withBearer(init: RequestInit, bearer: string): RequestInit {
 
 /**
  * A request with the broker session. An expired access token is refreshed and
- * the request retried once; a rejected session is cleared and reported as
- * LOGIN_REQUIRED. Any other response is returned for the caller to judge.
+ * the request retried once. A rejected session is cleared, but only if it is
+ * still the stored one, and reported as LOGIN_REQUIRED. Any other response is
+ * returned for the caller to judge.
  */
 export async function authorizedFetch(
   path: string,
   init: RequestInit,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const bearer = await accessToken();
-  let response = await serverFetch(path, withBearer(init, bearer), signal);
+  let used = await usableSession();
+  let response = await serverFetch(path, withBearer(init, used.accessToken), signal);
   if (response.status === 401 && (await serverErrorCode(response)) === "TOKEN_EXPIRED") {
-    const next = await refreshSession(bearer);
+    const next = await refreshSession(used);
     if (!next) throw new CaptionServerError("LOGIN_REQUIRED");
-    response = await serverFetch(path, withBearer(init, next.accessToken), signal);
+    used = next;
+    response = await serverFetch(path, withBearer(init, used.accessToken), signal);
   }
   if (response.status === 401) {
-    await clearSession();
+    await commit({ sessionId: used.id }, null);
     throw new CaptionServerError("LOGIN_REQUIRED");
   }
   return response;
 }
 
 /**
- * Best-effort logout: revoke the broker session, then forget it locally. The
- * local session is removed even when the broker cannot be reached.
+ * End every session of this account at the broker (other devices included),
+ * then forget the local one. A session the broker already rejects counts as
+ * ended.
  */
+export async function signOutEverywhere(): Promise<void> {
+  try {
+    const response = await authorizedFetch("/v1/me/sessions", { method: "DELETE" });
+    if (!response.ok) throw await errorFor(response);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "LOGIN_REQUIRED") throw error;
+  }
+  await revokeAndClear(() => chrome.storage.local.remove(CAPTION_SESSION_KEY));
+}
+
+/** Best-effort logout: forget the session locally, then revoke it at the broker. */
 export function signOut(): Promise<void> {
-  return revokeAndClear(clearSession);
+  return revokeAndClear(() => chrome.storage.local.remove(CAPTION_SESSION_KEY));
 }
 
 /**
- * Write a fresh epoch first, so no sign-in or refresh already in flight can
- * store its answer, then run `clear` and revoke the broker session (best
- * effort). The session lock is stolen rather than awaited: a hung refresh must
- * never hold up logout or data deletion. Data deletion passes its own `clear`.
+ * In one commit-lock section: write a fresh epoch (so any sign-in or refresh
+ * already in flight fails its commit), then run `clear`. The broker session
+ * is revoked afterwards, outside the lock and best effort (3 s), so neither a
+ * hung refresh nor a slow broker holds up logout or data deletion. Data
+ * deletion passes its own `clear`.
  */
-export function revokeAndClear(clear: () => Promise<void>): Promise<void> {
-  return withSessionLock(
-    async () => {
-      const session = await loadSession().catch(() => null);
-      await chrome.storage.session.set({
-        [CAPTION_SESSION_EPOCH_KEY]: random(16),
-      });
-      await clear();
-      try {
-        if (session && __UNIDOCK_CAPTION_SERVER__)
-          await serverFetch(
-            "/v1/auth/logout",
-            withBearer({ method: "POST" }, session.accessToken),
-            AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
-          );
-      } catch {
-        // The local session is already gone; revocation is best effort.
-      }
-    },
-    { steal: true },
-  );
+export async function revokeAndClear(clear: () => Promise<void>): Promise<void> {
+  const previous = await withLock(COMMIT_LOCK, async () => {
+    const session = await loadSession();
+    await chrome.storage.session.set({ [CAPTION_SESSION_EPOCH_KEY]: random(16) });
+    await clear();
+    return session;
+  });
+  if (!previous || !__UNIDOCK_CAPTION_SERVER__) return;
+  try {
+    await serverFetch(
+      "/v1/auth/logout",
+      withBearer({ method: "POST" }, previous.accessToken),
+      AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+    );
+  } catch {
+    // The local session is already gone; revocation is best effort.
+  }
 }

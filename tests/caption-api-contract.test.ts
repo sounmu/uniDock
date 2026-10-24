@@ -8,6 +8,7 @@ import addFormats from "ajv-formats";
 import {
   createJob,
   getAccount,
+  getSessionCount,
   getJob,
   getTranscript,
   getWorkerStatus,
@@ -17,9 +18,10 @@ import {
 } from "../src/captions/job-client";
 import { captionJobKey } from "../src/captions/job-record";
 import { SERVER_CODES } from "../src/captions/server-http";
-import { sessionFromResponse, signIn } from "../src/caption-server-settings";
+import { sessionFromResponse, signIn, signOutEverywhere } from "../src/caption-server-settings";
 import {
   fixture,
+  googleRedirect,
   json,
   mockServer,
   seedSession,
@@ -75,6 +77,7 @@ const responses: [string, string][] = [
   ["me.json", "Me"],
   ["service-status.json", "ServiceStatus"],
   ["session.json", "SessionResponse"],
+  ["session-list.json", "SessionList"],
   ["error-quota-exceeded.json", "ErrorResponse"],
   ["error-token-expired.json", "ErrorResponse"],
   ["error-upload-offset-mismatch.json", "ErrorResponse"],
@@ -195,14 +198,25 @@ describe("the client sends spec-shaped requests", () => {
   });
 
   it("signs in with a valid GoogleAuthRequest", async () => {
-    launchWebAuthFlow.mockImplementation(async ({ url }) => {
-      const state = new URL(url).searchParams.get("state");
-      return `https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/?code=4/abc&state=${state}`;
-    });
+    launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
     const calls = mockServer(() => json(fixture("session.json")));
     await signIn();
     operation(calls[0]!);
     expectValid("GoogleAuthRequest", JSON.parse(calls[0]!.body as string));
+  });
+
+  it("lists and ends device sessions through spec operations", async () => {
+    const calls = mockServer((call) =>
+      call.method === "GET" ? json(fixture("session-list.json")) : new Response(null, { status: 204 }),
+    );
+    expect(await getSessionCount()).toBe(2);
+    await signOutEverywhere();
+    for (const call of calls) operation(call);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /v1/me/sessions",
+      "DELETE /v1/me/sessions",
+      "POST /v1/auth/logout",
+    ]);
   });
 
   it("refreshes with a valid RefreshRequest", async () => {

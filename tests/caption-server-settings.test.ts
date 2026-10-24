@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   authorizationCode,
   authorizationRequest,
@@ -12,6 +12,7 @@ import {
 import { getJob } from "../src/captions/job-client";
 import {
   fixture,
+  googleRedirect,
   json,
   mockServer,
   REDIRECT_URI,
@@ -47,27 +48,29 @@ it("builds a Google code request with an S256 PKCE challenge", async () => {
   expect((await authorizationRequest()).state).not.toBe(request.state);
 });
 
-it("accepts a code only from our redirect URI with the matching state", () => {
-  expect(authorizationCode(`${REDIRECT_URI}?code=4/abc&state=s1`, REDIRECT_URI, "s1")).toBe("4/abc");
+it("accepts a code only from our redirect URI with the matching state and issuer", () => {
+  const iss = "&iss=https%3A%2F%2Faccounts.google.com";
+  expect(authorizationCode(`${REDIRECT_URI}?code=4/abc&state=s1${iss}`, REDIRECT_URI, "s1")).toBe(
+    "4/abc",
+  );
   for (const url of [
-    `https://evil.chromiumapp.org/?code=4/abc&state=s1`,
-    `${REDIRECT_URI}?code=4/abc&state=other`,
-    `${REDIRECT_URI}?state=s1`,
-    `${REDIRECT_URI}?error=server_error&state=s1`,
+    `https://evil.chromiumapp.org/?code=4/abc&state=s1${iss}`,
+    `${REDIRECT_URI}?code=4/abc&state=other${iss}`,
+    `${REDIRECT_URI}?state=s1${iss}`,
+    `${REDIRECT_URI}?error=server_error&state=s1${iss}`,
+    // RFC 9207: Google advertises iss, so a missing or different issuer fails.
+    `${REDIRECT_URI}?code=4/abc&state=s1`,
+    `${REDIRECT_URI}?code=4/abc&state=s1&iss=https%3A%2F%2Fevil.example`,
     "not a url",
   ])
     expect(() => authorizationCode(url, REDIRECT_URI, "s1")).toThrow("LOGIN_FAILED");
   expect(() =>
-    authorizationCode(`${REDIRECT_URI}?error=access_denied&state=s1`, REDIRECT_URI, "s1"),
+    authorizationCode(`${REDIRECT_URI}?error=access_denied&state=s1${iss}`, REDIRECT_URI, "s1"),
   ).toThrow("LOGIN_CANCELLED");
 });
 
 it("exchanges the code at the broker and stores only the broker session", async () => {
-  let sentState = "";
-  launchWebAuthFlow.mockImplementation(async ({ url }) => {
-    sentState = new URL(url).searchParams.get("state")!;
-    return `${REDIRECT_URI}?code=4/abc&state=${sentState}`;
-  });
+  launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
   const calls = mockServer(() => json(fixture("session.json")));
   const session = await signIn();
   expect(calls[0]!.path).toBe("/v1/auth/google");
@@ -84,7 +87,7 @@ it("reports a closed login window and a refused account", async () => {
   launchWebAuthFlow.mockRejectedValue(new Error("The user did not approve access."));
   await expect(signIn()).rejects.toMatchObject({ code: "LOGIN_CANCELLED" });
   launchWebAuthFlow.mockImplementation(
-    async ({ url }) => `${REDIRECT_URI}?code=4/abc&state=${new URL(url).searchParams.get("state")}`,
+    async ({ url }) => googleRedirect(url),
   );
   mockServer(() => json({ error: { code: "ACCOUNT_NOT_ALLOWED" } }, 403));
   await expect(signIn()).rejects.toMatchObject({ code: "ACCOUNT_NOT_ALLOWED" });
@@ -120,7 +123,7 @@ function deferred<T>() {
 
 it("drops a sign-in that the broker answers after logout", async () => {
   launchWebAuthFlow.mockImplementation(
-    async ({ url }) => `${REDIRECT_URI}?code=4/abc&state=${new URL(url).searchParams.get("state")}`,
+    async ({ url }) => googleRedirect(url),
   );
   const exchange = deferred<Response>();
   const calls = mockServer((call) =>
@@ -224,4 +227,128 @@ it("gives the refresh request a time limit", async () => {
   );
   await getJob("j");
   expect(calls.find((c) => c.path === "/v1/auth/refresh")!.signal).toBeInstanceOf(AbortSignal);
+});
+
+describe("a late answer for an older session never touches a newer one", () => {
+  async function newSessionAfterLogout(lateAnswer: Promise<Response>) {
+    seedSession(store, { accessExpiresAt: "2000-01-01T00:00:00Z" });
+    const calls = mockServer((call) =>
+      call.path === "/v1/auth/refresh"
+        ? lateAnswer
+        : call.path === "/v1/auth/google"
+          ? json(fixture("session.json"))
+          : new Response(null, { status: 204 }),
+    );
+    const pending = getJob("j").catch((error: { code?: string }) => error.code);
+    await vi.waitFor(() => expect(calls.some((c) => c.path === "/v1/auth/refresh")).toBe(true));
+    await signOut();
+    launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
+    const fresh = await signIn();
+    return { calls, pending, fresh };
+  }
+
+  it("keeps the new session when the old refresh answers 401", async () => {
+    const late = deferred<Response>();
+    const { pending, fresh } = await newSessionAfterLogout(late.promise);
+    late.resolve(json({ error: { code: "REFRESH_REUSED" } }, 401));
+    await pending;
+    expect((store[CAPTION_SESSION_KEY] as { id: string }).id).toBe(fresh.id);
+  });
+
+  it("keeps the new session when the old refresh succeeds late", async () => {
+    const late = deferred<Response>();
+    const { pending, fresh, calls } = await newSessionAfterLogout(late.promise);
+    late.resolve(json({ ...fixture("session.json"), access_token: `late_${"z".repeat(40)}` }));
+    await pending;
+    expect((store[CAPTION_SESSION_KEY] as { id: string }).id).toBe(fresh.id);
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.path === "/v1/auth/logout" && c.headers.Authorization?.includes("late_")),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps the new session when an old request answers 401", async () => {
+    seedSession(store);
+    const late = deferred<Response>();
+    mockServer((call) =>
+      call.path === "/v1/transcription-jobs/j"
+        ? late.promise
+        : call.path === "/v1/auth/google"
+          ? json(fixture("session.json"))
+          : new Response(null, { status: 204 }),
+    );
+    const pending = getJob("j").catch((error: { code?: string }) => error.code);
+    await signOut();
+    launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
+    const fresh = await signIn();
+    late.resolve(json({ error: { code: "UNAUTHENTICATED" } }, 401));
+    expect(await pending).toBe("LOGIN_REQUIRED");
+    expect((store[CAPTION_SESSION_KEY] as { id: string }).id).toBe(fresh.id);
+  });
+
+  it("still clears its own session when the broker rejects it", async () => {
+    seedSession(store);
+    mockServer(() => json({ error: { code: "UNAUTHENTICATED" } }, 401));
+    await expect(getJob("j")).rejects.toMatchObject({ code: "LOGIN_REQUIRED" });
+    expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+  });
+});
+
+it("ends the replaced session at the broker when signing in again", async () => {
+  seedSession(store);
+  launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
+  const calls = mockServer((call) =>
+    call.path === "/v1/auth/google" ? json(fixture("session.json")) : new Response(null, { status: 204 }),
+  );
+  await signIn();
+  await vi.waitFor(() =>
+    expect(
+      calls.some(
+        (c) => c.path === "/v1/auth/logout" && c.headers.Authorization === `Bearer at_seed_${"s".repeat(40)}`,
+      ),
+    ).toBe(true),
+  );
+});
+
+it("stores only the sign-in started last when two overlap", async () => {
+  const flows: ((value: string) => void)[] = [];
+  const urls: string[] = [];
+  launchWebAuthFlow.mockImplementation(
+    ({ url }) =>
+      new Promise<string>((resolve) => {
+        urls.push(url);
+        flows.push(resolve);
+      }),
+  );
+  mockServer((call) =>
+    call.path === "/v1/auth/google"
+      ? json({ ...fixture("session.json"), access_token: `at_${JSON.parse(call.body as string).code.replace("4/", "")}_${"q".repeat(30)}` })
+      : new Response(null, { status: 204 }),
+  );
+  const first = signIn().catch((error: { code?: string }) => error.code);
+  await vi.waitFor(() => expect(flows).toHaveLength(1));
+  const second = signIn();
+  await vi.waitFor(() => expect(flows).toHaveLength(2));
+  flows[1]!(googleRedirect(urls[1]!).replace("code=4/abc", "code=4/second"));
+  await second;
+  flows[0]!(googleRedirect(urls[0]!).replace("code=4/abc", "code=4/first"));
+  expect(await first).toBe("LOGIN_CANCELLED");
+  expect((store[CAPTION_SESSION_KEY] as { accessToken: string }).accessToken).toContain("at_second_");
+});
+
+it("restricts storage to trusted contexts before writing tokens, and refuses when it cannot", async () => {
+  // A fresh module: the restriction is established once per extension context.
+  vi.resetModules();
+  const { signIn } = await import("../src/caption-server-settings");
+  launchWebAuthFlow.mockImplementation(async ({ url }) => googleRedirect(url));
+  mockServer(() => json(fixture("session.json")));
+  const setAccessLevel = vi.mocked(chrome.storage.local.setAccessLevel);
+  const set = vi.mocked(chrome.storage.local.set);
+  setAccessLevel.mockRejectedValueOnce(new Error("Context cannot set the storage access level"));
+  await expect(signIn()).rejects.toMatchObject({ code: "UNAVAILABLE" });
+  expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+  await signIn();
+  expect(setAccessLevel).toHaveBeenLastCalledWith({ accessLevel: "TRUSTED_CONTEXTS" });
+  expect(setAccessLevel.mock.invocationCallOrder.at(-1)!).toBeLessThan(set.mock.invocationCallOrder.at(-1)!);
 });

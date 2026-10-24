@@ -7,6 +7,8 @@ const signIn = vi.hoisted(() => vi.fn());
 const signOut = vi.hoisted(() => vi.fn());
 const getAccount = vi.hoisted(() => vi.fn());
 const getWorkerStatus = vi.hoisted(() => vi.fn());
+const getSessionCount = vi.hoisted(() => vi.fn());
+const signOutEverywhere = vi.hoisted(() => vi.fn());
 let session: { email: string } | null | undefined;
 
 vi.mock("../entrypoints/sidepanel/useCaptionSession", () => ({
@@ -16,8 +18,9 @@ vi.mock("../src/caption-server-settings", () => ({
   captionServerOrigin: () => "https://captions.test",
   signIn,
   signOut,
+  signOutEverywhere,
 }));
-vi.mock("../src/captions/job-client", () => ({ getAccount, getWorkerStatus }));
+vi.mock("../src/captions/job-client", () => ({ getAccount, getWorkerStatus, getSessionCount }));
 
 import { CaptionServerSettings } from "../entrypoints/sidepanel/CaptionServerSettings";
 
@@ -31,6 +34,8 @@ beforeEach(() => {
     quota: { limit: 7, used: 2, reserved: 0, resetsAt: "2026-10-26T15:00:00Z" },
   });
   getWorkerStatus.mockResolvedValue("offline");
+  getSessionCount.mockResolvedValue(3);
+  signOutEverywhere.mockResolvedValue(undefined);
 });
 afterEach(async () => {
   await ui?.unmount();
@@ -53,11 +58,14 @@ it("shows the account, weekly usage and worker state, and logs out", async () =>
   session = { email: "student@example.com" };
   ui = await mount(<CaptionServerSettings />);
   await act(async () => {
-    await vi.waitFor(() => expect(getWorkerStatus).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getSessionCount).toHaveBeenCalled());
   });
   expect(ui.host.textContent).toContain("student@example.com");
   expect(ui.host.textContent).toContain("2 / 7회");
   expect(ui.host.textContent).toContain("꺼져 있음");
+  expect(ui.host.textContent).toContain("3대");
+  await click("모든 기기에서 로그아웃");
+  expect(signOutEverywhere).toHaveBeenCalledOnce();
   await click("로그아웃");
   expect(signOut).toHaveBeenCalledOnce();
   expect(ui.host.textContent).toContain("로그아웃했습니다");

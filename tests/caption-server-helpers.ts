@@ -5,6 +5,10 @@ import { CAPTION_SESSION_KEY } from "../src/caption-server-settings";
 
 export const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 export const REDIRECT_URI = `https://${EXTENSION_ID}.chromiumapp.org/`;
+export const ISSUER = "https%3A%2F%2Faccounts.google.com";
+/** The redirect Google sends back for the request URL `url`. */
+export const googleRedirect = (url: string, extra = "") =>
+  `${REDIRECT_URI}?code=4/abc&state=${new URL(url).searchParams.get("state")}&iss=${ISSUER}${extra}`;
 
 export function fixture(name: string): Record<string, unknown> {
   return JSON.parse(
@@ -62,6 +66,7 @@ export function stubCaptionChrome(
         remove: vi.fn(async (key: string | string[]) => {
           for (const k of [key].flat()) delete store[k];
         }),
+        setAccessLevel: vi.fn(async () => undefined),
       },
     },
     identity: {
@@ -83,6 +88,7 @@ export function seedSession(
   overrides: Partial<Record<string, string>> = {},
 ) {
   store[CAPTION_SESSION_KEY] = {
+    id: "seed-session-0001",
     accessToken: `at_seed_${"s".repeat(40)}`,
     accessExpiresAt: "2099-01-01T00:00:00Z",
     refreshToken: `rt_${"b".repeat(40)}`,
