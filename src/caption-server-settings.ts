@@ -17,6 +17,7 @@ export const CAPTION_SESSION_EPOCH_KEY = "unidock.caption-session-epoch.v1";
 const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
 const REFRESH_MARGIN_MS = 30_000;
 const LOGOUT_TIMEOUT_MS = 3_000;
+const REFRESH_TIMEOUT_MS = 15_000;
 
 export interface CaptionSession {
   accessToken: string;
@@ -210,11 +211,17 @@ function revokeQuietly(accessToken: string): void {
   ).catch(() => undefined);
 }
 
-function withSessionLock<T>(fn: () => Promise<T>): Promise<T> {
+function withSessionLock<T>(
+  fn: () => Promise<T>,
+  options: { steal?: boolean } = {},
+): Promise<T> {
   const locks = (globalThis.navigator as { locks?: LockManager } | undefined)
     ?.locks;
-  return locks ? locks.request("unidock-caption-session", fn) : fn();
+  return locks ? locks.request("unidock-caption-session", options, fn) : fn();
 }
+
+const stolen = (error: unknown) =>
+  error instanceof DOMException && error.name === "AbortError";
 
 let refreshing: Promise<CaptionSession | null> | null = null;
 
@@ -233,27 +240,39 @@ function refreshSession(stale: string): Promise<CaptionSession | null> {
       await clearSession();
       return null;
     }
-    const response = await serverFetch(
-      "/v1/auth/refresh",
-      jsonInit({ refresh_token: current.refreshToken }),
-    );
+    let response: Response;
+    try {
+      response = await serverFetch(
+        "/v1/auth/refresh",
+        jsonInit({ refresh_token: current.refreshToken }),
+        AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+      );
+    } catch {
+      throw new CaptionServerError("NETWORK");
+    }
     if (response.status === 401) {
       await clearSession();
       return null;
     }
     if (!response.ok) throw await errorFor(response);
     const next = sessionFromResponse(await readJson(response));
-    // The lock already orders this against logout; this also holds where
-    // Web Locks are unavailable.
+    // Logout steals the lock instead of waiting, so a refresh that outlived it
+    // finds a new epoch (or no session) here and must not store its answer.
     if ((await readEpoch()) !== epoch || !(await loadSession())) {
       revokeQuietly(next.accessToken);
       return null;
     }
     await saveSession(next);
     return next;
-  }).finally(() => {
-    refreshing = null;
-  });
+  })
+    // A logout that stole the lock ends this refresh as signed out.
+    .catch((error: unknown) => {
+      if (stolen(error)) return null;
+      throw error;
+    })
+    .finally(() => {
+      refreshing = null;
+    });
   return refreshing;
 }
 
@@ -307,26 +326,30 @@ export function signOut(): Promise<void> {
 }
 
 /**
- * Under the session lock: revoke the broker session (best effort), run `clear`,
- * then write a fresh epoch so no sign-in or refresh already in flight can store
- * its result afterwards. Data deletion passes its own `clear`.
+ * Write a fresh epoch first, so no sign-in or refresh already in flight can
+ * store its answer, then run `clear` and revoke the broker session (best
+ * effort). The session lock is stolen rather than awaited: a hung refresh must
+ * never hold up logout or data deletion. Data deletion passes its own `clear`.
  */
 export function revokeAndClear(clear: () => Promise<void>): Promise<void> {
-  return withSessionLock(async () => {
-    try {
-      const session = await loadSession();
-      if (session && __UNIDOCK_CAPTION_SERVER__)
-        await serverFetch(
-          "/v1/auth/logout",
-          withBearer({ method: "POST" }, session.accessToken),
-          AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
-        );
-    } catch {
-      // The local session is cleared below either way.
-    }
-    await clear();
-    await chrome.storage.session.set({
-      [CAPTION_SESSION_EPOCH_KEY]: random(16),
-    });
-  });
+  return withSessionLock(
+    async () => {
+      const session = await loadSession().catch(() => null);
+      await chrome.storage.session.set({
+        [CAPTION_SESSION_EPOCH_KEY]: random(16),
+      });
+      await clear();
+      try {
+        if (session && __UNIDOCK_CAPTION_SERVER__)
+          await serverFetch(
+            "/v1/auth/logout",
+            withBearer({ method: "POST" }, session.accessToken),
+            AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+          );
+      } catch {
+        // The local session is already gone; revocation is best effort.
+      }
+    },
+    { steal: true },
+  );
 }

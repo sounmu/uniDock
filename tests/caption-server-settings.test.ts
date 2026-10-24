@@ -191,3 +191,37 @@ it("writes a new epoch on every logout", async () => {
   expect(sessionStore[CAPTION_SESSION_EPOCH_KEY]).not.toBe(first);
   expect(store[CAPTION_SESSION_EPOCH_KEY]).toBeUndefined();
 });
+
+it.each([
+  ["logout", () => signOut()],
+  [
+    "deleting all data",
+    () =>
+      revokeAndClear(async () => {
+        delete store[CAPTION_SESSION_KEY];
+      }),
+  ],
+] as const)("%s does not wait for a refresh whose answer never comes", async (_name, end) => {
+  seedSession(store, { accessExpiresAt: "2000-01-01T00:00:00Z" });
+  const refresh = deferred<Response>();
+  const calls = mockServer((call) =>
+    call.path === "/v1/auth/refresh" ? refresh.promise : new Response(null, { status: 204 }),
+  );
+  const pending = getJob("j").catch((error: { code?: string }) => error.code);
+  await vi.waitFor(() => expect(calls.some((c) => c.path === "/v1/auth/refresh")).toBe(true));
+  // Must settle while the refresh is still unanswered (a wait would time out).
+  await end();
+  expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+  refresh.resolve(json(fixture("session.json")));
+  expect(await pending).toBe("LOGIN_REQUIRED");
+  expect(store[CAPTION_SESSION_KEY]).toBeUndefined();
+});
+
+it("gives the refresh request a time limit", async () => {
+  seedSession(store, { accessExpiresAt: "2000-01-01T00:00:00Z" });
+  const calls = mockServer((call) =>
+    call.path === "/v1/auth/refresh" ? json(fixture("session.json")) : json(fixture("job-queued.json")),
+  );
+  await getJob("j");
+  expect(calls.find((c) => c.path === "/v1/auth/refresh")!.signal).toBeInstanceOf(AbortSignal);
+});

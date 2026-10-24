@@ -24,6 +24,7 @@ export interface Call {
   method: string;
   headers: Record<string, string>;
   body: RequestInit["body"];
+  signal: AbortSignal | null | undefined;
 }
 
 export function mockServer(handler: (call: Call) => Response | Promise<Response>) {
@@ -37,6 +38,7 @@ export function mockServer(handler: (call: Call) => Response | Promise<Response>
         method: init.method ?? "GET",
         headers: { ...(init.headers as Record<string, string>) },
         body: init.body,
+        signal: init.signal,
       };
       calls.push(call);
       return handler(call);
