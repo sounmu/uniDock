@@ -28,14 +28,15 @@
 
 | 구성 요소 | 위치 | 역할 | 갖는 자격증명 |
 | --- | --- | --- | --- |
-| 확장 | 사용자 Chrome | CDN에서 음원 트랙만 분리, broker로 업로드, 결과 표시 | 사용자 토큰 |
+| 확장 | 사용자 Chrome | Google 로그인, CDN에서 음원 트랙만 분리, broker로 업로드, 결과 표시 | broker 세션 토큰 |
 | broker | 오라클 인스턴스 | 공개 API, 업로드 spool, 검증, 작업·lease 관리, 결과 제공 | DB 비밀번호, R2 버킷 토큰 |
 | PostgreSQL | broker와 같은 인스턴스 | 작업·lease·attempt·사용자·자막 메타데이터·만료·삭제 대기열. **유일한 진실 원천** | — |
 | R2 | Cloudflare | 자막 JSON, DB 백업. 비공개 버킷 | — |
 | worker | Mac mini | lease 수령, 음원 수신, 추론, 결과 제출 | 워커 토큰 (사용자 토큰과 별개) |
 
 ```text
-(1) 확장 → broker   POST /v1/transcription-jobs (Idempotency-Key)            → awaiting_upload
+(1) 확장 → broker   POST /v1/transcription-jobs (Idempotency-Key = 강의별 고정 키)
+                    같은 키의 기존 작업이 있으면 그 작업을 반환 → (2)를 건너뜀   → awaiting_upload
 (2) 확장 → broker   음원 트랙 업로드 → 오라클 로컬 spool 파일에 offset 순서대로 기록
 (3) broker          업로드 완료 → SHA-256 계산 → ffprobe(로컬 파일) 검증       → queued
                     (같은 캐시 키의 성공 자막이 있으면 추론 없이 연결          → succeeded)
@@ -51,7 +52,7 @@
 불변 조건:
 
 - **CDN에 요청하는 것은 확장뿐이다.** 미디어 URL, LMS URL, 과목 ID, 강의 제목은 브라우저 밖으로 나가지 않는다. broker와 worker는 URL을 받지도, 외부에서 미디어를 받아 오지도 않는다.
-- **확장이 연결하는 출처는 broker 하나다.** 확장은 R2나 worker에 직접 연결하지 않는다. `connect-src`에는 broker origin 하나만 추가한다.
+- **확장이 연결하는 서버 쪽 출처는 broker 하나다.** `connect-src`에는 음성을 받는 CDN과 broker origin만 추가한다. 확장은 R2나 worker에 직접 연결하지 않는다.
 - **Mac은 inbound를 받지 않는다.** 모든 연결은 worker가 tailnet을 통해 broker로 먼저 연다. 공인 인터넷에 열린 Mac 포트는 없다.
 - **음원은 R2에 저장하지 않는다.** 사본은 오라클 spool 파일과 Mac 작업 디렉터리 두 곳뿐이다. 성공 즉시 삭제와 실패 시 24시간 보관은 두 사본 모두에 적용한다.
 - **worker와 확장은 R2 자격증명을 갖지 않는다.** R2 읽기·쓰기는 broker만 한다. 결과도 broker가 검증한 뒤 저장한다.
@@ -93,7 +94,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | API | 비고 |
 | --- | --- |
-| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, size_bytes, duration_hint_s?, language?}`. 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
+| `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, duration_hint_s?, language?}`. 음원 크기는 첫 PATCH의 `Upload-Length`로 선언한다. 키는 강의별 고정 값이며 실패·취소·자막 만료 시 서버가 푼다(unidock-captions ADR-0010). 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
 | `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
 | `POST /v1/auth/google`, `POST /v1/auth/refresh`, `GET /v1/me` | Google 로그인, 세션 갱신, 이번 주 quota |
 | `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
@@ -171,7 +172,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `src/captions/job-client.ts` (신규) | 공개 API(`public.openapi.yaml`)를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 세션 토큰은 `chrome.storage.local`의 `unidock.caption-session.v1`에서 읽고, `TOKEN_EXPIRED`면 refresh 후 한 번 재시도한다. 강의 ↔ 작업·자막 매핑은 `unidock.caption-jobs.v1`에 둔다(서버는 강의를 모른다). 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
+| `src/captions/job-client.ts` (신규) | 공개 API(`public.openapi.yaml`)를 감싼다. base URL은 `__UNIDOCK_CAPTION_SERVER__` 고정. 세션 토큰은 `chrome.storage.local`의 `unidock.caption-session.v1`에서 읽고, `TOKEN_EXPIRED`면 refresh 후 한 번 재시도한다. 진행 중 작업과 그 강의 키는 `unidock.caption-active-job.v1`에 둔다(서버는 강의를 모른다). 응답은 `unknown`으로 받아 닫힌 스키마로 검증하고 크기 상한을 둔다. 오류는 고정 코드로만 노출한다 |
 | `src/captions/job-state.ts` (신규) | `idle → identifying → extracting → uploading → queued → running → succeeded | failed | cancelled`. 진행률은 관측 가능한 값만(분리된 바이트, 업로드 바이트, 서버 `progress`) |
 | `src/captions/transcript.ts` | 서버 JSON(`segments[{start_ms,end_ms,text}]`) → 기존 `Transcript` 투영 함수 추가. 기존 추출 경로의 동작은 바꾸지 않는다 |
 | `src/captions/download.ts` | 기존 TXT 내보내기가 AI 자막에도 동작하도록. 파일명에 `AI` 표시. SRT/VTT는 이번 범위 밖 |

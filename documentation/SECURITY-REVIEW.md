@@ -190,6 +190,7 @@
 - 플래그 빌드에만 `declarativeNetRequestWithHostAccess` 권한을 넣습니다. 설치 경고가 없고 보유한 호스트 권한 범위에서만 동작합니다.
 - CDN 호스트(`korea-cms-object.cdn.gov-ntruss.com`)는 `optional_host_permissions`에 둡니다. 설치 시점에는 요청하지 않습니다. 사용자가 확인 단계에서 `음성 보내기`를 누르면 패널이 그 클릭 처리 안에서 `chrome.permissions.request`로 이 호스트를 요청합니다. 사용자가 거부하면 작업은 `PERMISSION` 오류로 멈추고 어떤 요청도 보내지 않습니다. 이 권한이 없으면 세션 규칙이 헤더를 바꾸지 못하고, CDN에 CORS 헤더가 없어서 읽기도 막힙니다.
 - 자막 서버 origin은 빌드 상수 `UNIDOCK_CAPTION_SERVER`로 고정하고 CSP `connect-src`에만 추가합니다.
+- 2026-10-24부터 플래그 빌드에 `identity` 권한을 넣습니다. Google 로그인은 `chrome.identity.launchWebAuthFlow` 창에서 일어나므로 `connect-src`에 Google 주소를 넣지 않습니다. OAuth client ID는 빌드 상수 `UNIDOCK_GOOGLE_CLIENT_ID`이고, 선택 항목 `UNIDOCK_EXTENSION_KEY`가 있으면 manifest `key`로 확장 ID를 고정합니다. 배포 빌드에는 `identity`도 `key`도 없고, 패키징이 `accounts.google.com`, `launchWebAuthFlow` 마커를 검사합니다.
 
 ### DNR 세션 규칙
 - 오디오를 받기 시작할 때 세션 규칙 하나를 추가합니다. 규칙 ID는 작업마다 1947000~1947999 범위에서 새로 고릅니다. 영구 규칙과 정적 규칙 파일은 두지 않습니다.
@@ -207,11 +208,11 @@
 - CDN 응답은 206이고 `Content-Range`의 시작·끝·전체 길이가 요청과 같을 때만 받습니다. 다르면 본문을 읽기 전에 요청을 중단합니다. 본문이 요청 길이를 넘어도 즉시 중단합니다. 따라서 Range를 무시한 200 응답이 영상 전체를 메모리에 올리는 경로는 없습니다.
 - 영상·음원 파일을 사용자에게 저장·제공하지 않습니다. 결과물은 자막뿐입니다.
 - 음성은 메모리에서만 처리하고 `chrome.storage`·IndexedDB·`chrome.downloads`로 내보내지 않습니다. `chrome.downloads`는 자막 TXT·JSON 내보내기에만 씁니다.
-- 자막 서버는 리서치 문서 4.5절의 자체 작업 API(`/v1/transcription-jobs`)를 씁니다. 이 API는 OpenAI API와 호환되지 않습니다. 음성은 이 서버로만 보냅니다.
-- 서버 요청 본문·헤더·로그·분석에 LMS URL, 과목 ID, 강의 제목, KU 콘텐츠 ID를 넣지 않습니다. `Idempotency-Key`는 설치마다 다른 32바이트 salt(`unidock.caption-install-salt.v1`)로 콘텐츠 ID의 HMAC-SHA256을 계산해 만듭니다. 같은 설치에서 같은 강의를 다시 요청하면 같은 키가 나오므로 서버가 중복을 막습니다.
+- 자막 서버 API 계약은 `documentation/api/public.openapi.yaml`(비공개 서버 저장소의 공개 API 사본)입니다. 이 API는 OpenAI API와 호환되지 않습니다. 음성은 이 서버로만 보냅니다. 업로드는 tus 방식의 `HEAD`/`PATCH`이고, 크기는 첫 `PATCH`의 `Upload-Length`로 선언하며 끊기면 서버 offset부터 이어 보냅니다.
+- 서버 요청 본문·헤더·로그·분석에 LMS URL, 과목 ID, 강의 제목, KU 콘텐츠 ID를 넣지 않습니다. `Idempotency-Key`는 설치마다 다른 32바이트 salt(`unidock.caption-install-salt.v1`)로 콘텐츠 ID의 HMAC-SHA256을 계산해 만듭니다. 같은 설치에서 같은 강의를 다시 요청하면 같은 키가 나오므로 서버가 기존 작업을 돌려줍니다. 작업이 실패·취소되거나 자막이 만료되면 서버가 키를 풀어 같은 강의를 다시 요청할 수 있습니다. salt가 설치마다 다르므로 이 키로는 다른 사용자의 작업과 연결되지 않습니다. 다른 사용자가 이미 만든 자막의 재사용은 서버가 업로드된 음원으로 계산한 digest로만 합니다.
 - 패널은 오디오를 받기 전에 작업을 만듭니다. 서버가 이미 접수한 작업(`awaiting_upload` 다음 상태)을 돌려주면 오디오를 다시 받지 않고 그 작업 상태를 보여줍니다. 업로드가 끝난 작업은 작업 ID와 그 강의의 작업 키를 함께 `unidock.caption-active-job.v1`에 저장합니다. 패널을 다시 열면 현재 플레이어 탭의 강의 키를 계산하고, 저장한 키와 같을 때만 이 작업의 상태를 서버에 다시 조회합니다. 다른 강의나 플레이어가 아닌 탭에서는 이전 자막을 보여주지 않습니다. 저장소를 읽는 동안 사용자가 새 생성을 시작하면 늦게 도착한 복원 결과는 버립니다.
 - 패널을 닫아도 서버 작업은 취소하지 않습니다. 서버 작업을 취소하고 저장한 작업을 지우는 경우는 두 가지입니다. 첫째, 사용자가 취소 버튼을 누릅니다. 둘째, 작업을 시작한 플레이어 탭이 다른 주소로 이동하거나 닫히거나, 같은 창에서 다른 탭을 고릅니다. 다른 탭이나 다른 창의 이벤트는 작업에 영향을 주지 않습니다. 패널을 다시 열어 복원한 작업은 탭 이벤트로 취소하지 않습니다.
-- 서버 토큰은 `chrome.storage.local`의 `unidock.caption-server-token.v1`에만 두고 번들에 넣지 않습니다. 로컬 데이터 삭제는 토큰, salt, 작업 ID를 모두 지웁니다. playback 플래그를 함께 켜 빌드에서도 같습니다.
+- 인증은 Google 로그인입니다. 패널이 authorization code + PKCE(S256)를 받고 state가 일치할 때만 code와 verifier를 자막 서버에 한 번 보냅니다. 서버가 Google과 교환·검증한 뒤 자체 세션(access 15분, refresh 30일·교체형)을 줍니다. `chrome.storage.local`의 `unidock.caption-session.v1`에는 이 세션과 표시용 이메일만 두고 Google 토큰·인가 코드는 저장하지 않습니다. access가 만료되면 refresh를 한 번만 하고(여러 패널이 동시에 해도 Web Locks로 한 번), 서버가 세션을 거부하면 지우고 다시 로그인을 요구합니다. 로컬 데이터 삭제는 서버 세션을 먼저 폐기(`POST /v1/auth/logout`, 3초 제한)한 뒤 세션, salt, 작업 ID를 모두 지웁니다. playback 플래그를 함께 켠 빌드에서도 같습니다.
 - 재생·탐색·배속·출석 API를 호출하지 않습니다. 사용자가 직접 재생한 영상의 음성만 대상으로 합니다.
 
 ### 남은 위험
