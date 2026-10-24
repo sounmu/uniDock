@@ -140,7 +140,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`와 `identity`, manifest `key`(확장 ID 고정. OAuth redirect URI와 broker CORS 허용 목록이 이 ID에 묶인다), `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
+| `wxt.config.ts` | `const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1"`. 참일 때만: `permissions`에 `declarativeNetRequestWithHostAccess`와 `identity`, manifest `key`(확장 ID 고정. broker가 연결 코드를 돌려보내는 `https://<ID>.chromiumapp.org/` 허용 목록과 CORS 허용 목록이 이 ID에 묶인다), `optional_host_permissions`에 CDN 호스트, extension CSP `connect-src`에 CDN 호스트와 `process.env.UNIDOCK_CAPTION_SERVER`(필수, `https://` origin 하나). `define`에 `__UNIDOCK_AI_CAPTIONS__`와 `__UNIDOCK_CAPTION_SERVER__` 추가. 설명 문구는 바꾸지 않는다 |
 | `src/build-flags.d.ts` | 두 상수 선언 추가 |
 | `package.json` | `build:ai-captions`, `test:e2e:ai-captions` 스크립트 추가 |
 | `scripts/package-release.mjs` | `UNIDOCK_AI_CAPTIONS=1`이면 실패. 번들에서 `declarativeNetRequest`, CDN 호스트, 아래 메시지 타입 마커가 발견되면 실패 |
@@ -214,20 +214,20 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 - 영상 바이트는 메모리 밖(`storage`, `downloads`, 서버)으로 나가지 않는다. `chrome.downloads`는 자막 TXT에만 호출된다.
 - 미디어 URL은 현재 탭의 `uniPlayerConfig`에서만 오고, 패턴 검사를 통과하지 않으면 요청하지 않는다. 임의 URL을 받는 코드 경로가 없다.
 - 서버 요청 본문·로그·analytics에 LMS URL, 과목 ID, 강의 제목, 토큰이 들어가지 않는다. 기존 `redactText` 경계를 지킨다.
-- Google 토큰은 확장에 남지 않는다. 인가 코드와 PKCE verifier는 broker로 한 번 보내고 버린다. `chrome.storage.local`에는 broker 세션만 저장한다. redirect URL은 `https://<고정 ID>.chromiumapp.org/`이고 state가 일치할 때만 처리한다.
+- Google 토큰과 Google 인가 코드는 확장에 오지 않는다(broker가 Google 콜백을 받는다). 확장은 broker가 `https://<고정 ID>.chromiumapp.org/`로 돌려준 1회용 연결 코드를 state와 `iss`(= broker origin)가 맞을 때만 handoff verifier와 함께 한 번 보내고 버린다. `chrome.storage.local`에는 broker 세션만 저장한다.
 - `npm run build`(플래그 없음)의 manifest에 `identity`와 `key`가 없다.
 
 테스트:
 
 - Vitest: `media-source`(descriptor-only 읽기, 패턴 거부), `referer-rule`(추가·제거·예외 시 제거·잔존 규칙 정리), `audio-extract`(작은 합성 MP4 fixture로 오디오만 남는지, 영상 샘플이 버퍼에 없는지, 메모리 상한), `job-client`(스키마 거부, 크기 상한, 오류 코드), `job-state` 전이, `transcript` 투영, `CaptionsPanel`의 버튼 노출 조건과 확인 다이얼로그. 로그인: PKCE verifier·S256 challenge, state·nonce 생성과 검증, redirect URL 파싱(다른 호스트·state 불일치·`error` 파라미터 거부), refresh 단일 비행(동시 401 여러 개에도 refresh 1회), `REFRESH_REUSED` 처리, quota 표시. 커버리지 80% 유지.
-- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 실제 Google 화면은 자동화하지 않는다. 가짜 broker가 `/v1/auth/handoff`에서 테스트 연결 코드를 받아들이고, `chrome.identity.launchWebAuthFlow`는 테스트 페이지에서 대체해 고정 redirect URL을 돌려준다. 로그인 전 버튼 숨김, 로그인 후 생성, `QUOTA_EXCEEDED` 표시를 검증한다.
+- Playwright: `tests/e2e/ai-captions-lifecycle.spec.ts`. 합성 LMS에 KU 플레이어 흉내 페이지와 가짜 CDN(Referer 없으면 403, 있으면 206 + 작은 MP4)과 가짜 서버를 추가한다. 검증: 규칙 추가·제거, 403→206 전환이 규칙 때문인지, 업로드 본문이 오디오만인지, 패널 종료 시 정리. `aiCaptionsBuild()`가 거짓이면 skip. 로그인 흐름은 e2e로 돌리지 않는다. 실제 Google 화면도, broker 시작 주소·연결 코드 교환도 자동화하지 않고, 로그인된 경우는 저장소에 세션을 미리 넣어 시작한다. e2e가 확인하는 것은 다섯 가지다: 세션 규칙만으로 CDN 403이 206이 되고 오디오만 올라감, 워커가 20번 넘게 재시작해도 규칙이 유지되고 작업이 끝남, 패널을 닫으면 background가 규칙을 지움, 세션이 없으면 로그인 안내만 보이고 아무 요청도 보내지 않음, `QUOTA_EXCEEDED`면 미디어를 읽기 전에 안내함. 로그인(시작 주소, state·`iss` 확인, 연결 코드 교환), refresh, 로그아웃, 모든 기기 로그아웃과 그 경합은 단위 테스트(`tests/caption-server-settings.test.ts`, `tests/caption-api-contract.test.ts`)로만 확인한다. CI는 이 e2e를 돌리지 않는다.
 - `npm run check` 통과. release 빌드 E2E(`npm run test:e2e`)가 그대로 통과.
 
 수동 게이트(에이전트가 완료를 주장하지 않는다):
 
 - 실제 LMS·실제 CDN·실제 서버로 한 강의 전체를 처리해 자막이 나온다.
 - Chrome 114에서 플래그 빌드가 로드된다(DNR 세션 규칙은 Chrome 84+, `declarativeNetRequestWithHostAccess`는 96+).
-- Google Cloud에 Web application OAuth client를 만들고 고정 확장 ID의 redirect URI를 등록한 뒤, 실제 Google 계정으로 로그인 → 생성 → 로그아웃이 된다.
+- Google Cloud에 Web application OAuth client를 만들어 redirect URI로 broker 콜백(`https://<broker>/v1/auth/google/callback`) 하나만 등록하고, broker 허용 목록에 고정 확장 ID를 넣은 뒤, 실제 Google 계정으로 로그인 → 생성 → 로그아웃 → 모든 기기 로그아웃이 된다.
 
 ### 4단계. 스토어 제출 준비 (이번 범위 밖)
 
