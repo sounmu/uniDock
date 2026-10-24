@@ -1,0 +1,614 @@
+openapi: 3.1.0
+info:
+  title: uniDock captions public API
+  version: 0.1.0-dev
+  description: |
+    확장 ↔ broker 계약. dev 단계이며 release 전까지 `/v1` 호환성을 보장하지 않는다(ADR-0009).
+    상태 전이와 quota 규칙은 docs/STATE-MACHINE.md, 에러 코드는 docs/ERRORS.md가 기준이다.
+
+    공통 규칙
+    - 모든 요청은 HTTPS. CORS는 허용 목록의 `chrome-extension://<id>` origin에만 응답한다.
+      허용 메서드는 GET, POST, DELETE, HEAD, PATCH. 허용 요청 헤더는 `Authorization`, `Content-Type`, `Idempotency-Key`, `Tus-Resumable`, `Upload-Offset`, `Upload-Length`.
+      `Upload-Offset`, `Upload-Length`, `Upload-Defer-Length`, `Tus-Resumable`, `Retry-After`, `Location`은 `Access-Control-Expose-Headers`로 노출한다(확장이 읽는다).
+    - 인증이 필요한 요청은 `Authorization: Bearer <access_token>`.
+    - 응답 본문은 `application/json`, 에러는 `ErrorResponse`.
+    - 서버는 미디어 URL, LMS URL, 과목·강의 식별자를 받지 않는다. 그런 필드는 스키마에 없고, 알 수 없는 필드가 오면 `422 VALIDATION_FAILED`.
+    - 캐시 적중 여부는 어떤 응답에도 나오지 않는다.
+servers:
+  - url: https://captions.example.com
+    description: broker (실제 도메인은 운영 설정)
+security:
+  - session: []
+tags:
+  - name: auth
+  - name: me
+  - name: jobs
+  - name: transcripts
+  - name: service
+
+paths:
+  /v1/auth/google:
+    post:
+      tags: [auth]
+      operationId: authGoogle
+      summary: Google 인가 코드를 broker 세션으로 교환
+      description: |
+        확장이 `chrome.identity.launchWebAuthFlow`로 받은 인가 코드(code + PKCE S256)를 보낸다.
+        broker가 Google 토큰 엔드포인트와 코드를 교환하고 ID 토큰의 iss, aud, exp, nonce, email_verified를 검증한다.
+        `auth.allowed_hosted_domains`가 비어 있지 않으면 `hd` claim도 검사한다. Google 토큰은 저장하지 않는다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleAuthRequest'
+      responses:
+        '200':
+          description: 세션 발급. 처음 로그인한 Google 계정이면 사용자를 만든다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      operationId: authRefresh
+      summary: refresh 토큰 교체
+      description: |
+        refresh 토큰은 한 번만 쓸 수 있다. 성공하면 access와 refresh를 모두 새로 받는다.
+        이미 교체된 refresh 토큰이 다시 오면 세션 전체를 폐기하고 `401 REFRESH_REUSED`를 준다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: 새 토큰 쌍
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: authLogout
+      summary: 현재 세션 폐기
+      responses:
+        '204': { description: 폐기됨 }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /v1/me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: 내 계정과 이번 주 quota
+      responses:
+        '200':
+          description: 계정 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [me]
+      operationId: deleteMe
+      summary: 계정 삭제
+      description: 진행 중 작업 취소, 세션·작업·자막 연결·사용자 삭제. 공유 자막은 만료일까지 남는다(docs/DATA-MODEL.md).
+      responses:
+        '204': { description: 삭제됨 }
+        '401': { $ref: '#/components/responses/Error' }
+
+  /v1/transcription-jobs:
+    post:
+      tags: [jobs]
+      operationId: createJob
+      summary: 자막 생성 작업 생성
+      description: |
+        같은 사용자가 같은 Idempotency-Key로 잡고 있는 작업이 있으면 그 작업을 200으로 돌려준다(확장은 이때 음성 분리·업로드를 건너뛴다).
+        키를 잡고 있는 작업은 종료되지 않은 작업이거나, 성공했고 연결된 자막이 만료·연결 해제되지 않은 작업이다. 실패·취소되거나 자막이 만료·연결 해제되면 키가 풀려 같은 키로 새 작업을 만든다(ADR-0010).
+        새 작업을 만들 때만 quota와 진행 중 작업 수를 검사한다. quota는 여기서 차감하지 않고 업로드 검증이 통과할 때 차감한다.
+        음원 크기는 여기서 받지 않는다. 첨 PATCH의 `Upload-Length`로 선언한다(tus creation-defer-length).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '201':
+          description: 생성됨
+          headers:
+            Location:
+              schema: { type: string }
+              description: /v1/transcription-jobs/{id}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '200':
+          description: 같은 Idempotency-Key가 잡고 있는 기존 작업 (상태는 어느 것이든 가능)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
+  /v1/transcription-jobs/{job_id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: 작업 상태
+      description: 폴링 간격 권장값은 queued 10초, running 5초. 다른 사용자의 작업은 404.
+      responses:
+        '200':
+          description: 작업
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /v1/transcription-jobs/{job_id}/audio:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    head:
+      tags: [jobs]
+      operationId: getUploadOffset
+      summary: 업로드 offset 조회 (tus core)
+      parameters:
+        - $ref: '#/components/parameters/TusResumable'
+      responses:
+        '200':
+          description: 현재 offset
+          headers:
+            Upload-Offset:
+              schema: { type: integer, minimum: 0 }
+            Upload-Length:
+              description: "선언된 총 크기. 아직 선언되지 않았으면 없고 대신 `Upload-Defer-Length: 1`"
+              schema: { type: integer, minimum: 1 }
+            Upload-Defer-Length:
+              schema: { type: string, const: '1' }
+            Tus-Resumable:
+              schema: { type: string, const: 1.0.0 }
+            Cache-Control:
+              schema: { type: string, const: no-store }
+        '401': { description: UNAUTHENTICATED (HEAD는 본문 없음) }
+        '404': { description: NOT_FOUND (HEAD는 본문 없음) }
+    patch:
+      tags: [jobs]
+      operationId: uploadChunk
+      summary: 음원 chunk 업로드 (tus core)
+      description: |
+        `Upload-Offset`은 서버 offset과 정확히 같아야 한다. chunk는 최대 8 MiB.
+        총 크기가 아직 선언되지 않았으면 이 요청에 `Upload-Length`가 있어야 한다(없으면 `422 VALIDATION_FAILED`, 200 MB 초과면 `413`).
+        이미 선언된 뒤에는 생략해도 되고, 보내면 같은 값이어야 한다(다르면 `409 UPLOAD_LENGTH_MISMATCH`).
+        마지막 chunk로 offset이 총 크기에 도달하면 broker가 같은 요청 안에서 SHA-256 계산과 ffprobe 검증을 하고 작업 상태를 바꾼다.
+        응답 204 뒤 작업 상태는 `queued`, `succeeded`, `failed` 중 하나다. 확인은 `GET /v1/transcription-jobs/{job_id}`로 한다.
+      parameters:
+        - $ref: '#/components/parameters/TusResumable'
+        - name: Upload-Offset
+          in: header
+          required: true
+          schema: { type: integer, minimum: 0 }
+        - name: Upload-Length
+          in: header
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 209715200 }
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              contentMediaType: application/octet-stream
+              maxLength: 8388608
+      responses:
+        '204':
+          description: 기록됨
+          headers:
+            Upload-Offset:
+              schema: { type: integer, minimum: 0 }
+            Tus-Resumable:
+              schema: { type: string, const: 1.0.0 }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+
+  /v1/transcription-jobs/{job_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: 작업 취소
+      description: |
+        `awaiting_upload`, `queued`는 즉시 `cancelled`. `running`은 취소 요청만 기록하고 worker가 다음 heartbeat에서 멈춘 뒤 `cancelled`가 된다.
+        quota 환불 규칙은 docs/STATE-MACHINE.md.
+      responses:
+        '200':
+          description: 취소 후(또는 취소 요청 후) 작업
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /v1/transcripts:
+    get:
+      tags: [transcripts]
+      operationId: listTranscripts
+      summary: 내게 연결된 자막 목록 (만료 제외)
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptList'
+        '401': { $ref: '#/components/responses/Error' }
+
+  /v1/transcripts/{transcript_id}:
+    parameters:
+      - $ref: '#/components/parameters/TranscriptId'
+    get:
+      tags: [transcripts]
+      operationId: getTranscript
+      summary: 자막 본문
+      description: 내게 연결되지 않았거나 만료된 자막은 404.
+      responses:
+        '200':
+          description: 자막
+          headers:
+            Cache-Control:
+              schema: { type: string, const: 'private, no-store' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptDocument'
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [transcripts]
+      operationId: unlinkTranscript
+      summary: 내 목록에서 자막 제거
+      description: 내 연결만 끊는다. 공유 자막 자체는 만료일까지 남는다.
+      responses:
+        '204': { description: 제거됨 }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /v1/service-status:
+    get:
+      tags: [service]
+      operationId: getServiceStatus
+      summary: worker 온라인 여부
+      description: 마지막 worker 연락이 90초 이내면 online. 대기열 길이는 공개하지 않는다.
+      responses:
+        '200':
+          description: 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceStatus'
+        '401': { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    session:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: broker가 발급한 access 토큰 (15분). Google 토큰이 아니다.
+
+  parameters:
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TranscriptId:
+      name: transcript_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        강의마다 고정된 키. 확장은 설치별 salt로 KU 콘텐츠 ID의 HMAC-SHA256을 계산해 `unidock-` + 40자리 hex로 만든다.
+        서버는 값을 해석하지 않고 사용자 범위의 불투명 문자열로만 비교한다. 다른 사용자 간 자막 재사용은 이 키가 아니라 서버가 계산한 음원 digest로 한다(ADR-0007).
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{16,128}$' }
+    TusResumable:
+      name: Tus-Resumable
+      in: header
+      required: true
+      schema: { type: string, const: 1.0.0 }
+
+  responses:
+    Error:
+      description: 에러 (docs/ERRORS.md)
+      headers:
+        Retry-After:
+          description: 429, 503에서만
+          schema: { type: integer, minimum: 0 }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    GoogleAuthRequest:
+      type: object
+      additionalProperties: false
+      required: [code, code_verifier, redirect_uri, nonce]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 2048 }
+        code_verifier: { type: string, minLength: 43, maxLength: 128 }
+        redirect_uri:
+          type: string
+          maxLength: 200
+          pattern: '^https://[a-p]{32}\.chromiumapp\.org/$'
+          description: 허용 목록의 확장 ID와 일치해야 한다.
+        nonce: { type: string, minLength: 16, maxLength: 128 }
+
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string, minLength: 32, maxLength: 256 }
+
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, access_token_expires_at, refresh_token, refresh_token_expires_at, user]
+      properties:
+        access_token: { type: string }
+        access_token_expires_at: { type: string, format: date-time }
+        refresh_token: { type: string }
+        refresh_token_expires_at: { type: string, format: date-time }
+        user:
+          $ref: '#/components/schemas/Me'
+
+    Me:
+      type: object
+      additionalProperties: false
+      required: [id, email, plan, quota]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        plan: { type: string, enum: [free] }
+        quota:
+          $ref: '#/components/schemas/Quota'
+
+    Quota:
+      type: object
+      additionalProperties: false
+      required: [limit, used, reserved, resets_at]
+      properties:
+        limit: { type: integer, minimum: 0, examples: [7] }
+        used:
+          type: integer
+          minimum: 0
+          description: 이번 주 차감 횟수 (캐시 적중 포함)
+        reserved:
+          type: integer
+          minimum: 0
+          maximum: 1
+          description: 아직 차감 전인 진행 중 작업 수
+        resets_at:
+          type: string
+          format: date-time
+          description: 다음 KST 월요일 00:00
+
+    CreateJobRequest:
+      type: object
+      additionalProperties: false
+      required: [audio_format]
+      description: 음원 크기는 없다. 작업을 먼저 만들어 기존 작업이면 분리를 건너뛰기 위해서다. 크기는 첫 PATCH의 `Upload-Length`로 선언한다.
+      properties:
+        audio_format:
+          type: string
+          enum: [audio/mp4, audio/ogg]
+          description: audio/mp4는 AAC 재다중화(m4a), audio/ogg는 Opus
+        duration_hint_s:
+          type: integer
+          minimum: 1
+          maximum: 14400
+          description: 확장이 아는 길이. 표시용이며 검증은 ffprobe 값으로 한다.
+        language:
+          type: string
+          enum: [ko]
+          default: ko
+
+    JobState:
+      type: string
+      enum: [awaiting_upload, queued, running, succeeded, failed, cancelled]
+
+    JobErrorCode:
+      type: string
+      enum:
+        - UNSUPPORTED_AUDIO
+        - DURATION_TOO_LONG
+        - SIZE_MISMATCH
+        - UPLOAD_EXPIRED
+        - AUDIO_DECODE_FAILED
+        - INFERENCE_TIMEOUT
+        - INFERENCE_FAILED
+        - RESULT_INVALID
+        - INTERNAL
+
+    Job:
+      type: object
+      additionalProperties: false
+      required: [id, state, upload, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        state: { $ref: '#/components/schemas/JobState' }
+        error_code:
+          $ref: '#/components/schemas/JobErrorCode'
+          description: state가 failed일 때만
+        cancel_requested: { type: boolean }
+        upload:
+          type: object
+          additionalProperties: false
+          required: [url, offset, chunk_size]
+          properties:
+            url: { type: string, description: '/v1/transcription-jobs/{id}/audio' }
+            offset: { type: integer, minimum: 0 }
+            size_bytes:
+              type: integer
+              minimum: 1
+              description: 첫 PATCH의 `Upload-Length`로 선언된 뒤에만 있다
+            chunk_size: { type: integer, const: 8388608 }
+        progress:
+          $ref: '#/components/schemas/Progress'
+        transcript_id:
+          type: string
+          format: uuid
+          description: state가 succeeded일 때만
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Progress:
+      type: object
+      additionalProperties: false
+      required: [stage]
+      description: 관측 가능한 값만. 퍼센트를 지어내지 않는다.
+      properties:
+        stage: { type: string, enum: [uploading, waiting, transcribing] }
+        done: { type: integer, minimum: 0 }
+        total:
+          type: integer
+          minimum: 1
+          description: 모르면 생략. transcribing에서는 처리한 음원 초 / 전체 초
+
+    TranscriptList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/TranscriptSummary'
+        next_cursor: { type: string }
+
+    TranscriptSummary:
+      type: object
+      additionalProperties: false
+      required: [id, language, duration_s, linked_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        language: { type: string }
+        duration_s: { type: integer, minimum: 1 }
+        linked_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+
+    TranscriptDocument:
+      type: object
+      additionalProperties: false
+      description: R2에 저장되는 원본과 같다. worker 제출 형식에 broker가 id·시각 필드를 채운다.
+      required: [schema_version, id, language, engine, model_revision, pipeline_version, created_at, expires_at, duration_ms, segments]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        id: { type: string, format: uuid }
+        language: { type: string, examples: [ko] }
+        engine: { type: string, examples: [whisper.cpp] }
+        model_revision: { type: string, maxLength: 200, examples: [ggml-large-v3-turbo@<sha256 앞 12자>] }
+        pipeline_version: { type: string, maxLength: 50, examples: ['2026-10-24.1'] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        duration_ms: { type: integer, minimum: 1 }
+        segments:
+          type: array
+          maxItems: 20000
+          items:
+            $ref: '#/components/schemas/Segment'
+
+    Segment:
+      type: object
+      additionalProperties: false
+      required: [start_ms, end_ms, text]
+      description: start_ms < end_ms ≤ duration_ms, 이전 segment의 start_ms 이상. text는 공백만이면 안 된다.
+      properties:
+        start_ms: { type: integer, minimum: 0 }
+        end_ms: { type: integer, minimum: 1 }
+        text: { type: string, minLength: 1, maxLength: 2000 }
+
+    ServiceStatus:
+      type: object
+      additionalProperties: false
+      required: [worker]
+      properties:
+        worker: { type: string, enum: [online, offline] }
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHENTICATED
+                - TOKEN_EXPIRED
+                - REFRESH_REUSED
+                - OAUTH_FAILED
+                - ACCOUNT_NOT_ALLOWED
+                - ACCOUNT_DISABLED
+                - NOT_FOUND
+                - VALIDATION_FAILED
+                - IDEMPOTENCY_MISMATCH
+                - QUOTA_EXCEEDED
+                - ACTIVE_JOB_EXISTS
+                - RATE_LIMITED
+                - PAYLOAD_TOO_LARGE
+                - UPLOAD_OFFSET_MISMATCH
+                - UPLOAD_LENGTH_MISMATCH
+                - UPLOAD_NOT_ACCEPTING
+                - JOB_NOT_CANCELLABLE
+                - SERVICE_UNAVAILABLE
+                - INTERNAL
+            message: { type: string, maxLength: 200 }
+            retry_after_s: { type: integer, minimum: 0 }
