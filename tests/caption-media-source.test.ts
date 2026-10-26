@@ -71,7 +71,7 @@ function stubTab(url: string) {
     },
   ]);
   vi.stubGlobal("chrome", {
-    tabs: { query: vi.fn(async () => [{ id: 7, windowId: 1, url }]) },
+    tabs: { query: vi.fn(async () => [{ id: 7, windowId: 1, url, title: "3주차 강의" }]) },
     scripting: { executeScript },
   });
   return executeScript;
@@ -87,6 +87,7 @@ it.each([
     mediaUrl: good,
     durationS: 60,
     contentId: "0123456789abc",
+    title: "3주차 강의",
     tabId: 7,
     windowId: 1,
   });

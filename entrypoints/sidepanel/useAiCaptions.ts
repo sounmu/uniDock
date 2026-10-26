@@ -77,6 +77,7 @@ export function useAiCaptions() {
   const controller = useRef<AbortController | null>(null);
   const jobId = useRef<string | null>(null);
   const jobTab = useRef<{ tabId: number; windowId: number } | null>(null);
+  const lectureTitle = useRef("");
   const phase = useRef<JobPhase>("idle");
   const generation = useRef(0);
   const mounted = useRef(false);
@@ -150,7 +151,7 @@ export function useAiCaptions() {
           result: {
             transcript: {
               sourceUrl: "https://kucom.korea.ac.kr/",
-              pageTitle: "AI 자막",
+              pageTitle: lectureTitle.current || "AI 자막",
               extractedAt: new Date().toISOString(),
               itemCount: items.length,
               items,
@@ -209,12 +210,16 @@ export function useAiCaptions() {
       if (!saved || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
+      let title: string;
       try {
-        key = await captionJobKey((await identifyMedia()).contentId);
+        const media = await identifyMedia();
+        title = media.title;
+        key = await captionJobKey(media.contentId);
       } catch {
         return;
       }
       if (key !== saved.key || stale()) return;
+      lectureTitle.current = title;
       const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
@@ -242,6 +247,7 @@ export function useAiCaptions() {
       const media = await identifyMedia();
       if (!live()) return;
       jobTab.current = { tabId: media.tabId, windowId: media.windowId };
+      lectureTitle.current = media.title;
       const key = await captionJobKey(media.contentId);
       // The per-lecture key returns this user's existing job for the lecture,
       // so a repeat request skips extraction and upload entirely.
