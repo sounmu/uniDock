@@ -23,6 +23,8 @@ export interface MediaSource {
   mediaUrl: string;
   durationS: number;
   contentId: string;
+  /** Tab title as the professor wrote it; stays in the browser. */
+  title: string;
   tabId: number;
   windowId: number;
 }
@@ -112,7 +114,7 @@ export async function identifyMedia(): Promise<MediaSource> {
   for (const entry of results) {
     const found = entry.result;
     if (found && allowedCaptionMediaUrl(found.mediaUrl))
-      return { ...found, tabId: tab.id, windowId: tab.windowId };
+      return { ...found, title: tab.title ?? "", tabId: tab.id, windowId: tab.windowId };
   }
   throw new MediaSourceError("UNSUPPORTED_MEDIA");
 }

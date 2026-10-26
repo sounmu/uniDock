@@ -106,6 +106,7 @@ beforeEach(() => {
       "https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/0123456789abc/contents/media_files/screen.mp4",
     durationS: 100,
     contentId: "0123456789abc",
+    title: "3주차 강의",
     tabId: 7,
     windowId: 1,
   });
@@ -139,6 +140,7 @@ it("creates the job first, then extracts, uploads, saves and shows the transcrip
   expect(hook.state.phase).toBe("succeeded");
   expect(hook.state.result?.engine).toBe("whisper");
   expect(hook.state.result?.transcript.itemCount).toBe(1);
+  expect(hook.state.result?.transcript.pageTitle).toBe("3주차 강의");
   expect(hook.state.expiresAt).toBe("2027-01-01T00:00:00Z");
   expect(createJob).toHaveBeenCalledWith(
     "unidock-hashedkey",

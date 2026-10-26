@@ -2,7 +2,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { collectCaptionSources } from "../src/captions/extract";
 import { detectCaptions } from "../src/captions/service";
-import { downloadCaption, exportTranscript } from "../src/captions/download";
+import {
+  captionFileTitle,
+  downloadCaption,
+  exportTranscript,
+} from "../src/captions/download";
 import {
   formatTime,
   parseVtt,
@@ -264,6 +268,38 @@ it("downloads matching UTF-8 pairs with distinct names even at the same timestam
   expect(bases[2]).toBe(bases[3]);
   expect(bases[0]).not.toBe(bases[2]);
   expect(revoke).toHaveBeenCalledTimes(4);
+});
+it("names AI captions after the lecture title as written", async () => {
+  const download = vi.fn().mockResolvedValue(1);
+  vi.stubGlobal("chrome", { downloads: { download } });
+  vi.stubGlobal(
+    "URL",
+    Object.assign(URL, {
+      createObjectURL: vi.fn().mockReturnValue("blob:caption"),
+      revokeObjectURL: vi.fn(),
+    }),
+  );
+  await downloadCaption(
+    { ...transcript, pageTitle: "[국제법] 3주차 1차시: 조약법" },
+    { variant: "ai" },
+  );
+  expect(download.mock.calls.map(([options]) => options.filename)).toEqual([
+    "output/[국제법] 3주차 1차시_ 조약법 - AI 자막.txt",
+    "output/[국제법] 3주차 1차시_ 조약법 - AI 자막.json",
+  ]);
+  await downloadCaption({ ...transcript, pageTitle: " ..// " }, { variant: "ai" });
+  expect(download.mock.calls[2]![0].filename).toMatch(
+    /^output\/uniDock-AI-20260912T060000Z-[0-9a-f]{12}\.txt$/,
+  );
+});
+it.each([
+  ['a/b\\c:d*e?f"g<h>i|j~k', "a_b_c_d_e_f_g_h_i_j_k"],
+  ["  .숨김 제목.  ", "숨김 제목"],
+  ["줄\n바꿈\t제목", "줄 바꿈 제목"],
+  ["가".repeat(100), "가".repeat(80)],
+  ["학번 2026123456 강의", "학번 [REDACTED] 강의"],
+])("makes %j a safe file name segment", (title, expected) => {
+  expect(captionFileTitle(title)).toBe(expected);
 });
 it("stops before JSON when its export context is cleared during TXT", async () => {
   vi.spyOn(crypto, "randomUUID").mockReturnValue(

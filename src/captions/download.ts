@@ -1,4 +1,16 @@
 import { normalizeItems, transcriptText, type Transcript } from "./transcript";
+import { redactText } from "../security/redaction";
+
+/** The lecture title as written, made safe as one file name segment. */
+export function captionFileTitle(title: string): string {
+  return redactText(title)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:*?"<>|~\u0000-\u001f\u007f]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s._]+|[\s.]+$/g, "")
+    .slice(0, 80)
+    .replace(/[\s.]+$/g, "");
+}
 export function exportTranscript(value: Transcript): {
   json: string;
   text: string;
@@ -42,7 +54,12 @@ export async function downloadCaption(
     .replace(/[-:]/g, "")
     .replace(/\.\d+Z$/, "Z");
   const nonce = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
-  const stem = `output/uniDock-${options.variant === "ai" ? "AI-" : ""}${timestamp}-${nonce}`;
+  const title =
+    options.variant === "ai" ? captionFileTitle(value.pageTitle) : "";
+  // Chrome's uniquify keeps repeated downloads of one lecture apart.
+  const stem = title
+    ? `output/${title} - AI 자막`
+    : `output/uniDock-${options.variant === "ai" ? "AI-" : ""}${timestamp}-${nonce}`;
   let accepted: 0 | 1 | 2 = 0;
   const canContinue = () =>
     !options.signal?.aborted && (options.isCurrent?.() ?? true);
