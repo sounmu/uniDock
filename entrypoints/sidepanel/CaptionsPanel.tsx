@@ -213,9 +213,13 @@ export function CaptionsPanel() {
           {state.status === "error" && (
             <Notice error>{messages[state.code]}</Notice>
           )}
+          {/* A lecture without captions often ends in UNSAFE_CAPTION: its
+              caption file fails to load. Generation re-identifies the media. */}
           {__UNIDOCK_AI_CAPTIONS__ &&
             state.status === "error" &&
-            state.code === "NO_CAPTIONS" && <AiCaptionsSection />}
+            (state.code === "NO_CAPTIONS" || state.code === "UNSAFE_CAPTION") && (
+              <AiCaptionsSection />
+            )}
           {state.status === "success" && (
             <>
               <p className="count">

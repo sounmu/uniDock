@@ -7,6 +7,9 @@ const detect = vi.hoisted(() => vi.fn());
 const downloadCaption = vi.hoisted(() => vi.fn());
 vi.mock("../src/captions/service", () => ({ detectCaptions: detect }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
+vi.mock("../entrypoints/sidepanel/AiCaptionsSection", () => ({
+  AiCaptionsSection: () => "AI 자막 섹션",
+}));
 import { CaptionsPanel } from "../entrypoints/sidepanel/CaptionsPanel";
 const updated = { addListener: vi.fn(), removeListener: vi.fn() };
 const activated = { addListener: vi.fn(), removeListener: vi.fn() };
@@ -76,6 +79,18 @@ it.each(["reload", "url", "switch", "close"])(
     expect(document.querySelectorAll("li")).toHaveLength(0);
   },
 );
+it.each([
+  ["NO_CAPTIONS", true],
+  ["UNSAFE_CAPTION", true],
+  ["ACTIVATE_TAB", false],
+  ["RELOAD_TAB", false],
+  ["TIMEOUT", false],
+] as const)("offers AI captions after %s: %s", async (code, offered) => {
+  detect.mockResolvedValue({ status: "error", code });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  expect(ui.host.textContent?.includes("AI 자막 섹션")).toBe(offered);
+});
 it("discards a late detection after its target reloads", async () => {
   const pending = deferred<CaptionResult>();
   detect.mockImplementation((onTarget) => {

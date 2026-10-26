@@ -1,7 +1,12 @@
 import {
   allowedCaptionMediaUrl,
   CAPTION_MEDIA_ORIGIN_PATTERN,
+  LMS_ORIGINS,
 } from "../security/policy";
+
+const PLAYER_ORIGIN = "https://kucom.korea.ac.kr";
+// The player runs as its own tab or inside a lecture page on the LMS.
+const PLAYER_TAB_ORIGINS: readonly string[] = [PLAYER_ORIGIN, ...LMS_ORIGINS];
 
 /**
  * Ask for the optional CDN host grant. Without it the session rule cannot set
@@ -48,6 +53,12 @@ export function readPlayerMedia(): {
   };
   const string = (value: unknown): string =>
     typeof value === "string" ? value : "";
+  // Only the KU player document; an LMS page hosting it holds no descriptor.
+  if (
+    location.origin !== "https://kucom.korea.ac.kr" ||
+    !location.pathname.startsWith("/em/")
+  )
+    return null;
   const pattern =
     /^https:\/\/korea-cms-object\.cdn\.gov-ntruss\.com\/contents7\/kruniv1001\/([0-9a-f]{13})\/contents\/media_files\/[\w.-]+\.mp4$/;
   const config = own(window, "uniPlayerConfig");
@@ -85,7 +96,7 @@ export async function identifyMedia(): Promise<MediaSource> {
   if (
     tab?.id === undefined ||
     !tab.url ||
-    new URL(tab.url).origin !== "https://kucom.korea.ac.kr"
+    !PLAYER_TAB_ORIGINS.includes(new URL(tab.url).origin)
   )
     throw new MediaSourceError("ACTIVATE_TAB");
   let results: chrome.scripting.InjectionResult<ReturnType<typeof readPlayerMedia>>[];
