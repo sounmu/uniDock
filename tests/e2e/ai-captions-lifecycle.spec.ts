@@ -55,6 +55,7 @@ async function fakeServices(directory: string) {
   let declaredLength: number | undefined;
   let refuseQuota = false;
   let hold: { reached: () => void; release: Promise<void> } | undefined;
+  let refuseMultipart = false;
 
   const server = createServer(
     { key: await readFile(key), cert: await readFile(cert) },
@@ -87,16 +88,35 @@ async function fakeServices(directory: string) {
           response.end("missing referer");
           return;
         }
-        const match = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
-        if (!match) {
+        const specs = /^bytes=\d+-\d+(,\d+-\d+)*$/.test(range ?? "")
+          ? range!.slice(6).split(",").map((s) => s.split("-").map(Number) as [number, number])
+          : [];
+        if (!specs.length || (specs.length > 1 && refuseMultipart)) {
           cdn.push({ referer, range, status: 416 });
           response.writeHead(416);
           response.end();
           return;
         }
-        const start = Number(match[1]);
-        const end = Math.min(Number(match[2]), media.length - 1);
         cdn.push({ referer, range, status: 206 });
+        if (specs.length > 1) {
+          // Same shape as the live KU CDN, including its leading CRLF.
+          const boundary = "E2EBOUND";
+          const body = Buffer.concat([
+            ...specs.flatMap(([s, e]) => [
+              Buffer.from(`\r\n--${boundary}\r\nContent-Type: video/mp4\r\nContent-Range: bytes ${s}-${e}/${media.length}\r\n\r\n`),
+              media.subarray(s, e + 1),
+            ]),
+            Buffer.from(`\r\n--${boundary}--\r\n`),
+          ]);
+          response.writeHead(206, {
+            "Content-Type": `multipart/byteranges; boundary=${boundary}`,
+            "Content-Length": body.length,
+          });
+          response.end(body);
+          return;
+        }
+        const [start, requestedEnd] = specs[0]!;
+        const end = Math.min(requestedEnd, media.length - 1);
         if (hold) {
           const held = hold;
           hold = undefined;
@@ -219,6 +239,9 @@ async function fakeServices(directory: string) {
     uploads,
     idempotencyKeys,
     cancels: () => cancels,
+    refuseMultipart: () => {
+      refuseMultipart = true;
+    },
     refuseQuota: () => {
       refuseQuota = true;
     },
@@ -315,7 +338,8 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
 
   async function detectOnPlayer() {
     const player = await context.newPage();
-    await player.goto("https://kucom.korea.ac.kr/player");
+    // Media identification only reads the KU player document under /em/.
+    await player.goto("https://kucom.korea.ac.kr/em/lecture");
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await player.bringToFront();
@@ -367,11 +391,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     });
     held.release();
 
-    await expect(panel.getByText(/AI 생성 자막 · 1개/)).toBeVisible({
-      timeout: 20_000,
-    }).catch((error) => {
-      throw new Error(`${error}\nPANEL: ${logs.join(" | ")}\nCDN: ${JSON.stringify(services.cdn.slice(0, 5))}`);
-    });
+    await expectFinished(panel, logs);
     await expect.poll(() => captionRules(worker)).toEqual([]);
     await probe(panel);
     expect(services.cdn.at(-1)).toEqual({
@@ -383,15 +403,55 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     const jobHits = services.cdn.slice(1, -1);
     expect(jobHits.length).toBeGreaterThan(0);
     expect(jobHits.every((hit) => hit.status === 206 && hit.range)).toBe(true);
+    // Audio ranges travel as multipart batches, not one request per range.
+    expect(jobHits.some((hit) => hit.range!.includes(","))).toBe(true);
+    expectAudioOnly(jobHits);
+    expectUploadedAudio();
+    expect(services.idempotencyKeys).toHaveLength(1);
+    expect(services.idempotencyKeys[0]).toMatch(/^unidock-[0-9a-f]{40}$/);
+    expect(services.idempotencyKeys[0]).not.toContain("0123456789abc");
+  });
 
+  test("a CDN without multipart support falls back to single ranges and still uploads only audio", async () => {
+    services.refuseMultipart();
+    const { panel } = await openPanelOnPlayer();
+    const logs: string[] = [];
+    panel.on("console", (m) => logs.push(m.text()));
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await expectFinished(panel, logs);
+    const refused = services.cdn.filter((hit) => hit.status === 416);
+    // One unsupported multipart attempt, then per-range requests only.
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.range).toContain(",");
+    const after = services.cdn.slice(services.cdn.indexOf(refused[0]!) + 1);
+    expect(after.length).toBeGreaterThan(1);
+    expect(after.every((hit) => hit.status === 206 && !hit.range!.includes(","))).toBe(true);
+    expectAudioOnly(services.cdn);
+    expectUploadedAudio();
+  });
+
+  async function expectFinished(panel: import("@playwright/test").Page, logs: string[]) {
+    await expect(
+      panel.getByRole("button", { name: "AI 자막 TXT·JSON 다운로드" }),
+    ).toBeVisible({ timeout: 20_000 }).catch((error) => {
+      throw new Error(`${error}\nPANEL: ${logs.join(" | ")}\nCDN: ${JSON.stringify(services.cdn.slice(0, 5))}`);
+    });
+  }
+
+  // No requested range, single or inside a multipart batch, touches a video sample.
+  function expectAudioOnly(hits: readonly CdnHit[]) {
     const source = parseMp4(services.media);
     const video = source.movie.videoTracks[0]!;
+    const ranges = hits
+      .filter((hit) => hit.range)
+      .flatMap((hit) => hit.range!.slice(6).split(",").map((s) => s.split("-").map(Number)));
     for (const sample of source.samples(video.id))
-      for (const hit of jobHits) {
-        const [, s, e] = /^bytes=(\d+)-(\d+)$/.exec(hit.range!)!.map(Number);
+      for (const [s, e] of ranges)
         expect(s! < sample.offset + sample.size && e! >= sample.offset).toBe(false);
-      }
+  }
 
+  function expectUploadedAudio() {
+    const source = parseMp4(services.media);
     expect(services.uploads).toHaveLength(1);
     const uploaded = parseMp4(services.uploads[0]!).movie;
     expect(uploaded.tracks).toHaveLength(1);
@@ -399,10 +459,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     expect(uploaded.audioTracks[0]!.nb_samples).toBe(
       source.movie.audioTracks[0]!.nb_samples,
     );
-    expect(services.idempotencyKeys).toHaveLength(1);
-    expect(services.idempotencyKeys[0]).toMatch(/^unidock-[0-9a-f]{40}$/);
-    expect(services.idempotencyKeys[0]).not.toContain("0123456789abc");
-  });
+  }
 
   test("more than 20 worker restarts mid-capture keep the rule and the job still completes", async () => {
     test.setTimeout(120_000);
@@ -441,7 +498,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     expect(await panelRules()).toEqual(ruleIds);
 
     held.release();
-    await expect(panel.getByText(/AI 생성 자막 · 1개/)).toBeVisible({ timeout: 20_000 });
+    await expectFinished(panel, []);
     expect(services.uploads).toHaveLength(1);
     expect(services.cdn.every((hit) => hit.status === 206 && hit.referer)).toBe(true);
     await expect.poll(panelRules).toEqual([]);

@@ -6,6 +6,7 @@ import { mount } from "./ui-helpers";
 const identifyMedia = vi.hoisted(() => vi.fn());
 const requestCaptionMediaAccess = vi.hoisted(() => vi.fn());
 const extractAudio = vi.hoisted(() => vi.fn());
+const fetchRanges = vi.hoisted(() => vi.fn());
 const createJob = vi.hoisted(() => vi.fn());
 const uploadAudio = vi.hoisted(() => vi.fn());
 const getJob = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock("../src/captions/media-fetch", () => ({
   mediaRangeReader: () => ({
     totalSize: async () => 12345,
     fetchRange: async () => new ArrayBuffer(0),
+    fetchRanges,
   }),
 }));
 vi.mock("../src/captions/audio-extract", async (orig) => ({
@@ -150,6 +152,11 @@ it("creates the job first, then extracts, uploads, saves and shows the transcrip
   expect(createJob.mock.invocationCallOrder[0]).toBeLessThan(
     extractAudio.mock.invocationCallOrder[0]!,
   );
+  expect(extractAudio).toHaveBeenCalledWith(
+    12345,
+    expect.any(Function),
+    expect.objectContaining({ fetchRanges }),
+  );
   expect(uploadAudio).toHaveBeenCalledWith(
     "job_1",
     expect.any(Blob),
@@ -176,6 +183,98 @@ it("shows an existing accepted job for a duplicate request without re-extracting
   expect(extractAudio).not.toHaveBeenCalled();
   expect(uploadAudio).not.toHaveBeenCalled();
   expect(hook.state.phase).toBe("succeeded");
+});
+
+it.each(["queued", "running"] as const)(
+  "shows a completed %s job within two seconds while the panel is visible",
+  async (state) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const firstPoll = Promise.withResolvers<void>();
+    getJob.mockReset();
+    createJob.mockResolvedValue(job(state));
+    getJob.mockImplementationOnce(async () => {
+      firstPoll.resolve();
+      return job(state);
+    }).mockResolvedValueOnce(succeeded);
+    try {
+      ui = await mount(<Probe />);
+      await act(async () => {
+        void hook.generate();
+        await firstPoll.promise;
+      });
+      expect(hook.state.phase).toBe(state);
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(hook.state.phase).toBe("succeeded");
+      expect(getJob).toHaveBeenCalledTimes(2);
+    } finally {
+      await ui?.unmount();
+      ui = undefined;
+      vi.clearAllTimers();
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("keeps background polling slow and refreshes immediately when revealed", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  const firstPoll = Promise.withResolvers<void>();
+  getJob.mockReset();
+  createJob.mockResolvedValue(job("queued"));
+  getJob.mockImplementationOnce(async () => {
+    firstPoll.resolve();
+    return job("queued");
+  }).mockResolvedValueOnce(succeeded);
+  try {
+    ui = await mount(<Probe />);
+    await act(async () => {
+      void hook.generate();
+      await firstPoll.promise;
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(getJob).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue("visible");
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(hook.state.phase).toBe("succeeded");
+    expect(getJob).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    await ui?.unmount();
+    ui = undefined;
+    vi.clearAllTimers();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it("clears a pending status wait immediately on cancellation", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const firstPoll = Promise.withResolvers<void>();
+  getJob.mockReset();
+  createJob.mockResolvedValue(job("running"));
+  getJob.mockImplementationOnce(async () => {
+    firstPoll.resolve();
+    return job("running");
+  });
+  try {
+    ui = await mount(<Probe />);
+    await act(async () => {
+      void hook.generate();
+      await firstPoll.promise;
+    });
+    expect(vi.getTimerCount()).toBe(1);
+    await act(async () => hook.cancel());
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(getJob).toHaveBeenCalledTimes(1);
+  } finally {
+    await ui?.unmount();
+    ui = undefined;
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
 });
 
 it("stops with PERMISSION when the CDN grant is refused", async () => {

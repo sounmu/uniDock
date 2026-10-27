@@ -79,6 +79,11 @@ for (const name of ["front.mp4", "tail.mp4", "video-first.mp4", "tail.mp4:larges
       expect(output.info.videoTracks).toHaveLength(0);
       expect(output.info.audioTracks[0]!.codec).toBe(audio.codec);
       expect(output.info.audioTracks[0]!.nb_samples).toBe(audio.nb_samples);
+      const outputBytes = new Uint8Array(await blob.arrayBuffer());
+      const outputSamples = output.samples.get(output.info.audioTracks[0]!.id)!;
+      const originalSamples = original.samples.get(audio.id)!;
+      expect(outputSamples.map((s) => outputBytes.slice(s.offset, s.offset + s.size)))
+        .toEqual(originalSamples.map((s) => new Uint8Array(buffer.slice(s.offset, s.offset + s.size))));
 
       for (const sample of original.samples.get(video.id)!) {
         const touched = calls.some(
@@ -96,11 +101,104 @@ for (const name of ["front.mp4", "tail.mp4", "video-first.mp4", "tail.mp4:larges
   });
 }
 
+it("prefetches four audio ranges and remuxes out-of-order responses in order", async () => {
+  const { buffer, fetchRange } = source("tail.mp4");
+  const original = parse(buffer);
+  const starts = new Set(original.samples.get(original.info.audioTracks[0]!.id)!.map((s) => s.offset));
+  const firstBatch = Promise.withResolvers<void>();
+  const pending: { start: number; end: number; response: ReturnType<typeof Promise.withResolvers<ArrayBuffer>> }[] = [];
+  let released = false;
+  const extracting = extractAudio(buffer.byteLength, async (start, end) => {
+    if (!starts.has(start) || released) return fetchRange(start, end);
+    const response = Promise.withResolvers<ArrayBuffer>();
+    pending.push({ start, end, response });
+    if (pending.length === 4) firstBatch.resolve();
+    return response.promise;
+  });
+  await firstBatch.promise;
+  expect(pending).toHaveLength(4);
+  released = true;
+  for (const request of [...pending].reverse())
+    request.response.resolve(buffer.slice(request.start, request.end + 1));
+  const output = await extracting;
+  const reference = await extractAudio(buffer.byteLength, fetchRange);
+  expect(new Uint8Array(await output.arrayBuffer()))
+    .toEqual(new Uint8Array(await reference.arrayBuffer()));
+});
+
+it("aborts sibling ranges on failure and does not start another batch", async () => {
+  const { buffer, fetchRange } = source("tail.mp4");
+  const original = parse(buffer);
+  const starts = new Set(original.samples.get(original.info.audioTracks[0]!.id)!.map((s) => s.offset));
+  const firstBatch = Promise.withResolvers<void>();
+  const failure = Promise.withResolvers<ArrayBuffer>();
+  let started = 0;
+  let aborted = 0;
+  const extracting = extractAudio(buffer.byteLength, (start, end, signal) => {
+    if (!starts.has(start)) return fetchRange(start, end);
+    started++;
+    if (started === 4) firstBatch.resolve();
+    if (started === 1) return failure.promise;
+    return new Promise<ArrayBuffer>((_resolve, reject) => {
+      signal?.addEventListener("abort", () => {
+        aborted++;
+        reject(new AudioExtractError("ABORTED"));
+      }, { once: true });
+    });
+  });
+  const rejected = expect(extracting).rejects.toMatchObject({ code: "MEDIA_DENIED" });
+  await firstBatch.promise;
+  failure.reject(new AudioExtractError("MEDIA_DENIED"));
+  await rejected;
+  expect(started).toBe(4);
+  expect(aborted).toBe(3);
+});
+
 it("reports a non-MP4 body as UNSUPPORTED_MEDIA", async () => {
   const junk = new Uint8Array(4096).fill(7).buffer;
   await expect(
     extractAudio(junk.byteLength, async (s, e) => junk.slice(s, e + 1)),
   ).rejects.toMatchObject({ code: "UNSUPPORTED_MEDIA" });
+});
+
+it("remuxes grouped ranges into exactly the same output as single ranges", async () => {
+  const { buffer, fetchRange } = source("tail.mp4");
+  const batches: number[] = [];
+  const grouped = await extractAudio(buffer.byteLength, fetchRange, {
+    fetchRanges: async (ranges) => {
+      batches.push(ranges.length);
+      expect(ranges.length).toBeLessThanOrEqual(64);
+      expect(ranges.reduce((sum, r) => sum + r.end - r.start, 0))
+        .toBeLessThanOrEqual(1024 * 1024);
+      return ranges.map((r) => buffer.slice(r.start, r.end));
+    },
+  });
+  const single = await extractAudio(buffer.byteLength, fetchRange);
+  expect(Math.max(...batches)).toBeGreaterThan(4);
+  expect(new Uint8Array(await grouped.arrayBuffer()))
+    .toEqual(new Uint8Array(await single.arrayBuffer()));
+});
+
+it("rejects missing grouped payloads instead of returning partial audio", async () => {
+  const { buffer, fetchRange } = source("tail.mp4");
+  await expect(extractAudio(buffer.byteLength, fetchRange, {
+    fetchRanges: async () => [],
+  })).rejects.toMatchObject({ code: "UNSUPPORTED_MEDIA" });
+});
+
+it("does not append or report grouped audio after cancellation", async () => {
+  const { buffer, fetchRange } = source("tail.mp4");
+  const controller = new AbortController();
+  const progress: number[] = [];
+  await expect(extractAudio(buffer.byteLength, fetchRange, {
+    signal: controller.signal,
+    onProgress: (bytes) => progress.push(bytes),
+    fetchRanges: async (ranges) => {
+      controller.abort();
+      return ranges.map((r) => buffer.slice(r.start, r.end));
+    },
+  })).rejects.toMatchObject({ code: "ABORTED" });
+  expect(progress).toEqual([]);
 });
 
 it("maps a failed range fetch to MEDIA_NETWORK", async () => {

@@ -53,6 +53,7 @@ const IDLE: AiCaptionState = {
 };
 const POLL_QUEUED_MS = 10_000;
 const POLL_RUNNING_MS = 5_000;
+const POLL_VISIBLE_MS = 2_000;
 
 interface Run {
   signal: AbortSignal;
@@ -168,9 +169,25 @@ export function useAiCaptions() {
           errorCode: next === "failed" ? status.errorCode || "FAILED" : null,
         });
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, next === "running" ? POLL_RUNNING_MS : POLL_QUEUED_MS),
-      );
+      const delay =
+        document.visibilityState === "visible" && !workerOffline
+          ? POLL_VISIBLE_MS
+          : next === "running" ? POLL_RUNNING_MS : POLL_QUEUED_MS;
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          signal.removeEventListener("abort", finish);
+          document.removeEventListener("visibilitychange", reveal);
+          resolve();
+        };
+        const reveal = () => {
+          if (document.visibilityState === "visible") finish();
+        };
+        const timer = setTimeout(finish, delay);
+        signal.addEventListener("abort", finish, { once: true });
+        document.addEventListener("visibilitychange", reveal);
+        if (signal.aborted) finish();
+      });
     }
   }, []);
 
@@ -264,6 +281,7 @@ export function useAiCaptions() {
         const audio = await withCaptionMediaRule(media.mediaUrl, async () =>
           extractAudio(await reader.totalSize(), reader.fetchRange, {
             signal,
+            fetchRanges: reader.fetchRanges,
             onProgress: (bytes) => set({ progress: bytes }),
           }),
         );
