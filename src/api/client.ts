@@ -134,19 +134,39 @@ export async function listQuery(
           ? []
           : await collect(coursesQuery, coursesPath, projectCourseIndex);
         if (query.type === "TODO_LIST") {
-          const todo: Todo[] = [];
-          for (const course of courses) {
-            const path = `/api/v1/courses/${course.id}/assignments`;
-            todo.push(
-              ...(await collect(
-                `${path}?per_page=100&include[]=submission`,
-                path,
-                (raw) => projectCourseTodo(raw, course.name, origin),
-              )),
-            );
-            if (todo.length > 10000) throw new Error("LIMIT");
+          const todoByCourse: Todo[][] = Array.from(
+            { length: courses.length },
+            () => [],
+          );
+          let nextCourse = 0,
+            totalTodo = 0;
+          let failure: { error: unknown } | undefined;
+          async function worker() {
+            while (nextCourse < courses.length && !controller.signal.aborted) {
+              const index = nextCourse++;
+              const course = courses[index]!;
+              try {
+                const path = `/api/v1/courses/${course.id}/assignments`;
+                const todo = await collect(
+                  `${path}?per_page=100&include[]=submission`,
+                  path,
+                  (raw) => projectCourseTodo(raw, course.name, origin),
+                );
+                totalTodo += todo.length;
+                if (totalTodo > 10000) throw new Error("LIMIT");
+                todoByCourse[index] = todo;
+              } catch (error) {
+                failure ??= { error };
+                controller.abort();
+              }
+            }
           }
-          return { status: "success", todo };
+          await Promise.all(
+            Array.from({ length: Math.min(3, courses.length) }, () => worker()),
+          );
+          if (failure) throw failure.error;
+          if (controller.signal.aborted) throw new Error("TIMEOUT");
+          return { status: "success", todo: todoByCourse.flat() };
         }
         const search = query.course?.trim().toLowerCase();
         const matches = search

@@ -116,6 +116,240 @@ it("paginates active courses and each Todo assignment list", async () => {
   ]);
   expect(fetcher).toHaveBeenCalledTimes(5);
 });
+it("bounds Todo concurrency to three and preserves course and page order", async () => {
+  const courses = ["Alpha", "Beta", "Gamma", "Delta"].map((name, index) => ({
+    id: index + 1,
+    name,
+  }));
+  const requests = new Map(
+    ["1", "2", "3", "4", "1-next"].map((key) => [
+      key,
+      {
+        started: Promise.withResolvers<void>(),
+        response: Promise.withResolvers<Response>(),
+      },
+    ]),
+  );
+  const started: string[] = [];
+  let active = 0,
+    peak = 0;
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/courses") return json(courses);
+    const key = `${url.pathname.split("/")[4]}${url.searchParams.has("page") ? "-next" : ""}`;
+    const request = requests.get(key);
+    if (!request) throw new Error("Unexpected assignment request");
+    const abort = () => request.response.reject(new Error("ABORTED"));
+    options?.signal?.addEventListener("abort", abort, { once: true });
+    started.push(key);
+    peak = Math.max(peak, ++active);
+    request.started.resolve();
+    try {
+      return await request.response.promise;
+    } finally {
+      active--;
+      options?.signal?.removeEventListener("abort", abort);
+    }
+  });
+  const pending = listQuery(origin, { version: 1, type: "TODO_LIST" }, fetcher);
+  await requests.get("3")!.started.promise;
+  expect(started).toEqual(["1", "2", "3"]);
+  expect(active).toBe(3);
+  requests.get("2")!.response.resolve(json([{ name: "Second" }]));
+  await requests.get("4")!.started.promise;
+  expect(started).toEqual(["1", "2", "3", "4"]);
+  requests.get("3")!.response.resolve(json([{ name: "Third" }]));
+  requests.get("4")!.response.resolve(json([{ name: "Fourth" }]));
+  requests
+    .get("1")!
+    .response.resolve(
+      json(
+        [{ name: "First" }],
+        `<${origin}/api/v1/courses/1/assignments?page=2>; rel="next"`,
+      ),
+    );
+  await requests.get("1-next")!.started.promise;
+  requests.get("1-next")!.response.resolve(json([{ name: "Next" }]));
+  const result = await pending;
+  expect(peak).toBe(3);
+  expect(active).toBe(0);
+  if (result.status !== "success" || !("todo" in result))
+    throw new Error("Expected Todo result");
+  expect(result.todo.map(({ title, course }) => [title, course])).toEqual([
+    ["First", "Alpha"],
+    ["Next", "Alpha"],
+    ["Second", "Beta"],
+    ["Third", "Gamma"],
+    ["Fourth", "Delta"],
+  ]);
+});
+it.each([
+  [() => new Response(null, { status: 401 }), "LOGIN_REQUIRED"],
+  [() => new Response(null, { status: 403 }), "FORBIDDEN"],
+  [() => new Response(null, { status: 429 }), "NETWORK"],
+  [
+    () =>
+      json([], `<${origin}/api/v1/courses/99/assignments?page=2>; rel="next"`),
+    "POLICY",
+  ],
+  [() => json([{ name: {} }]), "INVALID_RESPONSE"],
+] as const)(
+  "preserves the Todo failure %s as %s while aborting siblings without partial results",
+  async (response, code) => {
+    const failure = Promise.withResolvers<Response>();
+    const fourth = Promise.withResolvers<void>();
+    const started: number[] = [];
+    const aborted: number[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses")
+        return json(
+          [1, 2, 3, 4, 5].map((id) => ({ id, name: `Course ${id}` })),
+        );
+      const id = Number(url.pathname.split("/")[4]);
+      started.push(id);
+      if (id === 1) return json([{ name: "Completed course" }]);
+      if (id === 2) return failure.promise;
+      return new Promise<Response>((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted.push(id);
+            reject(new Error("ABORTED"));
+          },
+          { once: true },
+        );
+        if (id === 4) fourth.resolve();
+      });
+    });
+    const pending = listQuery(
+      origin,
+      { version: 1, type: "TODO_LIST" },
+      fetcher,
+    );
+    await fourth.promise;
+    failure.resolve(response());
+    expect(await pending).toEqual({ status: "error", code });
+    expect(started).toEqual([1, 2, 3, 4]);
+    expect(aborted.sort()).toEqual([3, 4]);
+  },
+);
+it.each([98, 99])(
+  "shares the Todo page budget including two course pages for %i courses",
+  async (count) => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses")
+        return url.searchParams.has("page")
+          ? json(
+              Array.from({ length: count - 1 }, (_, index) => ({
+                id: index + 2,
+                name: "Course",
+              })),
+            )
+          : json(
+              [{ id: 1, name: "Course" }],
+              `<${origin}/api/v1/courses?page=2>; rel="next"`,
+            );
+      return json([]);
+    });
+    expect(
+      await listQuery(origin, { version: 1, type: "TODO_LIST" }, fetcher),
+    ).toEqual(
+      count === 98
+        ? { status: "success", todo: [] }
+        : { status: "error", code: "LIMIT" },
+    );
+    expect(fetcher).toHaveBeenCalledTimes(100);
+  },
+);
+it("includes course discovery in the shared Todo timeout and aborts all workers", async () => {
+  vi.useFakeTimers();
+  try {
+    const lookup = Promise.withResolvers<Response>();
+    const lookingUp = Promise.withResolvers<void>();
+    const third = Promise.withResolvers<void>();
+    const started: number[] = [];
+    const aborted: number[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses") {
+        lookingUp.resolve();
+        return lookup.promise;
+      }
+      const id = Number(url.pathname.split("/")[4]);
+      started.push(id);
+      return new Promise<Response>((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted.push(id);
+            reject(new Error("ABORTED"));
+          },
+          { once: true },
+        );
+        if (id === 3) third.resolve();
+      });
+    });
+    const pending = listQuery(
+      origin,
+      { version: 1, type: "TODO_LIST" },
+      fetcher,
+    );
+    await lookingUp.promise;
+    await vi.advanceTimersByTimeAsync(18000);
+    lookup.resolve(json([1, 2, 3, 4].map((id) => ({ id, name: "Course" }))));
+    await third.promise;
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(aborted).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+    expect(started).toEqual([1, 2, 3]);
+    expect(aborted.sort()).toEqual([1, 2, 3]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it.each([10000, 10001])(
+  "enforces the Todo aggregate boundary with %i rows across paginated courses",
+  async (count) => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses")
+        return json([1, 2].map((id) => ({ id, name: "Course" })));
+      const total = url.pathname.includes("/1/") ? 5000 : count - 5000;
+      const page = Number(url.searchParams.get("page") ?? 1);
+      return json(
+        Array.from(
+          { length: Math.min(1000, total - (page - 1) * 1000) },
+          () => ({ name: "Task" }),
+        ),
+        page * 1000 < total
+          ? `<${origin}${url.pathname}?page=${page + 1}>; rel="next"`
+          : undefined,
+      );
+    });
+    const result = await listQuery(
+      origin,
+      { version: 1, type: "TODO_LIST" },
+      fetcher,
+    );
+    if (count > 10000) {
+      expect(result).toEqual({ status: "error", code: "LIMIT" });
+    } else {
+      if (result.status !== "success" || !("todo" in result))
+        throw new Error("Expected Todo result");
+      expect(result.todo).toHaveLength(10000);
+    }
+  },
+);
+it("returns an empty Todo when there are no active courses", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => json([]));
+  expect(
+    await listQuery(origin, { version: 1, type: "TODO_LIST" }, fetcher),
+  ).toEqual({ status: "success", todo: [] });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
 it("skips date-restricted courses instead of failing the whole Todo", async () => {
   const fetcher = vi.fn<typeof fetch>(async (input) => {
     const path = new URL(String(input)).pathname;
