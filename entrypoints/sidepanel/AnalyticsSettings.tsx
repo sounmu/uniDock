@@ -21,7 +21,7 @@ export function AnalyticsSettings({
       aria-labelledby="analytics-title"
       aria-busy={pending}
     >
-      <h3 id="analytics-title" className="settings-label">
+      <h3 id="analytics-title" className="settings-label" tabIndex={-1}>
         사용 통계
       </h3>
       <div className="settings-card">

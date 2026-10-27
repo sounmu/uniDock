@@ -1,7 +1,18 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { ScreenHeader } from "../ui/ScreenHeader";
-import { QueryResults, Refresh, type PanelModel } from "./QueryResults";
+import {
+  QueryResults,
+  Refresh,
+  type CourseFocus,
+  type PanelModel,
+} from "./QueryResults";
 import { MaterialsTab } from "./MaterialsTab";
 export function CoursesScreen({ model }: { readonly model: PanelModel }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [courseFocus, setCourseFocus] = useState<CourseFocus | null>(null);
+  useLayoutEffect(() => {
+    heading.current?.focus({ preventScroll: true });
+  }, [model.selectedCourse?.courseSelector]);
   return (
     <>
       {model.course && (
@@ -13,7 +24,9 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           >
             ← 과목 선택
           </button>
-          <h2>{model.course}</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            {model.course}
+          </h2>
           <nav className="subviews" aria-label="과목 메뉴">
             {(
               [
@@ -73,7 +86,9 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           {model.course && (
             <details className="guidance">
               <summary data-analytics-action="guidance">
-                {model.view === "RECORDINGS_LIST" ? "강의 열기 안내" : "표시 기준"}
+                {model.view === "RECORDINGS_LIST"
+                  ? "강의 열기 안내"
+                  : "표시 기준"}
               </summary>
               <p className="hint">
                 {model.view === "RECORDINGS_LIST"
@@ -82,7 +97,12 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
               </p>
             </details>
           )}
-          <QueryResults key={model.view} model={model} />
+          <QueryResults
+            key={model.view}
+            model={model}
+            courseFocus={courseFocus}
+            onCourseFocus={setCourseFocus}
+          />
         </>
       )}
     </>

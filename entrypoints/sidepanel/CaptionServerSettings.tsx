@@ -95,7 +95,7 @@ export function CaptionServerSettings() {
 
   return (
     <section className="settings-group" aria-labelledby="caption-server-title">
-      <h3 id="caption-server-title" className="settings-label">
+      <h3 id="caption-server-title" className="settings-label" tabIndex={-1}>
         AI 자막 서버
       </h3>
       <div className="settings-card">

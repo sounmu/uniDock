@@ -11,6 +11,7 @@ vi.mock("../entrypoints/sidepanel/AiCaptionsSection", () => ({
   AiCaptionsSection: () => "AI 자막 섹션",
 }));
 import { CaptionsPanel } from "../entrypoints/sidepanel/CaptionsPanel";
+import { App } from "../entrypoints/sidepanel/App";
 const updated = { addListener: vi.fn(), removeListener: vi.fn() };
 const activated = { addListener: vi.fn(), removeListener: vi.fn() };
 const removed = { addListener: vi.fn(), removeListener: vi.fn() };
@@ -59,6 +60,40 @@ it("keeps captions across unrelated updates and activation in another window", a
     activated.addListener.mock.calls[0]![0]({ tabId: 999, windowId: 2 });
   });
   expect(document.querySelectorAll("li")).toHaveLength(1);
+});
+it("keeps detected captions when visiting connection settings and returning", async () => {
+  // Given
+  vi.stubGlobal("chrome", {
+    ...chrome,
+    storage: {
+      local: { get: vi.fn().mockResolvedValue({}) },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
+    downloads: {
+      onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
+  });
+  ui = await mount(<App />);
+  await click("자막 추출");
+  await click("자막 감지");
+  const trigger = [...ui.host.querySelectorAll("button")].find(
+    (button) => button.textContent === "자막 연결 설정",
+  );
+  trigger?.focus();
+  // When
+  await click("자막 연결 설정");
+  expect(document.activeElement).toBe(ui.host.querySelector("#caption-server-title"));
+  await click("← 돌아가기");
+  // Then
+  expect(document.activeElement).toBe(trigger);
+  expect(detect).toHaveBeenCalledTimes(1);
+  await click("강의 자막");
+  await click("TXT·JSON 다운로드");
+  expect(downloadCaption).toHaveBeenCalledWith(
+    result.status === "success" ? result.captions[0] : undefined,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
 });
 it.each(["reload", "url", "switch", "close"])(
   "clears captions on target %s",

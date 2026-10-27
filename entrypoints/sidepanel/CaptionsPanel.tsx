@@ -23,7 +23,11 @@ const messages = {
   TIMEOUT: "자막 감지 시간이 초과되었습니다. 잠시 후 다시 시도하세요.",
   RELOAD_TAB: "강의 문서가 변경되었습니다. 현재 강의에서 다시 감지하세요.",
 };
-export function CaptionsPanel() {
+export function CaptionsPanel({
+  onConnectionSettings,
+}: {
+  readonly onConnectionSettings?: () => void;
+}) {
   const [state, setState] = useState<
     CaptionResult | { status: "idle" | "loading" }
   >({
@@ -198,6 +202,11 @@ export function CaptionsPanel() {
             </button>
           }
         />
+        {__UNIDOCK_AI_CAPTIONS__ && onConnectionSettings && (
+          <button className="btn-ghost" onClick={onConnectionSettings}>
+            자막 연결 설정
+          </button>
+        )}
         <details className="guidance">
           <summary data-analytics-action="guidance">자막 감지·저장 안내</summary>
           <p className="hint">
