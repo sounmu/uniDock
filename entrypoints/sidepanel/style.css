@@ -882,6 +882,36 @@ progress {
 .row-error {
   color: var(--danger);
 }
+/* Captions without a provided track continue into AI generation in one card. */
+.ai-offer {
+  margin: var(--space-3) 0;
+}
+.ai-offer h3 {
+  margin: 0;
+}
+.ai-offer .settings-row {
+  border-top: 1px solid var(--line);
+}
+.ai-offer > .settings-row:first-child {
+  border-top: 0;
+}
+.settings-row.row-actions {
+  justify-content: flex-start;
+}
+.confirm-list {
+  list-style: disc;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+}
+.confirm-list li {
+  border-bottom: 0;
+}
+.confirm-list li + li {
+  margin-top: 2px;
+}
 .switch {
   display: inline-flex;
   align-items: center;

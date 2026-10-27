@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { downloadCaption } from "../../src/captions/download";
-import { Notice } from "./ui/Notice";
 import { featureResult } from "./analytics";
 import { useAiCaptions } from "./useAiCaptions";
 import { useCaptionSession } from "./useCaptionSession";
@@ -48,7 +47,12 @@ function serverProgressText(progress: { done?: number; total?: number } | null) 
   return `${minutes(progress.done)}분 / ${minutes(progress.total)}분 처리`;
 }
 
-export function AiCaptionsSection() {
+/** Rows inside the captions panel's AI offer card. */
+export function AiCaptionsSection({
+  onSettings,
+}: {
+  readonly onSettings?: () => void;
+} = {}) {
   const { state, generate, cancel, serverOrigin } = useAiCaptions();
   const session = useCaptionSession();
   const [confirming, setConfirming] = useState(false);
@@ -79,16 +83,27 @@ export function AiCaptionsSection() {
 
   if (confirming) {
     return (
-      <div className="settings-card" role="group" aria-label="AI 자막 생성 확인">
-        <p className="hint">
-          현재 강의의 음성을 {serverOrigin} 으로 보냅니다. 음성은 자막 생성 후
-          서버에서 삭제되고, 자막은 최대 6개월 보관됩니다. 같은 강의의 기존
-          자막에 연결되면 남은 기간이 더 짧을 수 있고, 실제 만료일은 완료 후
-          표시됩니다. 이번 주 사용 횟수가 1회 차감됩니다. 결과는 추론으로 만든
-          자막이라 원본 자막과 다를 수 있습니다. 강의 영상 서버 접근 권한을
-          묻는 창이 열리면 허용해야 합니다.
-        </p>
-        <div className="row-actions">
+      <div role="group" aria-label="AI 자막 생성 확인">
+        <div className="settings-row">
+          <div className="row-text">
+            <p className="row-title">음성을 보내기 전에 확인하세요</p>
+            <ul className="confirm-list">
+              <li>
+                현재 강의의 음성만 {serverOrigin}(으)로 보내며 영상은 보내지
+                않습니다.
+              </li>
+              <li>
+                음성은 자막을 만든 뒤 서버에서 삭제하고, 자막은 최대 6개월
+                보관합니다. 같은 강의의 기존 자막에 연결되면 더 짧을 수 있으며
+                만료일은 완료 후 표시합니다.
+              </li>
+              <li>이번 주 사용 횟수가 1회 차감됩니다.</li>
+              <li>AI가 만든 자막이라 원본 자막과 다를 수 있습니다.</li>
+              <li>강의 영상 서버 접근을 묻는 창이 뜨면 허용하세요.</li>
+            </ul>
+          </div>
+        </div>
+        <div className="settings-row row-actions">
           <button
             className="btn-primary"
             data-analytics-action="captions_ai_confirm"
@@ -111,84 +126,109 @@ export function AiCaptionsSection() {
   if (session === undefined) return null;
   if (session === null && !running && state.phase !== "succeeded")
     return (
-      <Notice>
-        AI 자막을 쓰려면 설정에서 Google 계정으로 로그인하세요.
-      </Notice>
+      <div className="settings-row">
+        <div className="row-text">
+          <p className="row-sub" role="status">
+            AI 자막을 쓰려면 설정에서 Google 계정으로 로그인하세요.
+          </p>
+        </div>
+        {onSettings && (
+          <div className="row-actions">
+            <button className="btn-primary" onClick={onSettings}>
+              로그인하러 가기
+            </button>
+          </div>
+        )}
+      </div>
     );
 
   return (
     <div aria-live="polite" aria-busy={running}>
       {state.phase === "idle" && (
-        <button
-          className="btn-primary"
-          data-analytics-action="captions_ai_generate"
-          onClick={() => setConfirming(true)}
-        >
-          AI 자막 생성
-        </button>
-      )}
-      {running && (
-        <div className="row-actions">
-          <p className="count">{phaseText[state.phase] ?? "진행 중…"}</p>
-          {state.phase === "running" && serverProgressText(state.serverProgress) && (
-            <p className="row-sub">{serverProgressText(state.serverProgress)}</p>
-          )}
-          {state.phase === "queued" && state.workerOffline && (
-            <p className="row-sub">
-              처리 서버가 꺼져 있어 대기합니다. 켜지면 이어서 처리합니다.
-            </p>
-          )}
+        <div className="settings-row row-actions">
           <button
-            className="btn-ghost"
-            data-analytics-action="captions_ai_cancel"
-            onClick={() => cancel()}
-          >
-            취소
-          </button>
-        </div>
-      )}
-      {state.phase === "failed" && (
-        <>
-          <Notice error>
-            {(state.errorCode && errorText[state.errorCode]) ||
-              "AI 자막 생성에 실패했습니다. 다시 시도하세요."}
-          </Notice>
-          <button
-            className="btn-secondary"
+            className="btn-primary"
             data-analytics-action="captions_ai_generate"
             onClick={() => setConfirming(true)}
           >
-            다시 시도
-          </button>
-        </>
-      )}
-      {state.phase === "succeeded" && state.result && (
-        <div className="settings-card">
-          <p className="count">
-            AI 생성 자막 · {state.result.transcript.itemCount.toLocaleString()}개
-            문장
-          </p>
-          <p className="row-sub">
-            엔진 {state.result.engine || "미상"}
-            {state.result.modelRevision ? ` · ${state.result.modelRevision}` : ""} ·
-            추론 결과라 원본 자막과 다를 수 있습니다.
-          </p>
-          {state.expiresAt && (
-            <p className="row-sub">
-              서버 보관 만료일: {new Date(state.expiresAt).toLocaleString()}
-            </p>
-          )}
-          <button
-            className="btn-primary"
-            data-analytics-action="captions_ai"
-            onClick={() => void exportResult()}
-          >
-            AI 자막 TXT·JSON 다운로드
+            AI 자막 생성
           </button>
         </div>
       )}
+      {running && (
+        <div className="settings-row">
+          <div className="row-text">
+            <p className="row-title">{phaseText[state.phase] ?? "진행 중…"}</p>
+            {state.phase === "running" && serverProgressText(state.serverProgress) && (
+              <p className="row-sub">{serverProgressText(state.serverProgress)}</p>
+            )}
+            {state.phase === "queued" && state.workerOffline && (
+              <p className="row-sub">
+                처리 서버가 꺼져 있어 대기합니다. 켜지면 이어서 처리합니다.
+              </p>
+            )}
+          </div>
+          <div className="row-actions">
+            <button
+              className="btn-ghost"
+              data-analytics-action="captions_ai_cancel"
+              onClick={() => cancel()}
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+      {state.phase === "failed" && (
+        <div className="settings-row">
+          <div className="row-text">
+            <p className="row-sub row-error" role="alert">
+              {(state.errorCode && errorText[state.errorCode]) ||
+                "AI 자막 생성에 실패했습니다. 다시 시도하세요."}
+            </p>
+          </div>
+          <div className="row-actions">
+            <button
+              className="btn-secondary"
+              data-analytics-action="captions_ai_generate"
+              onClick={() => setConfirming(true)}
+            >
+              다시 시도
+            </button>
+          </div>
+        </div>
+      )}
+      {state.phase === "succeeded" && state.result && (
+        <div className="settings-row">
+          <div className="row-text">
+            <p className="row-title">
+              AI 생성 자막 · {state.result.transcript.itemCount.toLocaleString()}개
+              문장
+            </p>
+            <p className="row-sub">
+              엔진 {state.result.engine || "미상"}
+              {state.result.modelRevision ? ` · ${state.result.modelRevision}` : ""} ·
+              추론 결과라 원본 자막과 다를 수 있습니다.
+            </p>
+            {state.expiresAt && (
+              <p className="row-sub">
+                서버 보관 만료일: {new Date(state.expiresAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="row-actions">
+            <button
+              className="btn-primary"
+              data-analytics-action="captions_ai"
+              onClick={() => void exportResult()}
+            >
+              AI 자막 TXT·JSON 다운로드
+            </button>
+          </div>
+        </div>
+      )}
       {notice && (
-        <p className="notice" role="status">
+        <p className="settings-row row-sub" role="status">
           {notice}
         </p>
       )}

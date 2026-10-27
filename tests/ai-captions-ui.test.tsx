@@ -45,11 +45,11 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-async function render() {
+async function render(onSettings?: () => void) {
   const { AiCaptionsSection } = await import(
     "../entrypoints/sidepanel/AiCaptionsSection"
   );
-  ui = await mount(<AiCaptionsSection />);
+  ui = await mount(<AiCaptionsSection onSettings={onSettings} />);
 }
 
 it("confirms the server and audio before generating", async () => {
@@ -118,6 +118,14 @@ it("asks for Google login instead of offering generation when signed out", async
   expect([...ui.host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain(
     "AI 자막 생성",
   );
+});
+
+it("sends a signed-out user straight to the AI settings to log in", async () => {
+  session = null;
+  const onSettings = vi.fn();
+  await render(onSettings);
+  await click("로그인하러 가기");
+  expect(onSettings).toHaveBeenCalledOnce();
 });
 
 it("shows the weekly quota, an offline worker and transcription progress", async () => {
