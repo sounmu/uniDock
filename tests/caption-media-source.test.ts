@@ -36,6 +36,17 @@ it("returns null without a config", () => {
   expect(readPlayerMedia()).toBeNull();
 });
 
+it("reads the current player's contentDuration instead of losing its length hint", () => {
+  setConfig({
+    _contentPlayingInfoData: {
+      contentDuration: 3424.97,
+      duration: 1,
+      storyList: [{ mainMediaList: { list: [{ desktopMediaUri: good }] } }],
+    },
+  });
+  expect(readPlayerMedia()?.durationS).toBe(3424.97);
+});
+
 it("ignores a non-matching media uri", () => {
   setConfig({
     _contentPlayingInfoData: {

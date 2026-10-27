@@ -69,7 +69,12 @@ export function readPlayerMedia(): {
   if (!info) return null;
   const stories = data(info, "storyList");
   if (!Array.isArray(stories) || stories.length > 200) return null;
-  const durationS = Number(data(info, "duration")) || 0;
+  const durationValue = data(info, "contentDuration") ?? data(info, "duration");
+  const duration =
+    typeof durationValue === "number" || typeof durationValue === "string"
+      ? Number(durationValue)
+      : 0;
+  const durationS = Number.isFinite(duration) && duration > 0 ? duration : 0;
   for (let index = 0; index < stories.length; index++) {
     const story = own(stories, String(index));
     if (!story || data(story, "isIntro") === true) continue;
