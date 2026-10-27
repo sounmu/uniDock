@@ -60,10 +60,7 @@ export function PopupSettings() {
               팝업 자동 닫기
             </p>
             <p id="popup-description" className="row-sub">
-              LMS의 공지 팝업과 미참여 설문 안내를 자동으로 닫습니다. ‘오늘 하루
-              보지 않기’는 선택하지 않고, 설문에는 참여하지 않으며 ‘설문
-              나가기’만 누릅니다. 켤 때 Chrome이 lms.korea.ac.kr 접근 허용을
-              묻고, 끄면 그 권한을 반납합니다.
+              LMS 공지 팝업과 설문 안내를 자동으로 닫습니다.
             </p>
           </div>
           <button
