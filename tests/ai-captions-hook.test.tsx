@@ -185,6 +185,98 @@ it("shows an existing accepted job for a duplicate request without re-extracting
   expect(hook.state.phase).toBe("succeeded");
 });
 
+it.each(["queued", "running"] as const)(
+  "shows a completed %s job within two seconds while the panel is visible",
+  async (state) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const firstPoll = Promise.withResolvers<void>();
+    getJob.mockReset();
+    createJob.mockResolvedValue(job(state));
+    getJob.mockImplementationOnce(async () => {
+      firstPoll.resolve();
+      return job(state);
+    }).mockResolvedValueOnce(succeeded);
+    try {
+      ui = await mount(<Probe />);
+      await act(async () => {
+        void hook.generate();
+        await firstPoll.promise;
+      });
+      expect(hook.state.phase).toBe(state);
+      await act(async () => vi.advanceTimersByTimeAsync(2000));
+      expect(hook.state.phase).toBe("succeeded");
+      expect(getJob).toHaveBeenCalledTimes(2);
+    } finally {
+      await ui?.unmount();
+      ui = undefined;
+      vi.clearAllTimers();
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  },
+);
+
+it("keeps background polling slow and refreshes immediately when revealed", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  const firstPoll = Promise.withResolvers<void>();
+  getJob.mockReset();
+  createJob.mockResolvedValue(job("queued"));
+  getJob.mockImplementationOnce(async () => {
+    firstPoll.resolve();
+    return job("queued");
+  }).mockResolvedValueOnce(succeeded);
+  try {
+    ui = await mount(<Probe />);
+    await act(async () => {
+      void hook.generate();
+      await firstPoll.promise;
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(getJob).toHaveBeenCalledTimes(1);
+    visibility.mockReturnValue("visible");
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(hook.state.phase).toBe("succeeded");
+    expect(getJob).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    await ui?.unmount();
+    ui = undefined;
+    vi.clearAllTimers();
+    visibility.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
+it("clears a pending status wait immediately on cancellation", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const firstPoll = Promise.withResolvers<void>();
+  getJob.mockReset();
+  createJob.mockResolvedValue(job("running"));
+  getJob.mockImplementationOnce(async () => {
+    firstPoll.resolve();
+    return job("running");
+  });
+  try {
+    ui = await mount(<Probe />);
+    await act(async () => {
+      void hook.generate();
+      await firstPoll.promise;
+    });
+    expect(vi.getTimerCount()).toBe(1);
+    await act(async () => hook.cancel());
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(getJob).toHaveBeenCalledTimes(1);
+  } finally {
+    await ui?.unmount();
+    ui = undefined;
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  }
+});
+
 it("stops with PERMISSION when the CDN grant is refused", async () => {
   requestCaptionMediaAccess.mockResolvedValue(false);
   await generate();
