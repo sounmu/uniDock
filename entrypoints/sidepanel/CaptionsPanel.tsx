@@ -187,6 +187,14 @@ export function CaptionsPanel({
       }
     }
   }
+  // A lecture without captions often ends in UNSAFE_CAPTION: its caption file
+  // fails to load. Either way the next step is AI generation, not an error.
+  const aiOffer =
+    __UNIDOCK_AI_CAPTIONS__ &&
+    state.status === "error" &&
+    (state.code === "NO_CAPTIONS" || state.code === "UNSAFE_CAPTION")
+      ? state.code
+      : null;
   return (
     <section>
       <div hidden={selected !== undefined}>
@@ -194,7 +202,7 @@ export function CaptionsPanel({
           title="자막 추출"
           action={
             <button
-              className="btn-primary"
+              className={aiOffer ? "btn-secondary" : "btn-primary"}
               {...softDisabled(state.status === "loading", () => void detect())}
               data-analytics-action="captions_detect"
             >
@@ -202,33 +210,45 @@ export function CaptionsPanel({
             </button>
           }
         />
-        {__UNIDOCK_AI_CAPTIONS__ && onConnectionSettings && (
-          <button className="btn-ghost" onClick={onConnectionSettings}>
-            자막 연결 설정
-          </button>
-        )}
         <details className="guidance">
-          <summary data-analytics-action="guidance">자막 감지·저장 안내</summary>
+          <summary data-analytics-action="guidance">자막 찾는 방법</summary>
           <p className="hint">
-            강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를
-            누르면 화면의 자막 목록을 먼저 읽고, 없으면 KU 플레이어의 XML·VTT
-            자막 파일을 조회하고, 별도 TXT 스크립트도 확인합니다. 다운로드를
-            누르면 시간과 문장을 다운로드 폴더의 output/ 아래 TXT·JSON 두 파일로
-            저장합니다. JSON에는 강의 URL과 제목도 포함됩니다. 개발자 서버로
-            전송하지 않습니다. 영상 재생은 직접 조작하세요.
+            강의 플레이어 탭에서 감지하세요. 감지는 서버로 보내지 않으며, 자막은
+            output/ 폴더에 TXT·JSON으로 저장합니다(JSON에 강의 URL·제목 포함).
+            {__UNIDOCK_AI_CAPTIONS__ && " 자막이 없으면 AI로 만들 수 있습니다."}
           </p>
         </details>
         <div aria-live="polite" aria-busy={state.status === "loading"}>
-          {state.status === "error" && (
+          {state.status === "error" && !aiOffer && (
             <Notice error>{messages[state.code]}</Notice>
           )}
-          {/* A lecture without captions often ends in UNSAFE_CAPTION: its
-              caption file fails to load. Generation re-identifies the media. */}
-          {__UNIDOCK_AI_CAPTIONS__ &&
-            state.status === "error" &&
-            (state.code === "NO_CAPTIONS" || state.code === "UNSAFE_CAPTION") && (
-              <AiCaptionsSection />
-            )}
+          {aiOffer && (
+            <section
+              className="settings-card ai-offer"
+              aria-labelledby="ai-offer-title"
+            >
+              <div className="settings-row">
+                <div className="row-text">
+                  <h3 id="ai-offer-title" className="row-title">
+                    {aiOffer === "NO_CAPTIONS"
+                      ? "제공된 자막이 없습니다"
+                      : "제공된 자막을 읽을 수 없습니다"}
+                  </h3>
+                  <p className="row-sub">
+                    AI로 자막을 만들 수 있습니다.
+                  </p>
+                </div>
+                {onConnectionSettings && (
+                  <div className="row-actions">
+                    <button className="btn-ghost" onClick={onConnectionSettings}>
+                      AI 자막 설정
+                    </button>
+                  </div>
+                )}
+              </div>
+              <AiCaptionsSection onSettings={onConnectionSettings} />
+            </section>
+          )}
           {state.status === "success" && (
             <>
               <p className="count">

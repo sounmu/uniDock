@@ -45,7 +45,8 @@ afterEach(async () => {
 
 it("offers Google login when signed out and explains a refused account", async () => {
   ui = await mount(<CaptionServerSettings />);
-  expect(ui.host.textContent).toContain("https://captions.test");
+  // The server address is an implementation detail; it is never shown.
+  expect(ui.host.textContent).not.toContain("https://captions.test");
   await click("Google 계정으로 로그인");
   expect(signIn).toHaveBeenCalledOnce();
   signIn.mockRejectedValue({ code: "ACCOUNT_NOT_ALLOWED" });

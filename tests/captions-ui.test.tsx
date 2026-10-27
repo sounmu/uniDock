@@ -61,8 +61,9 @@ it("keeps captions across unrelated updates and activation in another window", a
   });
   expect(document.querySelectorAll("li")).toHaveLength(1);
 });
-it("keeps detected captions when visiting connection settings and returning", async () => {
-  // Given
+it("keeps the AI caption offer when visiting AI settings and returning", async () => {
+  // Given: no provided captions, so the panel offers AI generation.
+  detect.mockResolvedValue({ status: "error", code: "NO_CAPTIONS" });
   vi.stubGlobal("chrome", {
     ...chrome,
     storage: {
@@ -78,22 +79,30 @@ it("keeps detected captions when visiting connection settings and returning", as
   await click("자막 추출");
   await click("자막 감지");
   const trigger = [...ui.host.querySelectorAll("button")].find(
-    (button) => button.textContent === "자막 연결 설정",
+    (button) => button.textContent === "AI 자막 설정",
   );
   trigger?.focus();
   // When
-  await click("자막 연결 설정");
+  await click("AI 자막 설정");
   expect(document.activeElement).toBe(ui.host.querySelector("#caption-server-title"));
   await click("← 돌아가기");
-  // Then
+  // Then: the same offer, still mounted, and no re-detection.
   expect(document.activeElement).toBe(trigger);
   expect(detect).toHaveBeenCalledTimes(1);
-  await click("강의 자막");
-  await click("TXT·JSON 다운로드");
-  expect(downloadCaption).toHaveBeenCalledWith(
-    result.status === "success" ? result.captions[0] : undefined,
-    expect.objectContaining({ signal: expect.any(AbortSignal) }),
-  );
+  expect(ui.host.textContent).toContain("AI 자막 섹션");
+});
+it("offers AI settings only when the AI offer is shown", async () => {
+  ui = await mount(<CaptionsPanel onConnectionSettings={() => {}} />);
+  await click("자막 감지");
+  const labels = () => [...ui.host.querySelectorAll("button")].map((b) => b.textContent);
+  expect(labels()).not.toContain("AI 자막 설정");
+  expect(ui.host.querySelector(".screen-header .btn-primary")).not.toBeNull();
+  detect.mockResolvedValue({ status: "error", code: "NO_CAPTIONS" });
+  await click("자막 감지");
+  expect(labels()).toContain("AI 자막 설정");
+  // The offer card's action is the sole primary; detection steps back.
+  expect(ui.host.querySelector(".screen-header .btn-primary")).toBeNull();
+  expect(ui.host.querySelector('[role="alert"]')).toBeNull();
 });
 it.each(["reload", "url", "switch", "close"])(
   "clears captions on target %s",

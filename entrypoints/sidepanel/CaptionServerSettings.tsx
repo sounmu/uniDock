@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  captionServerOrigin,
   signIn,
   signOut,
   signOutEverywhere,
@@ -30,7 +29,6 @@ export function CaptionServerSettings() {
   const [devices, setDevices] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const origin = captionServerOrigin();
   const signedIn = Boolean(session);
 
   useEffect(() => {
@@ -99,12 +97,6 @@ export function CaptionServerSettings() {
         AI 자막 서버
       </h3>
       <div className="settings-card">
-        <div className="settings-row">
-          <div className="row-text">
-            <p className="row-title">자막 서버</p>
-            <p className="row-sub">{origin || "설정되지 않음"}</p>
-          </div>
-        </div>
         {session === null && (
           <div className="settings-row">
             <div className="row-text">
