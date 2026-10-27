@@ -122,13 +122,13 @@ export function ItemResults({
       window.removeEventListener("focus", update);
     };
   }, []);
-  const visible = useMemo(() => {
-    if (deadlines)
-      return filterDeadlines(
-        items.filter((item): item is Deadline => "remaining_candidate" in item),
-        { remainingOnly, period, sort: sort !== "original" },
-        now,
+  const ordered = useMemo(() => {
+    if (deadlines) {
+      const rows = items.filter(
+        (item): item is Deadline => "remaining_candidate" in item,
       );
+      return sort === "original" ? rows : sortByDue(rows);
+    }
     if (todo) {
       const rows = items.filter((item): item is Todo => "ignore" in item);
       return sort === "original" ? rows : sortByDue(rows, sort === "due-desc");
@@ -141,7 +141,20 @@ export function ItemResults({
           (kind === "all" || scheduleKind(item.type) === kind),
       ),
     );
-  }, [items, deadlines, todo, remainingOnly, period, sort, kind, now]);
+  }, [items, deadlines, todo, sort, kind]);
+  const visible = useMemo(
+    () =>
+      deadlines
+        ? filterDeadlines(
+            ordered.filter(
+              (item): item is Deadline => "remaining_candidate" in item,
+            ),
+            { remainingOnly, period, sort: false },
+            now,
+          )
+        : ordered,
+    [ordered, deadlines, remainingOnly, period, now],
+  );
   const schedule = !deadlines && !todo;
   const kindCounts = useMemo(() => {
     const counts: Record<ScheduleKind, number> = {

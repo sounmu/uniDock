@@ -3,12 +3,46 @@ import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ResultList } from "../entrypoints/sidepanel/ResultList";
 import { mount, click } from "./ui-helpers";
+import * as deadlineView from "../src/deadline-view";
 let ui: Awaited<ReturnType<typeof mount>>;
 afterEach(async () => {
   await ui?.unmount();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+it.each(["todo", "upcoming"] as const)(
+  "does not repeat %s sorting on clock ticks while hidden",
+  async (type) => {
+    // Given: use the real sorter and hide the mounted list as settings does.
+    vi.useFakeTimers();
+    const now = Date.parse("2026-10-12T00:00:00Z");
+    vi.setSystemTime(now);
+    const sorter = vi.spyOn(
+      deadlineView,
+      type === "todo" ? "sortByDue" : "sortByDateDesc",
+    );
+    const common = { title: "경계 항목", course: "A", type: "assignment" };
+    const date = new Date(now + 1000).toISOString();
+    const result =
+      type === "todo"
+        ? { status: "success" as const, todo: [{ ...common, due_at: date, ignore: false }] }
+        : { status: "success" as const, upcoming: [{ ...common, date, submitted: false, new_activity: false }] };
+    ui = await mount(
+      <div hidden><ResultList result={result} onCourse={() => {}} /></div>,
+    );
+    const calls = sorter.mock.calls.length;
+    expect(calls).toBeGreaterThan(0);
+    // When
+    await act(async () => vi.advanceTimersByTime(2000));
+    // Then: clock-dependent status still crosses its boundary.
+    expect(sorter).toHaveBeenCalledTimes(calls);
+    if (type === "todo")
+      expect(document.querySelector(".overdue-group li")).not.toBeNull();
+    else
+      expect(document.querySelector(".status-chip")?.textContent).toMatch(/^지남/);
+  },
+);
 it("resets pagination on filter changes, preserves it on ticks, and expires candidates", async () => {
   vi.useFakeTimers();
   const now = Date.parse("2026-09-12T00:00:00Z");
