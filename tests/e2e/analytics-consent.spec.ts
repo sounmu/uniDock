@@ -63,7 +63,7 @@ test("production analytics requires consent, sends only approved payloads, and s
             properties: Record<string, unknown>;
           }[],
       );
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     expect(await storage()).not.toHaveProperty("unidock.analytics.v1");
     expect(batches).toHaveLength(0);
     const consent = panel.getByRole("button", {
@@ -109,7 +109,7 @@ test("production analytics requires consent, sends only approved payloads, and s
       .poll(storage)
       .toEqual({ "unidock.analytics.v1": { version: 1, enabled: false } });
     await panel.reload();
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect(
       panel.getByText("사용 통계 공유 안 함", { exact: true }),
     ).toBeVisible();
@@ -118,7 +118,7 @@ test("production analytics requires consent, sends only approved payloads, and s
     const other = await context.newPage();
     other.on("pageerror", (error) => errors.push(error.message));
     await other.goto(`chrome-extension://${id}/sidepanel.html`);
-    await other.getByRole("button", { name: "정보", exact: true }).click();
+    await other.getByRole("button", { name: "설정", exact: true }).click();
     await consent.click();
     await expect(
       panel.getByText("사용 통계 공유 중", { exact: true }),
@@ -164,7 +164,7 @@ test("production analytics requires consent, sends only approved payloads, and s
       .poll(() => panel.evaluate(() => document.hasFocus()))
       .toBe(true);
     await panel.waitForTimeout(1200);
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect
       .poll(() =>
         events().some(
@@ -205,7 +205,7 @@ test("production analytics requires consent, sends only approved payloads, and s
     await other
       .getByRole("button", { name: "통계 공유 철회", exact: true })
       .click();
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect(
       panel.getByText("사용 통계 공유 안 함", { exact: true }),
     ).toBeVisible();
@@ -215,9 +215,9 @@ test("production analytics requires consent, sends only approved payloads, and s
     // Let already received requests settle, then verify further interactions do not send.
     const count = events().length;
     await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await panel.reload();
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     expect(events()).toHaveLength(count);
     await consent.click();
     await expect(
@@ -234,7 +234,7 @@ test("production analytics requires consent, sends only approved payloads, and s
     await expect(
       other.getByText("사용 통계 공유 안 함", { exact: true }),
     ).toBeVisible();
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect(
       panel.getByText("사용 통계 공유 안 함", { exact: true }),
     ).toBeVisible();

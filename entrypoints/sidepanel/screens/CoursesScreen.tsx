@@ -72,11 +72,13 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           />
           {model.course && (
             <details className="guidance">
-              <summary data-analytics-action="guidance">안내</summary>
+              <summary data-analytics-action="guidance">
+                {model.view === "RECORDINGS_LIST" ? "강의 열기 안내" : "표시 기준"}
+              </summary>
               <p className="hint">
                 {model.view === "RECORDINGS_LIST"
-                  ? "주차학습 외부 도구 항목과 LearningX 게시판 글에 포함된 KU 플레이어 영상을 녹화 강의 후보로 표시합니다. 모듈 항목의 LTI 탭은 LMS를 거쳐 열리고, 게시판 영상은 플레이어 페이지를 바로 엽니다. 게시판 영상은 LMS에서 게시판을 연 뒤 약 4시간 동안만 표시됩니다. 재생은 열린 탭에서 직접 조작하세요. LMS 자체 재생으로 시청·출석 기록이 반영될 수 있습니다."
-                  : "기본값은 남은 과제 후보만 표시합니다. ‘남은 후보’는 미제출·잠금 해제·미래 마감 기준이며 실제 제출 가능 여부는 LMS에서 확인하세요."}
+                  ? "주차학습 외부 도구와 LearningX 게시판의 KU 플레이어 영상을 표시합니다. 게시판 영상은 LMS에서 게시판을 연 뒤 약 4시간 동안 보입니다. 열린 탭에서 직접 재생하세요. LMS 재생으로 시청·출석 기록이 반영될 수 있습니다."
+                  : "기본으로 미제출·잠금 해제·마감 전인 과제만 표시합니다. 실제 제출 가능 여부는 LMS에서 확인하세요."}
               </p>
             </details>
           )}

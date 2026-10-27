@@ -101,7 +101,7 @@ export function PopupSettings() {
           <p className="settings-row row-error" role="alert">
             {error === "denied"
               ? "lms.korea.ac.kr 접근을 허용해야 켤 수 있습니다."
-              : "설정을 읽거나 저장하지 못했습니다. 정보 화면을 다시 열어주세요."}
+              : "설정을 읽거나 저장하지 못했습니다. 설정 화면을 다시 여세요."}
           </p>
         )}
       </div>

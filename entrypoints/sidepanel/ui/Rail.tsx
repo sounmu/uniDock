@@ -74,7 +74,7 @@ export function Rail({
           onClick={onInfo}
           data-analytics-action="info"
         >
-          정보
+          설정
         </button>
         <a
           href="privacy.html"

@@ -117,7 +117,7 @@ test("popup opt-in needs the optional portal grant, closes only notices, and res
     await lms.goto("https://lms.korea.ac.kr/popup-fixture");
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     const select = panel.getByRole("switch", {
       name: "팝업 자동 닫기",
       exact: true,

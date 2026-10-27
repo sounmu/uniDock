@@ -199,7 +199,7 @@ export function CaptionsPanel() {
           }
         />
         <details className="guidance">
-          <summary data-analytics-action="guidance">안내</summary>
+          <summary data-analytics-action="guidance">자막 감지·저장 안내</summary>
           <p className="hint">
             강의 탭에서 uniDock 아이콘을 눌러 임시 접근을 허용하세요. 감지를
             누르면 화면의 자막 목록을 먼저 읽고, 없으면 KU 플레이어의 XML·VTT

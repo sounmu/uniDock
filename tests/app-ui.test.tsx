@@ -81,10 +81,10 @@ afterEach(async () => {
 it("returns keyboard focus to the information trigger when closing it", async () => {
   ui = await mount(<App />);
   const trigger = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "정보",
+    (button) => button.textContent === "설정",
   );
   trigger?.focus();
-  await click("정보");
+  await click("설정");
   await click("← 목록");
   expect(document.activeElement).toBe(trigger);
 });
@@ -270,20 +270,20 @@ it("keeps recordings visible and opens subsequent selections in the original LMS
   await showRecordings();
   query.mockResolvedValue({ status: "success", opened: true });
   // When
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
   // Then
   expect(
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
       ?.disabled,
   ).toBe(true);
   await click("← 목록");
-  expect(rowActionLabels()).toEqual(["열었음", "LTI 열기 "]);
+  expect(rowActionLabels()).toEqual(["열었음", "강의 열기 "]);
   await click("두 번째 강의");
   expect(
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
       ?.disabled,
   ).toBe(false);
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
   expect(query.mock.calls.slice(3).map((call) => call[1])).toEqual([
     { target: recordingTarget },
     { target: recordingTarget },
@@ -296,14 +296,14 @@ it("prevents duplicate opens and preserves the list on a retryable failure", asy
   const pending = deferred<Result>();
   query.mockReturnValueOnce(pending.promise);
   // When
-  await click("LTI 탭 열기 ↗");
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
+  await click("강의 열기 ↗");
   expect(query).toHaveBeenCalledTimes(4);
   await act(async () => pending.resolve({ status: "error", code: "BUSY" }));
   // Then
   expect(document.body.textContent).toContain("두 번째 강의");
   query.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
   expect(document.body.textContent).toContain("선택이 만료");
   expect(
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
@@ -311,7 +311,7 @@ it("prevents duplicate opens and preserves the list on a retryable failure", asy
   ).toBe(true);
   // A consumed but failed handle must not read as a successful open.
   await click("← 목록");
-  expect(rowActionLabels()).toEqual(["새로고침 필요", "LTI 열기 "]);
+  expect(rowActionLabels()).toEqual(["새로고침 필요", "강의 열기 "]);
 });
 it("does not replace the next menu when an open finishes late", async () => {
   // Given
@@ -321,7 +321,7 @@ it("does not replace the next menu when an open finishes late", async () => {
     .mockReturnValueOnce(pending.promise)
     .mockResolvedValueOnce({ status: "success", todo: [] });
   // When
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
   await click("할 일·일정");
   await act(async () => pending.resolve({ status: "success", opened: true }));
   // Then

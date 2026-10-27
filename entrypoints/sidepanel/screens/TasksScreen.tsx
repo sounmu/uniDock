@@ -36,7 +36,7 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
       </nav>
       {model.tasksMode === "todo" ? (
         <details className="guidance">
-          <summary data-analytics-action="guidance">안내</summary>
+          <summary data-analytics-action="guidance">표시 기준</summary>
           <p className="hint">
             현재 수강 중인 모든 과목의 미제출 과제를 표시합니다. 마감 없음·지난
             과제도 포함합니다.

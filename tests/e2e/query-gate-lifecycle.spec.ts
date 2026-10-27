@@ -181,7 +181,7 @@ test("production panel drops cross-view query waiters and dispatches only the la
     ).toHaveLength(coursesAfterPlaybackRefresh);
     await expect(
       panel.getByText(
-        "이전 조회를 처리하고 있습니다. 잠시 후 다시 조회하세요.",
+        "이전 조회를 처리하고 있습니다. 끝난 뒤 새로고침을 누르세요.",
       ),
     ).toHaveCount(0);
     await expect(

@@ -82,8 +82,8 @@ export function ItemDetail({
     <DetailView title={item.title || "제목 없음"} onBack={onBack} meta={meta}>
       {isAssignment(item) ? (
         <p className="hint">
-          실제 제출 가능 여부는 LMS에서 확인하세요. 남은 후보는 조회된 제출
-          상태를 기준으로 하며 상태 갱신은 새로고침이 필요합니다.
+          실제 제출 가능 여부는 LMS에서 확인하세요. 제출 상태는 마지막 조회
+          시점 기준입니다. 새로고침하면 갱신됩니다.
         </p>
       ) : (
         "html_url" in item &&
