@@ -27,7 +27,7 @@ try {
   await panel.goto(
     `chrome-extension://${new URL(worker.url()).host}/sidepanel.html`,
   );
-  await panel.getByRole("button", { name: "정보", exact: true }).click();
+  await panel.getByRole("button", { name: "설정", exact: true }).click();
   const consent = panel.getByRole("button", {
     name: "동의하고 통계 공유",
     exact: true,
