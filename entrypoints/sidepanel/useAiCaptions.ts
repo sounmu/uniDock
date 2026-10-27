@@ -265,6 +265,7 @@ export function useAiCaptions() {
         const audio = await withCaptionMediaRule(media.mediaUrl, async () =>
           extractAudio(await reader.totalSize(), reader.fetchRange, {
             signal,
+            fetchRanges: reader.fetchRanges,
             onProgress: (bytes) => set({ progress: bytes }),
           }),
         );

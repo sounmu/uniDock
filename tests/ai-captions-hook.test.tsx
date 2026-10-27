@@ -6,6 +6,7 @@ import { mount } from "./ui-helpers";
 const identifyMedia = vi.hoisted(() => vi.fn());
 const requestCaptionMediaAccess = vi.hoisted(() => vi.fn());
 const extractAudio = vi.hoisted(() => vi.fn());
+const fetchRanges = vi.hoisted(() => vi.fn());
 const createJob = vi.hoisted(() => vi.fn());
 const uploadAudio = vi.hoisted(() => vi.fn());
 const getJob = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock("../src/captions/media-fetch", () => ({
   mediaRangeReader: () => ({
     totalSize: async () => 12345,
     fetchRange: async () => new ArrayBuffer(0),
+    fetchRanges,
   }),
 }));
 vi.mock("../src/captions/audio-extract", async (orig) => ({
@@ -149,6 +151,11 @@ it("creates the job first, then extracts, uploads, saves and shows the transcrip
   );
   expect(createJob.mock.invocationCallOrder[0]).toBeLessThan(
     extractAudio.mock.invocationCallOrder[0]!,
+  );
+  expect(extractAudio).toHaveBeenCalledWith(
+    12345,
+    expect.any(Function),
+    expect.objectContaining({ fetchRanges }),
   );
   expect(uploadAudio).toHaveBeenCalledWith(
     "job_1",
