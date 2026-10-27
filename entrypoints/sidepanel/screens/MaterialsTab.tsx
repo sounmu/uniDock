@@ -116,6 +116,11 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
             <label className="remaining-toggle">
               <input
                 type="checkbox"
+                ref={(input) => {
+                  if (input)
+                    input.indeterminate =
+                      selected.length > 0 && selected.length < available.length;
+                }}
                 aria-label="전체 선택"
                 data-analytics-action="select_all"
                 disabled={!available.length || downloads.progress.running}

@@ -283,7 +283,7 @@ p {
   font-weight: 500;
   word-break: keep-all;
 }
-.rail nav button.btn-ghost[aria-current="page"] {
+.rail button.btn-ghost[aria-current="page"] {
   color: var(--brand);
   background: var(--brand-wash);
   font-weight: 600;
@@ -822,6 +822,9 @@ progress {
 }
 .settings-group {
   margin: 0 0 var(--space-5);
+}
+.settings-card + .settings-group {
+  margin-top: var(--space-4);
 }
 .settings-label {
   margin: 0 0 var(--space-2);

@@ -31,17 +31,28 @@ export function App() {
   const [consentDeferred, setConsentDeferred] = useState(false);
   const analytics = useAnalytics(info ? "INFO" : model.view);
   const infoTrigger = useRef<Element | null>(null);
+  const infoScroll = useRef(0);
+  const [infoTarget, setInfoTarget] = useState<"analytics-title" | "caption-server-title" | null>(null);
   const [version] = useState(manifestVersion);
   const restoreInfoFocus = useRef(false);
   // Runs after the list is unhidden, so a fallback heading can take focus.
   useLayoutEffect(() => {
-    if (info || !restoreInfoFocus.current) return;
+    if (info) {
+      if (infoTarget) document.getElementById(infoTarget)?.focus();
+      else if (window.scrollY) window.scrollTo(0, 0);
+      return;
+    }
+    if (!restoreInfoFocus.current) return;
     restoreInfoFocus.current = false;
     restoreFocus(infoTrigger.current);
-  }, [info]);
-  function showInfo() {
-    model.downloads.cancel();
-    infoTrigger.current = document.activeElement;
+    if (window.scrollY !== infoScroll.current) window.scrollTo(0, infoScroll.current);
+  }, [info, infoTarget]);
+  function showInfo(target: typeof infoTarget = null) {
+    if (!info) {
+      infoTrigger.current = document.activeElement;
+      infoScroll.current = window.scrollY;
+    }
+    setInfoTarget(target);
     setInfo(true);
   }
   function select(section: Section) {
@@ -87,18 +98,18 @@ export function App() {
         section={model.section}
         onSelect={select}
         playbackAvailable={__UNIDOCK_PLAYBACK__}
-        onInfo={showInfo}
+        onInfo={() => showInfo()}
+        info={info}
       />
       <main>
         <UpdateNotice />
-        {!info &&
-          !consentDeferred &&
+        {!consentDeferred &&
           analytics.available &&
           analytics.choice === "undecided" && (
-            <aside className="notice" aria-label="사용 통계 공유 안내">
+            <aside hidden={info} className="notice" aria-label="사용 통계 공유 안내">
               <p>사용 통계 공유는 선택 사항입니다. 현재는 수집하지 않습니다.</p>
               <div className="tools">
-                <button className="btn-secondary" onClick={showInfo}>
+                <button className="btn-secondary" onClick={() => showInfo("analytics-title")}>
                   통계 공유 설정 보기
                 </button>
                 <button
@@ -116,29 +127,24 @@ export function App() {
           {__UNIDOCK_PLAYBACK__ && model.section === "playback" && (
             <PlaybackPanel gate={gate} />
           )}
-          {model.section === "captions" && <CaptionsPanel />}
+          {model.section === "captions" && (
+            <CaptionsPanel onConnectionSettings={() => showInfo("caption-server-title")} />
+          )}
         </div>
         {info && (
           <DetailView
             title="설정"
+            backLabel="돌아가기"
             onBack={() => {
               restoreInfoFocus.current = true;
               setInfo(false);
             }}
           >
-            <div className="about-app">
-              <img src="icons/48.png" alt="" width={40} height={40} />
-              <div>
-                <p className="about-name">uniDock</p>
-                <p className="about-meta">
-                  {version ? `버전 ${version} · ` : ""}고려대학교와 제휴하지
-                  않은 비공식 도구
-                </p>
-              </div>
-            </div>
+            <PopupSettings />
+            {__UNIDOCK_AI_CAPTIONS__ && <CaptionServerSettings />}
             <section className="settings-group" aria-labelledby="privacy-title">
               <h3 id="privacy-title" className="settings-label">
-                개인정보
+                개인정보·데이터
               </h3>
               <div className="settings-card">
                 <div className="settings-row">
@@ -164,15 +170,23 @@ export function App() {
                   <Icon name="external" />
                 </a>
               </div>
+              <AnalyticsSettings status={analytics} />
+              <LocalDataSettings />
             </section>
-            <PopupSettings />
-            {__UNIDOCK_AI_CAPTIONS__ && <CaptionServerSettings />}
-            <AnalyticsSettings status={analytics} />
-            <LocalDataSettings />
             <section className="settings-group" aria-labelledby="about-title">
               <h3 id="about-title" className="settings-label">
-                업데이트
+                uniDock 정보
               </h3>
+              <div className="about-app">
+                <img src="icons/48.png" alt="" width={40} height={40} />
+                <div>
+                  <p className="about-name">uniDock</p>
+                  <p className="about-meta">
+                    {version ? `버전 ${version} · ` : ""}고려대학교와 제휴하지
+                    않은 비공식 도구
+                  </p>
+                </div>
+              </div>
               <div className="settings-card">
                 <a
                   className="settings-row settings-link"
@@ -181,6 +195,16 @@ export function App() {
                   rel="noreferrer"
                 >
                   <span className="row-title">현재 버전 변경 사항</span>
+                  <Icon name="external" />
+                </a>
+                <a
+                  className="settings-row settings-link"
+                  href="privacy.html"
+                  target="_blank"
+                  rel="noreferrer"
+                  data-analytics-action="privacy_open"
+                >
+                  <span className="row-title">개인정보 처리방침</span>
                   <Icon name="external" />
                 </a>
               </div>

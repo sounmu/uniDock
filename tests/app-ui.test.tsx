@@ -85,8 +85,11 @@ it("returns keyboard focus to the information trigger when closing it", async ()
   );
   trigger?.focus();
   await click("설정");
-  await click("← 목록");
+  expect(trigger?.getAttribute("aria-current")).toBe("page");
+  expect(ui.host.querySelector('nav [aria-current="page"]')).toBeNull();
+  await click("← 돌아가기");
   expect(document.activeElement).toBe(trigger);
+  expect(trigger?.hasAttribute("aria-current")).toBe(false);
 });
 it("waits for the pending request then loads the last selected menu automatically", async () => {
   // Given
@@ -399,4 +402,24 @@ it("hides the undecided analytics reminder for this panel when 나중에 is chos
   expect(sendMessage).not.toHaveBeenCalledWith(
     expect.objectContaining({ type: "ANALYTICS_CONSENT" }),
   );
+});
+it("focuses the analytics group and returns to its contextual trigger", async () => {
+  // Given
+  vi.stubGlobal("chrome", {
+    ...chrome,
+    runtime: {
+      sendMessage: vi.fn().mockResolvedValue({ available: true, choice: "undecided" }),
+    },
+  });
+  ui = await mount(<App />);
+  const trigger = [...ui.host.querySelectorAll("button")].find(
+    (button) => button.textContent === "통계 공유 설정 보기",
+  );
+  trigger?.focus();
+  // When
+  await click("통계 공유 설정 보기");
+  // Then
+  expect(document.activeElement).toBe(ui.host.querySelector("#analytics-title"));
+  await click("← 돌아가기");
+  expect(document.activeElement).toBe(trigger);
 });

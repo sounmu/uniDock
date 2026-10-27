@@ -12,11 +12,13 @@ export function Rail({
   onSelect,
   onInfo,
   playbackAvailable,
+  info = false,
 }: {
   readonly section: Section;
   readonly onSelect: (section: Section) => void;
   readonly onInfo: () => void;
   readonly playbackAvailable: boolean;
+  readonly info?: boolean;
 }) {
   return (
     <header className="rail">
@@ -49,7 +51,7 @@ export function Rail({
               key={value}
               data-analytics-action={`nav_${value}`}
               className="btn-ghost"
-              aria-current={section === value ? "page" : undefined}
+              aria-current={!info && section === value ? "page" : undefined}
               onClick={() => onSelect(value)}
             >
               <Icon name={value} />
@@ -72,6 +74,7 @@ export function Rail({
         <button
           className="btn-ghost"
           onClick={onInfo}
+          aria-current={info ? "page" : undefined}
           data-analytics-action="info"
         >
           설정

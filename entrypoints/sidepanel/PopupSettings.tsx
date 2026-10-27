@@ -51,7 +51,7 @@ export function PopupSettings() {
       aria-busy={pending}
     >
       <h3 id="popup-title" className="settings-label">
-        LMS 팝업
+        LMS 동작
       </h3>
       <div className="settings-card">
         <div className="settings-row">

@@ -33,6 +33,10 @@ beforeEach(() => {
       showDefaultFolder: vi.fn(),
     },
     tabs: { create: createTab },
+    storage: {
+      local: { get: vi.fn().mockResolvedValue({}) },
+      onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+    },
   });
 });
 afterEach(async () => {
@@ -63,6 +67,125 @@ const chips = () =>
   [...document.querySelectorAll(".status-chip")].map(
     (item) => item.textContent,
   );
+it("exposes native mixed selection and clears it for all or no available files", async () => {
+  // Given
+  await materials();
+  const all = document.querySelector<HTMLInputElement>(
+    'input[aria-label="전체 선택"]',
+  );
+  const first = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!all || !first) throw new Error("Missing selection controls");
+  expect(all.indeterminate).toBe(false);
+  expect(all.checked).toBe(false);
+
+  // When
+  await act(async () => first.click());
+  // Then
+  expect(all.indeterminate).toBe(true);
+  expect(all.checked).toBe(false);
+
+  await act(async () => all.click());
+  expect(all.indeterminate).toBe(false);
+  expect(all.checked).toBe(true);
+  await act(async () => all.click());
+  expect(all.indeterminate).toBe(false);
+  expect(all.checked).toBe(false);
+});
+it("recalculates mixed selection when a selected file becomes unavailable", async () => {
+  // Given
+  await materials();
+  const all = document.querySelector<HTMLInputElement>(
+    'input[aria-label="전체 선택"]',
+  );
+  const first = document.querySelector<HTMLInputElement>(
+    'input[aria-label="one.pdf 선택"]',
+  );
+  if (!all || !first) throw new Error("Missing selection controls");
+  await act(async () => first.click());
+  expect(all.indeterminate).toBe(true);
+  query.mockResolvedValue({ status: "success", downloaded: true });
+
+  // When
+  await click("선택 다운로드 (1)");
+  // Then
+  expect(all.indeterminate).toBe(false);
+  expect(all.checked).toBe(false);
+  expect(first.disabled).toBe(true);
+});
+it.each([0, 100])(
+  "focuses the course heading and restores a recreated course control at index %s",
+  async (index) => {
+    // Given: duplicate labels and refreshed selectors across a page boundary.
+    const courses = Array.from({ length: 101 }, () => ({
+      name: "Course",
+      courseSelector: crypto.randomUUID(),
+    }));
+    const refreshed = courses.map((course) => ({
+      ...course,
+      courseSelector: crypto.randomUUID(),
+    }));
+    const returned = deferred<Result>();
+    query
+      .mockImplementationOnce(async (_request, options) => {
+        options.onTarget(target);
+        return { status: "success", courses };
+      })
+      .mockResolvedValueOnce({ status: "success", assignments: [] })
+      .mockImplementationOnce((_request, options) => {
+        options.onTarget(target);
+        return returned.promise;
+      })
+      .mockResolvedValueOnce({ status: "success", assignments: [] });
+    ui = await mount(<App />);
+    await click("새로고침");
+    if (index === 100) await click("다음");
+    const origin = document.querySelector<HTMLButtonElement>(".list-row");
+    if (!origin) throw new Error("Missing course control");
+    origin.focus();
+
+    // When
+    await act(async () => origin.click());
+    // Then
+    const heading = document.querySelector(".course-context h2");
+    expect(document.activeElement).toBe(heading);
+    expect(origin.isConnected).toBe(false);
+    const back = document.querySelector<HTMLButtonElement>(
+      ".course-context button",
+    );
+    if (!back) throw new Error("Missing course back control");
+    back.focus();
+    await act(async () => back.click());
+    expect(document.querySelector(".list-row")).toBeNull();
+    await act(async () =>
+      returned.resolve({ status: "success", courses: refreshed }),
+    );
+    const restored = document.querySelector<HTMLButtonElement>(".list-row");
+    expect(restored).not.toBe(origin);
+    expect(document.activeElement).toBe(restored);
+    if (index === 100)
+      expect(document.body.textContent).toContain("101–101 / 101개");
+    await click("Course");
+    expect(query.mock.calls.at(-1)?.[0]).toEqual({
+      version: 1,
+      type: "ASSIGNMENTS_LIST",
+      courseSelector: refreshed[index]?.courseSelector,
+    });
+  },
+);
+it("focuses the course list heading when the originating course disappears", async () => {
+  // Given
+  await materials();
+  query.mockImplementationOnce(async (_request, options) => {
+    options.onTarget(target);
+    return { status: "success", courses: [] };
+  });
+  // When
+  await click("← 과목 선택");
+  // Then
+  expect(document.activeElement).toBe(document.querySelector("main h1"));
+});
 it("requests all downloadable files sequentially and marks a failed item without replay", async () => {
   // Given
   await materials();
@@ -90,6 +213,42 @@ it("requests all downloadable files sequentially and marks a failed item without
   expect(document.body.textContent).toContain("2/2");
   await click("자료 전체 다운로드");
   expect(query).toHaveBeenCalledTimes(5);
+});
+it("continues a running batch in settings and retains the materials list on return", async () => {
+  // Given
+  await materials();
+  const first = deferred<Result>();
+  query
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValueOnce({ status: "success", downloaded: true });
+  const rows = [...document.querySelectorAll(".list-row")];
+  await click("자료 전체 다운로드");
+  expect(
+    query.mock.calls
+      .filter(([request]) => request.type === "DOCUMENT_DOWNLOAD")
+      .map(([request]) => request.handle),
+  ).toEqual([documents[0]?.downloadHandle]);
+
+  // When
+  await click("설정");
+  await act(async () => first.resolve({ status: "success", downloaded: true }));
+
+  // Then: the hidden materials screen keeps draining the batch.
+  expect(
+    query.mock.calls
+      .filter(([request]) => request.type === "DOCUMENT_DOWNLOAD")
+      .map(([request]) => request.handle),
+  ).toEqual(documents.slice(0, 2).map((item) => item.downloadHandle));
+  expect(rows[0]?.closest("[hidden]")).not.toBeNull();
+  await click("← 돌아가기");
+  expect([...document.querySelectorAll(".list-row")]).toEqual(rows);
+  expect(rows[0]?.closest("[hidden]")).toBeNull();
+  expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
+  expect(
+    document.querySelector<HTMLProgressElement>(
+      'progress[aria-label="자료 다운로드 진행률"]',
+    )?.value,
+  ).toBe(2);
 });
 it("stops the batch on a rate limit and keeps the remaining files retryable", async () => {
   // Given

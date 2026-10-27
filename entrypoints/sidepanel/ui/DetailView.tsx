@@ -25,11 +25,13 @@ export function DetailView({
   title,
   meta = [],
   onBack,
+  backLabel = "목록",
   children,
 }: {
   readonly title: string;
   readonly meta?: readonly (readonly [string, ReactNode])[];
   readonly onBack: () => void;
+  readonly backLabel?: string;
   readonly children?: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -43,7 +45,7 @@ export function DetailView({
         onClick={onBack}
         data-analytics-action="back"
       >
-        ← 목록
+        ← {backLabel}
       </button>
       <h2 ref={heading} tabIndex={-1}>
         {title}

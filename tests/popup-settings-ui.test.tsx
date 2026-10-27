@@ -57,7 +57,7 @@ it("starts off without persisting a default and saves an explicit opt-in", async
   expect(button.getAttribute("aria-checked")).toBe("false");
   expect(button.querySelector(".switch-check")).toBeNull();
   expect(button.getAttribute("aria-labelledby")).toBe("popup-row-title");
-  expect(ui.host.textContent).toContain("LMS 팝업");
+  expect(ui.host.textContent).toContain("LMS 동작");
   expect(set).not.toHaveBeenCalled();
   await act(async () => button.click());
   expect(request).toHaveBeenCalledWith({
