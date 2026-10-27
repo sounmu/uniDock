@@ -107,7 +107,7 @@ it("renders recording actions without URLs or internal IDs in the DOM", () => {
     />,
   );
   expect(html).toContain("1차시");
-  expect(html).toContain("1차시 LTI 열기 (새 탭)");
+  expect(html).toContain("1차시 강의 열기 (새 탭)");
   expect(html).not.toContain("LMS에서 확인");
   expect(html).not.toMatch(/href=|https:|\/courses\//);
 });
@@ -169,7 +169,7 @@ it("labels board videos as direct player launches without URLs in the DOM", () =
     />,
   );
   expect(html).toContain("게시판 영상");
-  expect(html).toContain("10월 13일 수업 백업본 영상 열기 (새 탭)");
+  expect(html).toContain("10월 13일 수업 백업본 강의 열기 (새 탭)");
   expect(html).not.toContain("LTI");
   expect(html).not.toMatch(/href=|https:|kucom|\/courses\//);
 });

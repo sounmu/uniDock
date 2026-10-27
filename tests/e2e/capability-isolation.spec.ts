@@ -50,7 +50,7 @@ async function openRecording(
 ) {
   await panel.locator("button.list-row", { hasText: title }).click();
   const opened = context.waitForEvent("page");
-  await panel.getByRole("button", { name: "LTI 탭 열기 (새 탭)" }).click();
+  await panel.getByRole("button", { name: "강의 열기 (새 탭)" }).click();
   const page = await opened;
   await page.waitForLoadState("domcontentloaded");
   return page;

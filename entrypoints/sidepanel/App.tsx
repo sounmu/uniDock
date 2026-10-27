@@ -120,7 +120,7 @@ export function App() {
         </div>
         {info && (
           <DetailView
-            title="정보"
+            title="설정"
             onBack={() => {
               restoreInfoFocus.current = true;
               setInfo(false);

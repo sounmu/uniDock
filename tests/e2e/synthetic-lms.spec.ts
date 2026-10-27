@@ -409,9 +409,9 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       await expect(playbackMenu).toBeFocused();
       await expect(notice).toBeVisible();
     }
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "정보", exact: true }),
+      panel.getByRole("heading", { name: "설정", exact: true }),
     ).toBeVisible();
     await capture(panel, "info");
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();

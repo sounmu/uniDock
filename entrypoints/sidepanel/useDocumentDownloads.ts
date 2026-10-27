@@ -247,7 +247,7 @@ export function useDocumentDownloads(context: {
         setNotice(
           result.code === "STALE_SELECTION"
             ? "목록을 새로고침한 뒤 다시 다운로드하세요."
-            : "자료 다운로드를 시작하지 못했습니다. 목록을 다시 조회한 뒤 시도하세요.",
+            : "자료 다운로드를 시작하지 못했습니다. 목록을 새로고침한 뒤 다시 시도하세요.",
         );
       setProgress({ running: true, done, total: selected.length });
     }

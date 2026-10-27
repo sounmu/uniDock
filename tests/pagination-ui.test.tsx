@@ -84,7 +84,7 @@ it("keeps the recording page while an open completes and resets on refresh", asy
   ui = await mount(render());
   await click("다음");
   await click("강의 100");
-  await click("LTI 탭 열기 ↗");
+  await click("강의 열기 ↗");
   expect(onRecording).toHaveBeenCalledExactlyOnceWith(
     recordings[100]!.launchHandle,
   );
@@ -92,7 +92,7 @@ it("keeps the recording page while an open completes and resets on refresh", asy
   expect(document.body.textContent).toContain("101–101 / 101개");
   expect(
     [...document.querySelectorAll("button")].find(
-      (b) => b.textContent === "LTI 탭 열기 ↗",
+      (b) => b.textContent === "강의 열기 ↗",
     )!.disabled,
   ).toBe(true);
   await click("← 목록");
@@ -178,7 +178,7 @@ it("opens LTI straight from a recording row and only for launchable rows", async
     ...document.querySelectorAll<HTMLButtonElement>(".row-action"),
   ];
   expect(actions().map((b) => b.getAttribute("aria-label"))).toEqual([
-    "강의 A LTI 열기 (새 탭)",
+    "강의 A 강의 열기 (새 탭)",
   ]);
   expect(document.body.textContent).toContain("LMS에서 확인");
   await act(async () => actions()[0]!.click());
@@ -192,7 +192,7 @@ it("opens LTI straight from a recording row and only for launchable rows", async
   expect(actions()[0]!.disabled).toBe(true);
   expect(actions()[0]!.textContent).toBe("새로고침 필요");
   expect(actions()[0]!.getAttribute("aria-label")).toBe(
-    "강의 A LTI 열 수 없음, 목록을 새로고침하세요",
+    "강의 A 강의 열 수 없음, 목록을 새로고침하세요",
   );
   await ui.render(render(consumed, consumed));
   expect(actions()[0]!.disabled).toBe(true);

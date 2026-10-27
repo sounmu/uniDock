@@ -35,7 +35,7 @@ test("renders bundled update notes from the information screen and closes the no
     expect(
       context.pages().some((page) => page.url().endsWith("/updates.html")),
     ).toBe(false);
-    await panel.getByRole("button", { name: "정보", exact: true }).click();
+    await panel.getByRole("button", { name: "설정", exact: true }).click();
     const opened = context.waitForEvent("page");
     await panel.getByRole("link", { name: "현재 버전 변경 사항" }).click();
     const notice = await opened;

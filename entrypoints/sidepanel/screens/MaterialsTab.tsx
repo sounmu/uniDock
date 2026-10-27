@@ -91,7 +91,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           목록 새로고침
         </button>
         <details className="guidance">
-          <summary data-analytics-action="guidance">안내</summary>
+          <summary data-analytics-action="guidance">자료 다운로드 안내</summary>
           <p className="hint">
             주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다.
             LearningX 게시판(과목 메뉴의 Board) 자료는 LMS에서 게시판을 연 뒤 약

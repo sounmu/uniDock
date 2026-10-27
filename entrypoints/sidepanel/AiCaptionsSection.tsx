@@ -22,7 +22,7 @@ const errorText: Record<string, string> = {
   MEDIA_NETWORK: "강의 영상 서버에서 음성을 받지 못했습니다. 다시 시도하세요.",
   TOO_LARGE: "음성이 너무 깁니다. 서버 제한을 넘었습니다.",
   NO_SERVER: "자막 서버 주소가 설정되지 않았습니다.",
-  LOGIN_REQUIRED: "로그인이 끝났습니다. 정보 화면에서 Google 계정으로 다시 로그인하세요.",
+  LOGIN_REQUIRED: "설정에서 Google 계정으로 다시 로그인하세요.",
   ACCOUNT_NOT_ALLOWED: "이 Google 계정으로는 AI 자막을 쓸 수 없습니다.",
   QUOTA_EXCEEDED:
     "이번 주 사용 횟수(주 7회)를 모두 썼습니다. 매주 월요일 0시(KST)에 다시 채워집니다.",
@@ -112,7 +112,7 @@ export function AiCaptionsSection() {
   if (session === null && !running && state.phase !== "succeeded")
     return (
       <Notice>
-        AI 자막을 쓰려면 정보 화면에서 Google 계정으로 로그인하세요.
+        AI 자막을 쓰려면 설정에서 Google 계정으로 로그인하세요.
       </Notice>
     );
 

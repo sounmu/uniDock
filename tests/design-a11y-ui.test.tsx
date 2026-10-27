@@ -182,8 +182,8 @@ it("announces new-tab actions without reading the arrow glyph", async () => {
   );
   await click("강의");
   const launch = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "LTI 탭 열기 ↗",
+    (button) => button.textContent === "강의 열기 ↗",
   )!;
-  expect(launch.getAttribute("aria-label")).toBe("LTI 탭 열기 (새 탭)");
+  expect(launch.getAttribute("aria-label")).toBe("강의 열기 (새 탭)");
   expect(launch.querySelector('[aria-hidden="true"]')?.textContent).toBe("↗");
 });
