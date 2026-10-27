@@ -454,9 +454,15 @@ it("accepts exactly 64 ranges and one MiB of total payload", async () => {
     "content-length": String(bytes.length),
   }), 2000000);
   const bodies = await reader.fetchRanges(ranges);
-  expect(bodies).toHaveLength(64);
-  for (const [index, body] of bodies.entries())
-    expect(new Uint8Array(body)).toEqual(new Uint8Array(16384).fill(index));
+  // Summarize each 16 KiB part instead of deep-comparing 1 MiB element by
+  // element, which is slow under coverage instrumentation. Each part is filled
+  // with a distinct byte and sent in reverse, so order and content still count.
+  const summary = bodies.map((body) => {
+    const bytes = new Uint8Array(body);
+    const first = bytes[0] ?? -1;
+    return [bytes.length, bytes.every((value) => value === first) ? first : -1];
+  });
+  expect(summary).toEqual(ranges.map((_, index) => [16384, index]));
 });
 
 it.each([2, 4])("rejects an exact Content-Range with %s payload bytes instead of three", async (size) => {
