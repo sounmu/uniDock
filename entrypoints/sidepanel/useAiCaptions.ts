@@ -23,7 +23,6 @@ import {
 } from "../../src/captions/job-record";
 import { isTerminal, serverPhase, type JobPhase } from "../../src/captions/job-state";
 import { projectServerSegments, type Transcript } from "../../src/captions/transcript";
-import { captionServerOrigin } from "../../src/caption-server-settings";
 import { safeLog } from "../../src/security/logger";
 
 export interface AiCaptionResult {
@@ -304,5 +303,5 @@ export function useAiCaptions() {
     });
   }, [discard, poll, run]);
 
-  return { state, generate, cancel: discard, serverOrigin: captionServerOrigin() };
+  return { state, generate, cancel: discard };
 }

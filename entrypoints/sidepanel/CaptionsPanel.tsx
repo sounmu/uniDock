@@ -213,12 +213,9 @@ export function CaptionsPanel({
         <details className="guidance">
           <summary data-analytics-action="guidance">자막 찾는 방법</summary>
           <p className="hint">
-            강의 플레이어 탭을 열어 둔 채 감지하세요. 화면 자막, 플레이어 자막
-            파일, 스크립트 순서로 찾으며 감지는 어떤 서버로도 보내지 않습니다.
-            찾은 자막은 다운로드 폴더 output/에 TXT·JSON으로 저장하고, JSON에는
-            강의 URL과 제목이 함께 들어갑니다.
-            {__UNIDOCK_AI_CAPTIONS__ &&
-              " 제공된 자막이 없으면 확인을 거쳐 강의 음성을 AI 자막 서버로 보내 자막을 만들 수 있습니다."}
+            강의 플레이어 탭에서 감지하세요. 감지는 서버로 보내지 않으며, 자막은
+            output/ 폴더에 TXT·JSON으로 저장합니다(JSON에 강의 URL·제목 포함).
+            {__UNIDOCK_AI_CAPTIONS__ && " 자막이 없으면 AI로 만들 수 있습니다."}
           </p>
         </details>
         <div aria-live="polite" aria-busy={state.status === "loading"}>
@@ -238,7 +235,7 @@ export function CaptionsPanel({
                       : "제공된 자막을 읽을 수 없습니다"}
                   </h3>
                   <p className="row-sub">
-                    AI로 강의 음성을 받아 자막을 만들 수 있습니다.
+                    AI로 자막을 만들 수 있습니다.
                   </p>
                 </div>
                 {onConnectionSettings && (

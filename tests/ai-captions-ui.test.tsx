@@ -23,7 +23,6 @@ vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
     state: current,
     generate,
     cancel,
-    serverOrigin: "https://captions.test",
   }),
 }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
@@ -55,15 +54,12 @@ async function render(onSettings?: () => void) {
 it("confirms the server and audio before generating", async () => {
   await render();
   await click("AI 자막 생성");
-  expect(ui.host.textContent).toContain("https://captions.test");
-  expect(ui.host.textContent).toContain("최대 6개월");
-  expect(ui.host.textContent).toContain("1회 차감");
   expect(generate).not.toHaveBeenCalled();
   await click("음성 보내기");
   expect(generate).toHaveBeenCalledOnce();
 });
 
-it("shows the engine and offers download on success", async () => {
+it("shows only the expiry and offers download on success", async () => {
   current = {
     ...base,
     phase: "succeeded",
@@ -84,7 +80,9 @@ it("shows the engine and offers download on success", async () => {
     },
   };
   await render();
-  expect(ui.host.textContent).toContain("whisper-large-v3-turbo");
+  expect(ui.host.textContent).toContain("서버 보관 만료일");
+  expect(ui.host.textContent).not.toContain("whisper-large-v3-turbo");
+  expect(ui.host.textContent).not.toContain("문장");
   await click("AI 자막 TXT·JSON 다운로드");
   expect(downloadCaption).toHaveBeenCalledWith(
     expect.objectContaining({ itemCount: 2 }),

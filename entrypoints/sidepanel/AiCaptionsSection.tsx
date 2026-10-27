@@ -53,7 +53,7 @@ export function AiCaptionsSection({
 }: {
   readonly onSettings?: () => void;
 } = {}) {
-  const { state, generate, cancel, serverOrigin } = useAiCaptions();
+  const { state, generate, cancel } = useAiCaptions();
   const session = useCaptionSession();
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
@@ -86,20 +86,11 @@ export function AiCaptionsSection({
       <div role="group" aria-label="AI 자막 생성 확인">
         <div className="settings-row">
           <div className="row-text">
-            <p className="row-title">음성을 보내기 전에 확인하세요</p>
+            <p className="row-title">보내기 전에 확인하세요</p>
             <ul className="confirm-list">
-              <li>
-                현재 강의의 음성만 {serverOrigin}(으)로 보내며 영상은 보내지
-                않습니다.
-              </li>
-              <li>
-                음성은 자막을 만든 뒤 서버에서 삭제하고, 자막은 최대 6개월
-                보관합니다. 같은 강의의 기존 자막에 연결되면 더 짧을 수 있으며
-                만료일은 완료 후 표시합니다.
-              </li>
-              <li>이번 주 사용 횟수가 1회 차감됩니다.</li>
-              <li>AI가 만든 자막이라 원본 자막과 다를 수 있습니다.</li>
-              <li>강의 영상 서버 접근을 묻는 창이 뜨면 허용하세요.</li>
+              <li>강의 음성만 보내고, 처리 후 삭제합니다.</li>
+              <li>자막은 최대 6개월 보관합니다.</li>
+              <li>이번 주 사용 횟수 1회가 차감됩니다.</li>
             </ul>
           </div>
         </div>
@@ -129,7 +120,7 @@ export function AiCaptionsSection({
       <div className="settings-row">
         <div className="row-text">
           <p className="row-sub" role="status">
-            AI 자막을 쓰려면 설정에서 Google 계정으로 로그인하세요.
+            Google 계정으로 로그인하세요.
           </p>
         </div>
         {onSettings && (
@@ -201,15 +192,6 @@ export function AiCaptionsSection({
       {state.phase === "succeeded" && state.result && (
         <div className="settings-row">
           <div className="row-text">
-            <p className="row-title">
-              AI 생성 자막 · {state.result.transcript.itemCount.toLocaleString()}개
-              문장
-            </p>
-            <p className="row-sub">
-              엔진 {state.result.engine || "미상"}
-              {state.result.modelRevision ? ` · ${state.result.modelRevision}` : ""} ·
-              추론 결과라 원본 자막과 다를 수 있습니다.
-            </p>
             {state.expiresAt && (
               <p className="row-sub">
                 서버 보관 만료일: {new Date(state.expiresAt).toLocaleString()}
