@@ -11,3 +11,4 @@ store/assets/*.html
 output/
 .omo/
 .lazyweb/
+.senpi/
