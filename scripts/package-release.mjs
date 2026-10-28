@@ -5,20 +5,40 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
+import { URL } from "node:url";
 const root = path.resolve(".output/chrome-mv3");
-// Sequential playback is under review and must never ship in a release ZIP.
-assert.notEqual(
+// Read the same env files WXT loads for a production chrome build. Shell
+// variables win, and loadEnvFile never overrides a variable that is already
+// set, so files are loaded from the highest precedence down.
+for (const file of [
+  ".env.production.chrome.local",
+  ".env.production.chrome",
+  ".env.chrome.local",
+  ".env.chrome",
+  ".env.production.local",
+  ".env.production",
+  ".env.local",
+  ".env",
+])
+  if (fs.existsSync(file)) process.loadEnvFile(file);
+// Since 0.4.0 the release ships sequential playback and AI captions.
+assert.equal(
   process.env.UNIDOCK_PLAYBACK,
   "1",
-  "Release packaging requires a build without UNIDOCK_PLAYBACK=1",
+  "Release packaging requires UNIDOCK_PLAYBACK=1 (set it in .env.local)",
 );
-// AI caption generation (CDN media access + server upload) is development only
-// and must never ship in a release ZIP.
-assert.notEqual(
+assert.equal(
   process.env.UNIDOCK_AI_CAPTIONS,
   "1",
-  "Release packaging requires a build without UNIDOCK_AI_CAPTIONS=1",
+  "Release packaging requires UNIDOCK_AI_CAPTIONS=1 (set it in .env.local)",
 );
+const captionServer = new URL(process.env.UNIDOCK_CAPTION_SERVER ?? "").origin;
+assert.notEqual(
+  captionServer,
+  "https://captions.test",
+  "Release packaging requires the real caption server, not the E2E origin",
+);
+const CAPTION_CDN = "https://korea-cms-object.cdn.gov-ntruss.com";
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, "manifest.json"), "utf8"),
 );
@@ -30,15 +50,26 @@ const lmsHosts = [
 ];
 assert.deepEqual(
   [...manifest.permissions].sort(),
-  ["activeTab", "downloads", "scripting", "sidePanel", "storage"].sort(),
+  [
+    "activeTab",
+    "alarms",
+    "declarativeNetRequestWithHostAccess",
+    "downloads",
+    "identity",
+    "scripting",
+    "sidePanel",
+    "storage",
+  ].sort(),
 );
 assert.deepEqual(
   [...manifest.host_permissions].sort(),
   [...lmsHosts, "https://kucom.korea.ac.kr/*"].sort(),
 );
-// The popup portal is an opt-in grant, never an install-time permission.
+// The popup portal and caption CDN are opt-in grants, never install-time
+// permissions.
 assert.deepEqual(manifest.optional_host_permissions, [
   "https://lms.korea.ac.kr/*",
+  `${CAPTION_CDN}/*`,
 ]);
 for (const key of [
   "externally_connectable",
@@ -51,21 +82,24 @@ for (const key of [
   assert.equal(manifest[key], undefined);
 assert.equal(manifest.side_panel.default_path, "sidepanel.html");
 assert.equal(manifest.background.service_worker, "background.js");
-// lms-popup.js is registered at runtime after the opt-in, so only lms.js is
-// declared here.
-assert.equal(manifest.content_scripts.length, 1);
-const lmsContent = manifest.content_scripts[0];
+// lms-popup.js is registered at runtime after the opt-in, so only lms.js and
+// the playback player script are declared here.
+assert.equal(manifest.content_scripts.length, 2);
+const [lmsContent, playerContent] = manifest.content_scripts;
 assert.deepEqual(lmsContent.js, ["content-scripts/lms.js"]);
 assert.equal(lmsContent.all_frames, false);
 assert.equal(lmsContent.run_at, "document_idle");
 assert.deepEqual([...lmsContent.matches].sort(), lmsHosts);
-assert(
-  !manifest.description.includes("자동 재생"),
-  "Release description must not advertise playback",
+assert.deepEqual(playerContent.js, ["content-scripts/player.js"]);
+assert.equal(playerContent.all_frames, true);
+assert.equal(playerContent.run_at, "document_idle");
+assert.deepEqual(
+  [...playerContent.matches].sort(),
+  [...lmsHosts, "https://kucom.korea.ac.kr/em/*"].sort(),
 );
 assert.equal(
   manifest.content_security_policy.extension_pages,
-  "script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com; base-uri 'none'; form-action 'none'",
+  `script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com ${CAPTION_CDN} ${captionServer}; base-uri 'none'; form-action 'none'`,
 );
 const files = [];
 function walk(dir) {
@@ -78,9 +112,10 @@ function walk(dir) {
 }
 walk(root);
 files.sort();
+let bundle = "";
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup)\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup|player)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,
@@ -93,32 +128,20 @@ for (const file of files) {
       ),
       `Forbidden runtime pattern in ${file}`,
     );
-    // Markers unique to the playback runtime, player bridge, and panel. If one
-    // appears, the build flag failed to tree-shake the review-pending feature.
-    for (const marker of [
-      "unidock.playback.owned-tab",
-      "PLAYBACK_PLAYER_HELLO",
-      "PLAYBACK_DISCOVER",
-      "PLAYBACK_REFRESH",
-      "unidock-playback-v1",
-    ])
-      assert(!code.includes(marker), `Playback code leaked into ${file}`);
-    // Markers unique to the AI caption build. Their presence means the flag
-    // failed to tree-shake CDN media access or server upload out of release.
-    for (const marker of [
-      "korea-cms-object.cdn.gov-ntruss.com",
-      "declarativeNetRequest",
-      "transcription-jobs",
-      "unidock.caption-",
-      "unidock-caption-rule",
-      "captions_ai",
-      "caption_server_",
-      "auth/handoff",
-      "launchWebAuthFlow",
-    ])
-      assert(!code.includes(marker), `AI caption code leaked into ${file}`);
+    // The E2E caption server must never be baked into a release bundle.
+    assert(!code.includes("captions.test"), `Test origin leaked into ${file}`);
+    bundle += code;
   }
 }
+// Both features must actually be compiled in, not just declared.
+for (const marker of [
+  "PLAYBACK_PLAYER_HELLO",
+  "PLAYBACK_DISCOVER",
+  "transcription-jobs",
+  "launchWebAuthFlow",
+  captionServer,
+])
+  assert(bundle.includes(marker), `Release bundle is missing ${marker}`);
 for (const file of [
   "updates.html",
   "privacy.html",
@@ -126,6 +149,7 @@ for (const file of [
   "icons/128.png",
   "content-scripts/lms.js",
   "content-scripts/lms-popup.js",
+  "content-scripts/player.js",
 ])
   assert(files.includes(file));
 import { dependencyNoticesText } from "./dependency-notices.mjs";

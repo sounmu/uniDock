@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
-import { playbackBuild } from "./build-shape";
+import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 declare global {
   interface Window {
     downloadEvidence?: Promise<chrome.downloads.DownloadItem[]>;
@@ -332,7 +332,12 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
     await capture(panel, "captions");
     await panel.getByRole("button", { name: "자막 감지" }).click();
-    await expect(panel.getByRole("alert")).toBeVisible();
+    // AI caption builds continue a missing caption into the AI caption card.
+    await expect(
+      aiCaptionsBuild()
+        ? panel.getByRole("region", { name: "제공된 자막이 없습니다" })
+        : panel.getByRole("alert"),
+    ).toBeVisible();
     await expect(
       panel.getByRole("button", { name: "TXT·JSON 다운로드" }),
     ).toHaveCount(0);

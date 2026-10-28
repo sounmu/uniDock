@@ -41,7 +41,7 @@ test("renders bundled update notes from the information screen and closes the no
     const notice = await opened;
     notice.on("pageerror", (error) => errors.push(error.message));
     await expect(notice.getByRole("heading", { level: 1 })).toHaveText(
-      "팝업 자동 닫기와 게시판 영상",
+      "AI 자막과 자동 재생",
     );
     await expect(notice.locator("#version")).toHaveText(version);
     for (const width of [320, 720]) {
