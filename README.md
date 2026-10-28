@@ -27,7 +27,7 @@ npm test
 npm run build      # 실제 세션 검증에는 production 산출물 사용
 ```
 
-브라우저 E2E 테스트는 로컬에서 최초 1회 `npx playwright install chromium`으로 Chromium을 설치한 뒤 `npm run test:e2e`로 실행합니다. 이 명령은 production build(자동 재생 제외)를 먼저 수행한 다음 `tests/e2e`의 Playwright 테스트를 실행하며, 재생 빌드가 필요한 테스트는 건너뜁니다. 검토 중인 자동 재생까지 포함한 전체 E2E는 `npm run test:e2e:playback`으로 실행합니다. CI에서는 `npx playwright install --with-deps chromium`으로 설치합니다.
+브라우저 E2E 테스트는 로컬에서 최초 1회 `npx playwright install chromium`으로 Chromium을 설치한 뒤 `npm run test:e2e`로 실행합니다. 이 명령은 자동 재생·AI 자막을 뺀 core build(`npm run build:core`)를 먼저 수행한 다음 `tests/e2e`의 Playwright 테스트를 실행하며, 두 기능 빌드가 필요한 테스트는 건너뜁니다. 배포 빌드와 같은 구성(두 기능 포함, 자막 서버는 테스트용 `https://captions.test`)의 E2E는 `npm run test:e2e:full`, 기능별 E2E는 `npm run test:e2e:playback`·`npm run test:e2e:ai-captions`로 실행합니다. CI에서는 `npx playwright install --with-deps chromium`으로 설치합니다.
 
 개발용 HMR은 localhost 연결/개발 권한을 추가할 수 있습니다. 기존 로그인 세션 검증에는 production unpacked 확장을 사용하세요.
 
@@ -41,7 +41,7 @@ npm run build      # 실제 세션 검증에는 production 산출물 사용
 | 녹화 강의           | 과목명                             | 모듈별 강의 후보와 게시판 글의 KU 플레이어 영상, LMS 모듈·게시판 보기, LMS 경유 LTI 탭 또는 플레이어 열기 |
 | 강의 자료           | 과목, 전체 또는 일부 선택          | 주차학습·게시판·공지 자료 일괄 다운로드, 폴더 열기, 사용자 매개 ChatGPT 전달                              |
 | 자막 추출           | 사용자가 연 강의 탭                | DOM 우선, XML/VTT 대체 조회 및 시간 포함 TXT·JSON 다운로드                                                |
-| 자동 재생 (검토 중) | 없음                               | 배포 빌드에서는 비활성 메뉴와 “현재 검토 중인 기능입니다.” 안내만 표시                                    |
+| 자동 재생           | 없음                               | 0.4.0부터 배포 빌드에 포함. 사용자가 고른 영상만 보이는 전용 탭에서 정상 속도로 순서대로 재생             |
 
 과목명을 일부 입력하면 대소문자를 무시하고 검색합니다. 여러 과목이 일치하면 전체 이름과 정확히 일치하는 하나를 우선합니다. 정확한 이름도 중복되면 오류로 종료합니다. 내부 course ID로 사용자가 직접 선택하거나 임의 endpoint를 요청할 수 없습니다. 이름은 매 과제/마감일 조회 때 content script에서 다시 해석하므로 ID 매핑을 저장하지 않습니다.
 
@@ -86,13 +86,13 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다(예외: 강의 자료의 게시판·공지 보조 출처가 첫 페이지부터 거부되는 경우, 아래 참고). 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 선택적 통계 공유 동의·설치 식별자와 팝업 자동 닫기 설정에 사용합니다. `alarms`와 자동 재생 코드는 개발용 `UNIDOCK_PLAYBACK=1` 빌드에만 포함됩니다. 상시 호스트 권한은 조회용 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 공지 자동 닫기 전용 포털(`lms.korea.ac.kr`)은 `optional_host_permissions`로, 사용자가 기능을 켤 때만 Chrome이 허용을 묻고 끄거나 로컬 데이터를 삭제하면 반납합니다. 설치·업데이트 때 권한 재승인을 요구하지 않습니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 선택적 통계 공유 동의·설치 식별자와 팝업 자동 닫기 설정에 사용합니다. 0.4.0 배포 빌드는 자동 재생용 `alarms`, AI 자막용 `declarativeNetRequestWithHostAccess`·`identity`를 추가로 사용하고, 자막용 미디어 CDN은 선택 호스트 권한으로 사용할 때만 요청합니다. 상시 호스트 권한은 조회용 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 공지 자동 닫기 전용 포털(`lms.korea.ac.kr`)은 `optional_host_permissions`로, 사용자가 기능을 켤 때만 Chrome이 허용을 묻고 끄거나 로컬 데이터를 삭제하면 반납합니다. 설치·업데이트 때 권한 재승인을 요구하지 않습니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF·PPTX·PPT 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 통계 공유 설정, 동의 후 생성한 설치 식별자와 팝업 자동 닫기 boolean 설정을 로컬에 저장합니다. 개발용 자동 재생 빌드에서는 최소 재생 상태와 전용 탭 소유권도 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **설정 → 로컬 데이터 모두 삭제**로 설정을 삭제하고 팝업 자동 닫기도 기본 비활성으로 되돌립니다. IndexedDB는 사용하지 않으며 telemetry는 선택적 PostHog만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF·PPTX·PPT 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 통계 공유 설정, 동의 후 생성한 설치 식별자와 팝업 자동 닫기 boolean 설정을 로컬에 저장합니다. 자동 재생을 쓰면 최소 재생 상태와 전용 탭 소유권도 저장하고, AI 자막을 쓰면 자막 서버 로그인 세션·설치 salt·진행 중 작업 정보를 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **설정 → 로컬 데이터 모두 삭제**로 설정을 삭제하고 팝업 자동 닫기도 기본 비활성으로 되돌립니다. IndexedDB는 사용하지 않으며 telemetry는 선택적 PostHog만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
 
-과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. 자동 재생은 배포 빌드에 포함되지 않습니다([자동 재생 (검토 중)](#자동-재생-검토-중)). 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
+과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. 자동 재생은 사용자가 시작한 경우에만 보이는 탭에서 정상 속도로 재생합니다([자동 재생](#자동-재생)). 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
 
 ## LMS 팝업 자동 닫기
 
@@ -141,7 +141,7 @@ Chrome은 설치·업데이트 때 이미 열려 있던 탭에 manifest 콘텐�
 
 백그라운드는 최상위 LMS content script의 발신자와 현재 탭 주소를 확인하고, 같은 출처의 `/courses/{ID}/modules`, `/courses/{ID}/modules/items/{ID}`, 게시판 자료의 `/courses/{ID}/discussion_topics/{ID}`와 LearningX 게시판 도구 `/courses/{ID}/external_tools/{ID}`만 엽니다. 임의 URL·쿼리·fragment·외부 호스트·API 주소는 차단합니다. `tabs.create`에는 추가 `tabs` 권한이 필요하지 않습니다.
 
-배포 빌드에는 자동 재생, 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조가 없습니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
+배포 빌드에는 숨겨진 탭 재생, 무한 keepalive, 완료/출석 API 호출, 출석 위조가 없습니다. 자동 재생은 사용자가 고른 영상을 보이는 탭에서 정상 속도로 재생할 뿐입니다. 열린 LMS/LTI 자체가 시청·진도·출석을 기록할 수 있으며 그 기록은 사용자가 해당 서비스에서 확인합니다. 정상 탭 탐색에 따른 **브라우저 방문 기록**까지 없애지는 않습니다. 확장은 원본 URL/응답을 콘솔·파일·확장 저장소에 기록하지 않습니다.
 
 ## 화면 자막 / 플레이어 VTT → TXT·JSON
 
@@ -177,16 +177,30 @@ KU 소스 근거: [공개 교육 영상](https://kucom.korea.ac.kr/em/6746b8bd75
 
 `npm run test:captions:live`는 공개 교육 영상의 XML/VTT에 실제 HTTP 요청을 보내 새 추출·변환·내보내기 함수를 검증하고 `output/ku-public-caption-test.txt`와 `.json`을 생성합니다. 공개 콘텐츠 XML로 단일 본편 설정을 구성하므로 로그인 세션, 실제 브라우저의 uniPlayerConfig, iframe 권한·CORS·다운로드 UI를 검증하는 테스트는 아닙니다.
 
-## 자동 재생 (검토 중)
+## 빌드 플래그와 `.env`
 
-순차 자동 재생은 현재 검토 중이며 **배포 빌드에서 코드 자체를 제외**합니다. 저장소에는 구현과 테스트를 유지하고, 빌드 시 `UNIDOCK_PLAYBACK` 환경변수로 포함 여부를 정합니다.
+자동 재생과 AI 자막은 빌드 시 환경변수로 포함 여부를 정합니다. WXT가 `.env`, `.env.local`, `.env.production` 등을 읽으므로 루트 `.env.local`(git 제외)에 적어 두면 `npm run build`/`npm run release`가 그대로 사용합니다. 셸에 같은 변수가 있으면 셸 값이 우선합니다.
+
+```sh
+# .env.local
+UNIDOCK_PLAYBACK=1
+UNIDOCK_AI_CAPTIONS=1
+UNIDOCK_CAPTION_SERVER=https://<자막-서버-origin>
+UNIDOCK_EXTENSION_KEY=<선택: 압축 해제 로드 시 확장 ID 고정용 공개키>
+```
+
+값 끝에 `\`를 붙이거나 들여쓰지 않습니다(셸 명령을 그대로 붙여넣으면 값이 `1 \`처럼 읽혀 기능이 꺼집니다). `npm run release`는 `UNIDOCK_RELEASE=1`로 빌드해 스토어가 거부하는 manifest `key`를 빼고, `scripts/package-release.mjs`는 두 플래그가 모두 `1`이고 실제 자막 서버 origin이 설정돼 있어야 통과합니다.
+
+## 자동 재생
+
+0.4.0부터 순차 자동 재생을 배포 빌드에 포함합니다. `UNIDOCK_PLAYBACK` 환경변수로 포함 여부를 정합니다.
 
 | 빌드                                | 자동 재생                                                                                                                                                                                                                                                                                         |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build` / `npm run release` | 제외. `__UNIDOCK_PLAYBACK__`이 `false`로 치환되어 background 런타임·재생 탐색·패널이 tree-shaking되고, `player` 콘텐츠 스크립트와 `alarms` 권한이 빠집니다. `storage`는 선택적 분석 및 팝업 자동 닫기 설정에 사용합니다. 메뉴의 `자동 재생`은 `aria-disabled` 버튼으로 검토 중 안내를 표시합니다. |
-| `npm run build:playback`            | 포함(`UNIDOCK_PLAYBACK=1`). 아래 동작 설명은 이 빌드 기준입니다. 배포용이 아닙니다.                                                                                                                                                                                                               |
+| `npm run build` / `npm run release` | `.env.local`의 `UNIDOCK_PLAYBACK=1`이면 포함. `player` 콘텐츠 스크립트와 `alarms` 권한이 추가됩니다. 배포 ZIP은 포함이 필수입니다. |
+| `npm run build:core`                | 제외. `__UNIDOCK_PLAYBACK__`이 `false`로 치환되어 재생 코드가 tree-shaking되고 메뉴의 `자동 재생`은 비활성 안내만 표시합니다.     |
 
-`scripts/package-release.mjs`는 `UNIDOCK_PLAYBACK=1` 환경, `player` 스크립트, `alarms` 권한, 설명의 “자동 재생” 문구, 재생 전용 문자열(`PLAYBACK_DISCOVER` 등)이 산출물에 있으면 실패합니다. 단위 테스트는 재생 코드까지 포함합니다. 자동 재생을 다시 배포하려면 이 표, 개인정보처리방침과 스토어 권한 사유를 함께 갱신해야 합니다.
+`scripts/package-release.mjs`는 `player` 스크립트, `alarms` 권한, 재생 전용 문자열(`PLAYBACK_DISCOVER` 등)이 산출물에 없으면 실패합니다.
 
 **재생 빌드 동작:** 기본 비활성이며 사용자가 과목을 고른 뒤 영상을 직접 체크하고 `자동 재생`을 눌러야 동작합니다. 영상은 체크한 순서대로 즉시 정상(1x) 속도로 재생되며, 선택하지 않은 영상은 자동 재생하지 않습니다. 네이티브 `ended` 이벤트가 확인되면 다음 영상으로 이동합니다.
 
@@ -235,7 +249,7 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 10. 한국어 자막이 있는 강의에서 도구 모음 아이콘 → 자막 감지를 실행합니다. DOM 우선 적용, VTT 한국어 우선 선택, TXT 시간 보존, JSON 메타데이터와 항목 일치, 재생 상태가 바뀌지 않는지 확인합니다. 영문만 있는 강의·자막 미로딩·cross-origin iframe에서도 오류 안내를 확인합니다.
 11. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
 
-12. 상단 메뉴의 **자동 재생**이 흐리게 표시되고, 마우스를 올리거나 Tab으로 포커스하면 “현재 검토 중인 기능입니다.”가 보이며, 클릭해도 화면이 바뀌지 않는지 확인합니다.
+12. 상단 메뉴의 **자동 재생**을 열어 과목 선택, 영상 체크, 확인 화면을 거쳐야만 재생이 시작되는지 확인합니다(`build:core`에서는 흐린 비활성 메뉴와 “현재 검토 중인 기능입니다.” 안내).
 
 LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합니다. 실 서비스 API/SSO 변화와 Chrome Web Store 심사는 별도 검증이 필요합니다.
 
@@ -324,20 +338,11 @@ npm run pages:check
 
 설정 방법: [GitHub Pages 배포 소스 공식 문서](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
-## AI 자막 생성 (개발 빌드 전용)
+## AI 자막 생성
 
-자막이 없는 KU 녹화 강의의 음성을 사용자가 지정한 자막 서버로 보내 자막을 만드는 기능입니다. 배포 빌드에는 포함되지 않고 `UNIDOCK_AI_CAPTIONS=1` 개발 빌드에서만 컴파일됩니다.
+자막이 없는 KU 녹화 강의의 음성을 자막 서버로 보내 자막을 만드는 기능입니다. 0.4.0부터 배포 빌드에 포함되며 `UNIDOCK_AI_CAPTIONS=1`일 때 컴파일됩니다. 설정은 위 [빌드 플래그와 `.env`](#빌드-플래그와-env)를 따르고, 자막만 넣은 빌드는 `npm run build:ai-captions`로 만듭니다.
 
-빌드 방법:
-
-```sh
-UNIDOCK_AI_CAPTIONS=1 \
-  UNIDOCK_CAPTION_SERVER=https://<자막-서버-origin> \
-  UNIDOCK_EXTENSION_KEY=<선택: manifest key 공개키> \
-  npm run build:ai-captions
-```
-
-Google 로그인은 자막 서버가 자기 Web application OAuth client로 처리하므로 확장에는 Google client ID가 없습니다. 확장은 로그인 창에서 서버의 시작 주소를 열고, 서버가 Google 검증을 마친 뒤 넘겨주는 1회용 연결 코드를 세션으로 바꿉니다. 서버는 `https://<확장 ID>.chromiumapp.org/`만 돌려보낼 주소로 허용하므로, 공유하는 개발 빌드는 `UNIDOCK_EXTENSION_KEY`로 확장 ID를 고정합니다.
+Google 로그인은 자막 서버가 자기 Web application OAuth client로 처리하므로 확장에는 Google client ID가 없습니다. 확장은 로그인 창에서 서버의 시작 주소를 열고, 서버가 Google 검증을 마친 뒤 넘겨주는 1회용 연결 코드를 세션으로 바꿉니다. 서버는 `https://<확장 ID>.chromiumapp.org/`만 돌려보낼 주소로 허용하므로, 압축 해제로 로드하는 빌드는 `UNIDOCK_EXTENSION_KEY`로 확장 ID를 고정합니다. 스토어 배포본은 `key` 없이 스토어 확장 ID를 쓰므로, 자막 서버가 그 ID의 주소도 허용해야 합니다.
 
 동작:
 
