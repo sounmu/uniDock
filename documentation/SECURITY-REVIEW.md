@@ -227,3 +227,33 @@
 - 실제 KU CDN은 64개 범위 multipart 요청과 첫 boundary 앞의 CRLF 하나를 보내는 형식을 확인했습니다. 57분 강의 표본에서 오디오 범위 7,375개를 요청 122개로 받았고, 출력 해시는 범위별 요청과 같았습니다. CDN이 multipart 지원을 끊으면 단일 요청 전환으로 동작은 유지되지만 요청 수는 다시 범위 수만큼 늘어납니다.
 - 현재 탭이 kucom 최상위 탭일 때만 미디어를 읽습니다. LMS 페이지의 iframe에 들어간 플레이어를 지원할지는 확인이 필요합니다.
 - 스토어 제출은 이 범위 밖입니다. 제출 시 개인정보처리방침과 스토어 고지에 음성 전송을 사실대로 신고해야 합니다.
+
+## 2026-10-28 0.4.0 배포 범위: 자동 재생·AI 자막 포함
+
+0.4.0부터 배포 ZIP에 순차 자동 재생(`UNIDOCK_PLAYBACK=1`)과 AI 자막 생성(`UNIDOCK_AI_CAPTIONS=1`)을 넣습니다. 이 절은 2026-09-30 "0.1.1 배포 범위: 자동 재생 제외"와 2026-10-23 "AI 자막 생성 (개발 빌드 전용)"의 배포 제외 결정을 대체합니다. 두 기능의 동작·저장·DNR·데이터 흐름 경계는 2026-09-26 순차 자동 재생 절과 2026-10-23 AI 자막 절의 내용을 그대로 따르며 바뀌지 않았습니다.
+
+### 패키징이 강제하는 것
+`scripts/package-release.mjs`의 검사가 "기능 제외 확인"에서 "정확한 구성 확인"으로 바뀌었습니다.
+
+- 빌드 플래그: `UNIDOCK_PLAYBACK=1`과 `UNIDOCK_AI_CAPTIONS=1`이 둘 다 없으면 실패합니다. WXT가 읽는 production·chrome용 `.env*` 파일을 같은 우선순위로 읽어 판정합니다.
+- 자막 서버 origin: E2E용 테스트 origin(`captions.test`)이면 실패하고, 어떤 JS 번들에도 이 문자열이 있으면 실패합니다.
+- 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`, `declarativeNetRequestWithHostAccess`, `identity`와 정확히 일치해야 합니다. 상시 호스트는 기존 세 호스트 그대로입니다.
+- 선택 호스트: `https://lms.korea.ac.kr/*`와 강의 영상 CDN(`https://korea-cms-object.cdn.gov-ntruss.com/*`) 두 개, 이 순서와 정확히 일치해야 합니다.
+- CSP `extension_pages`: `connect-src`가 PostHog EU, 강의 영상 CDN, 빌드 상수 자막 서버 origin 하나뿐인 고정 문자열과 일치해야 합니다.
+- manifest 금지 키: `key`, `oauth2`, `optional_permissions`, `externally_connectable`, `web_accessible_resources`, `update_url`. 확장 ID를 고정하는 `key`는 개발 빌드에서만 쓰며, release 스크립트는 `UNIDOCK_RELEASE=1`로 빌드해 넣지 않고 패키징이 다시 확인합니다.
+- 콘텐츠 스크립트: 선언은 두 개입니다. `content-scripts/lms.js`(최상위 프레임, LMS 두 호스트)와 `content-scripts/player.js`(`all_frames: true`, LMS 두 호스트와 `https://kucom.korea.ac.kr/em/*`). ZIP 경로 allowlist에 `player.js`를 추가했습니다. `lms-popup.js`는 계속 선언 없이 런타임에 등록합니다.
+- 포함 확인: 두 기능이 실제로 컴파일됐는지 번들에서 `PLAYBACK_PLAYER_HELLO`, `PLAYBACK_DISCOVER`, `transcription-jobs`, `launchWebAuthFlow`, 자막 서버 origin을 찾고 없으면 실패합니다. 이전의 재생·AI 자막 마커 "유출" 검사는 없어졌습니다.
+- 유지되는 검사: `eval`·`new Function`·source map·localhost 금지, 심볼릭 링크 금지, `THIRD_PARTY_NOTICES.txt` 일치, ZIP 목록과 SHA-256 inventory.
+
+### 공개 고지
+- `public/privacy.html`(적용 버전 0.4.0)에 자동 재생의 동작·저장 키와 AI 자막의 전송 항목·미전송 항목·Google 로그인·저장 키·로그아웃과 로컬 삭제를 추가했습니다. "자동 재생은 포함되지 않음" 문구는 지웠습니다.
+- `documentation/store/LISTING.md`에 `alarms`, `declarativeNetRequestWithHostAccess`, `identity`, 선택 CDN 호스트의 사유와 음성·Google 계정 정보 공개 항목을 추가했습니다.
+- 자막 서버 hostname은 UI와 공개 문서에 쓰지 않습니다. 빌드 산출물 manifest의 CSP에는 들어갑니다.
+
+### 남은 위험
+- 업데이트 권한 경고: `alarms`, `declarativeNetRequestWithHostAccess`, `identity`와 `player` 콘텐츠 스크립트가 상시 항목으로 추가됩니다. Chrome이 기존 설치에 경고를 띄우거나 재승인 전까지 확장을 비활성화할 수 있습니다. 실제 경고 문구는 아직 확인하지 않았습니다.
+- `player.js`는 기능을 켜지 않은 사용자에게도 LMS와 kucom 플레이어의 모든 프레임에 주입됩니다. 재생 런타임의 명령 없이 재생하지 않는다는 점은 합성 E2E로만 확인했습니다.
+- 서버 측 정책: 음성 삭제(성공 즉시, 실패 시 24시간)와 자막 6개월 보관은 서버 설계 문서(`documentation/AI-CAPTIONS-IMPLEMENTATION.md`)의 약속이며, 이 저장소에서 서버 동작을 검증하지 않습니다. Google 계정 정보(`sub`, 이메일)와 사용 기록의 서버 보관 기간, 계정 삭제 절차, 운영자 접근 통제, 처리 위탁 지역은 이 저장소에 문서가 없어 공개 문서에 배포자 TODO로 남겼습니다.
+- 공유 캐시: 같은 음원에서 이미 만든 자막은 다른 사용자에게도 연결됩니다. 소유 확인은 서버가 업로드된 음원으로 계산한 digest에 의존합니다.
+- 세션 토큰: 자막 서버 refresh 토큰은 `TRUSTED_CONTEXTS`로 제한한 `chrome.storage.local`에 평문으로 저장됩니다(2026-10-23 절과 같음).
+- 실제 검증: 실제 LMS·CDN·자막 서버·Google 로그인으로 배포 ZIP 전체를 돌린 기록, Chrome 114 로드 확인, 출석·시청 기록 영향 확인은 아직 없습니다. `documentation/store/RELEASE-CHECKLIST.md`의 0.4.0 항목으로 추적합니다.
