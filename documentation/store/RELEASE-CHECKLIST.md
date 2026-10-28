@@ -6,7 +6,7 @@
 
 - release/uniDock-0.4.0-chrome-mv3.zip: 자동 재생·AI 자막을 포함한 배포 후보 (`npm run release`로 생성, 저장소에는 포함하지 않음)
 - release/inventory.json: ZIP 및 포함 파일 SHA-256
-- public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본 (기준일 2026-10-28, 적용 버전 0.4.0. 배포자 TODO 문단은 게시 전 채우고 삭제)
+- public/privacy.html: 앱 내 개인정보 페이지 및 공개 게시용 원본 (기준일 2026-10-28, 적용 버전 0.4.0. 확인되지 않은 서버 처리 항목은 본문에서 빠져 있음)
 - docs/privacy.html, docs/index.html: GitHub Pages 배포용 사본 (`npm run pages:sync`로 갱신, `pages:check`로 일치 확인)
 - public/icons, store/assets: 새 유리 효과 로고 아이콘과 홍보(promo.png)·샘플 화면(assignments.png, recordings.png, schedule.png)
 - LISTING.md: 등록 설명, 권한 사유, 데이터 처리 고지 초안 (0.4.0 범위 반영, 배포자 TODO 포함)
@@ -46,7 +46,7 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 
 - [ ] `package.json`·manifest 버전 0.4.0, 업데이트 안내(`entrypoints/updates/index.html`)를 0.4.0 변경으로 갱신
 - [x] 개인정보처리방침 적용 버전 0.4.0으로 갱신하고 Pages 사본 동기화(`pages:check` 통과)
-- [ ] 개인정보처리방침과 LISTING의 배포자 TODO(서버의 계정 정보·사용 기록 보관 기간, 계정 삭제·자막 삭제 요청 절차, 운영자 접근 통제, 모델 학습 미사용 확약, 처리 위탁 업체·저장 지역) 확정 후 TODO 문단 삭제, `npm run pages:sync`
+- [ ] 서버의 계정 정보·사용 기록 보관 기간, 계정 삭제·자막 삭제 요청 절차, 운영자 접근 통제, 모델 학습 미사용 확약, 처리 위탁 업체·저장 지역을 확정해 개인정보처리방침에 추가하고 LISTING의 배포자 TODO를 채운 뒤 `npm run pages:sync` (0.4.0 GitHub 릴리스는 이 항목 없이 배포)
 - [x] LISTING의 0.4.0 범위, 기능 목록, 권한 사유, 음성·Google 계정 데이터 공개 반영
 - [ ] 실제 `.env.local`로 `npm run release`를 끝까지 실행하고 manifest에 `key`가 없는지, CSP의 자막 서버 origin이 운영 서버인지 확인
 - [ ] 0.3.0 설치본 위에 0.4.0을 올려 Chrome의 권한 경고 문구와 재승인 흐름 확인
