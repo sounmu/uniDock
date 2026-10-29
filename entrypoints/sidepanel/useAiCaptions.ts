@@ -88,7 +88,7 @@ export function useAiCaptions() {
     controller.current = null;
   }, []);
 
-  /** User cancel or tab change: stop local work and cancel the server job. */
+  /** Cancel or source-document loss: stop local work and cancel the server job. */
   const discard = useCallback(() => {
     const id = jobId.current;
     const active = !isTerminal(phase.current);
@@ -193,9 +193,8 @@ export function useAiCaptions() {
 
   useEffect(() => {
     mounted.current = true;
-    // Only the player tab this job started from matters: its navigation or
-    // closing, or switching away from it in its own window. Other tabs and
-    // windows, and jobs restored on reopen (no tab), are left alone.
+    // Only navigation or closing of the source player invalidates this run.
+    // Selecting another tab must not cancel extraction, upload or polling.
     const changed = (tabId: number, change: { status?: string; url?: string }) => {
       if (
         tabId === jobTab.current?.tabId &&
@@ -206,11 +205,6 @@ export function useAiCaptions() {
     const removed = (tabId: number) => {
       if (tabId === jobTab.current?.tabId) discard();
     };
-    const switched = ({ tabId, windowId }: { tabId: number; windowId: number }) => {
-      const tab = jobTab.current;
-      if (tab && windowId === tab.windowId && tabId !== tab.tabId) discard();
-    };
-    chrome.tabs.onActivated.addListener(switched);
     chrome.tabs.onUpdated.addListener(changed);
     chrome.tabs.onRemoved.addListener(removed);
     // A job the server already accepted survives a closed panel; show it again.
@@ -245,7 +239,6 @@ export function useAiCaptions() {
     })();
     return () => {
       mounted.current = false;
-      chrome.tabs.onActivated.removeListener(switched);
       chrome.tabs.onUpdated.removeListener(changed);
       chrome.tabs.onRemoved.removeListener(removed);
       // Closing the panel stops local capture only; accepted jobs keep running.

@@ -27,6 +27,7 @@ export function App() {
   const gate = useRef(new QueryGate()).current;
   const model = useSidepanelQuery(gate);
   const [info, setInfo] = useState(false);
+  const [captionsOpened, setCaptionsOpened] = useState(false);
   // "나중에" hides the consent reminder for this panel only; nothing is stored.
   const [consentDeferred, setConsentDeferred] = useState(false);
   const analytics = useAnalytics(info ? "INFO" : model.view);
@@ -83,6 +84,7 @@ export function App() {
         model.setView("PLAYBACK");
         break;
       case "captions":
+        setCaptionsOpened(true);
         model.clear();
         model.setView("CAPTIONS");
         break;
@@ -127,8 +129,10 @@ export function App() {
           {__UNIDOCK_PLAYBACK__ && model.section === "playback" && (
             <PlaybackPanel gate={gate} />
           )}
-          {model.section === "captions" && (
-            <CaptionsPanel onConnectionSettings={() => showInfo("caption-server-title")} />
+          {captionsOpened && (
+            <div hidden={model.section !== "captions"}>
+              <CaptionsPanel onConnectionSettings={() => showInfo("caption-server-title")} />
+            </div>
           )}
         </div>
         {info && (
