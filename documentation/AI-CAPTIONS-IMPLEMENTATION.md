@@ -183,7 +183,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 | 파일 | 변경 |
 | --- | --- |
 | `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 최대 6개월 보관됩니다"를 보여주고 확인을 받는다. 같은 음원의 기존 자막에 연결되면 남은 기간이 더 짧을 수 있으므로, 실제 만료일은 완료 후 자막의 `expires_at`으로 표시한다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
-| `entrypoints/sidepanel/useAiCaptions.ts` (신규) | 3-2~3-4를 묶는 훅. 탭·문서가 바뀌면 진행 중 작업을 취소하고 결과를 폐기한다(기존 `CaptionsPanel`의 탭 변경 처리와 같은 규칙) |
+| `entrypoints/sidepanel/useAiCaptions.ts` (신규) | 3-2~3-4를 묶는 훅. 패널 메뉴 전환이나 다른 브라우저 탭 선택으로는 작업을 유지한다. 작업을 시작한 강의 탭의 문서가 이동·새로고침되거나 탭이 닫히면 진행 중 작업을 취소하고 결과를 폐기한다(기존 `CaptionsPanel`의 자막 초기화와 같은 규칙). 패널을 닫으면 로컬 취득만 멈추고 서버가 접수한 작업은 남는다 |
 | `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | Google 로그인·로그아웃, 이번 주 남은 횟수, 서버 origin 표시(수정 불가), worker 상태(`/v1/service-status`). 정보 화면에 `PopupSettings` 옆에 둔다 |
 
 모든 UI 코드는 `__UNIDOCK_AI_CAPTIONS__` 가드 안에 있어야 한다. release 빌드에서는 버튼도 설정도 존재하지 않는다(playback처럼 비활성 항목을 남기지 않는다).
@@ -202,7 +202,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 - `UNIDOCK_AI_CAPTIONS=1 UNIDOCK_CAPTION_SERVER=https://… npm run build:ai-captions` 결과를 로드하고, 자막 없는 KU 영상에서 `AI 자막 생성` → 확인 → 분리 → 업로드 → 대기 → 자막 표시 → TXT 내보내기가 된다.
 - 같은 영상을 두 번 요청하면 서버가 Idempotency-Key로 중복을 막고 패널은 기존 작업 상태를 보여준다.
-- 패널을 닫았다가 열면 서버에 접수된 작업의 상태를 다시 조회해 보여주고, 접수 전이던 작업은 사라진다.
+- 패널을 닫았다가 같은 강의에서 다시 열면 서버에 접수된 작업의 상태를 다시 조회해 보여주고, 접수 전이던 작업은 사라진다.
 - 로그인하지 않으면 `AI 자막 생성` 대신 Google 로그인 안내가 보인다. 로그인 → 사용 → access 만료 후 자동 refresh → 로그아웃이 된다. `REFRESH_REUSED`나 refresh 실패면 세션을 지우고 로그인 안내로 돌아간다.
 - `QUOTA_EXCEEDED`면 버튼을 비활성화하고 초기화 시각(`quota.resets_at`)을 보여준다. `ACTIVE_JOB_EXISTS`면 진행 중인 작업 화면으로 간다. `/v1/service-status`가 `offline`이면 생성은 허용하되 "처리 서버가 꺼져 있어 대기합니다"를 표시한다.
 - "로컬 데이터 모두 삭제"가 세션과 강의 ↔ 작업 매핑을 지우고 서버 세션도 폐기(`POST /v1/auth/logout`)한다.

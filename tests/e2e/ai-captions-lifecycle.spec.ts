@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Worker } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
 import { createServer } from "node:https";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -18,6 +18,22 @@ const TOKEN = `e2e-access-${"x".repeat(32)}`;
 const SESSION_KEY = "unidock.caption-session.v1";
 const JOB_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e0";
 const TRANSCRIPT_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e1";
+const stages = ["extracting", "uploading", "polling"] as const;
+type Stage = (typeof stages)[number];
+
+function responseGate() {
+  let reached!: () => void;
+  let release!: () => void;
+  const arrived = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("response gate not reached")), 20_000);
+    reached = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
+  const released = new Promise<void>((resolve) => (release = resolve));
+  return { arrived, reached, released, release };
+}
 
 interface CdnHit {
   referer: string | undefined;
@@ -54,7 +70,23 @@ async function fakeServices(directory: string) {
   let received: Buffer[] = [];
   let declaredLength: number | undefined;
   let refuseQuota = false;
-  let hold: { reached: () => void; release: Promise<void> } | undefined;
+  const holds = new Map<Stage, ReturnType<typeof responseGate>>();
+  const gates: ReturnType<typeof responseGate>[] = [];
+  const polls: string[] = [];
+  const transcripts: string[] = [];
+  const pause = async (stage: Stage) => {
+    const held = holds.get(stage);
+    if (!held) return;
+    holds.delete(stage);
+    held.reached();
+    await held.released;
+  };
+  const holdNextResponse = (stage: Stage) => {
+    const gate = responseGate();
+    holds.set(stage, gate);
+    gates.push(gate);
+    return gate;
+  };
   let refuseMultipart = false;
 
   const server = createServer(
@@ -98,6 +130,7 @@ async function fakeServices(directory: string) {
           return;
         }
         cdn.push({ referer, range, status: 206 });
+        await pause("extracting");
         if (specs.length > 1) {
           // Same shape as the live KU CDN, including its leading CRLF.
           const boundary = "E2EBOUND";
@@ -117,12 +150,6 @@ async function fakeServices(directory: string) {
         }
         const [start, requestedEnd] = specs[0]!;
         const end = Math.min(requestedEnd, media.length - 1);
-        if (hold) {
-          const held = hold;
-          hold = undefined;
-          held.reached();
-          await held.release;
-        }
         response.writeHead(206, {
           "Content-Type": "video/mp4",
           "Content-Range": `bytes ${start}-${end}/${media.length}`,
@@ -175,7 +202,12 @@ async function fakeServices(directory: string) {
           idempotencyKeys.push(String(request.headers["idempotency-key"]));
           return json(job(), 201);
         }
-        if (url.pathname === `/v1/transcription-jobs/${JOB_ID}`) return json(job());
+        if (url.pathname === `/v1/transcription-jobs/${JOB_ID}`) {
+          polls.push(url.pathname);
+          const status = job();
+          await pause("polling");
+          return json(status);
+        }
         if (url.pathname === audioPath) {
           const offset = received.reduce((n, b) => n + b.length, 0);
           if (request.method === "HEAD") {
@@ -200,6 +232,7 @@ async function fakeServices(directory: string) {
             uploads.push(Buffer.concat(received));
             received = [];
           }
+          await pause("uploading");
           response.writeHead(204, { "Tus-Resumable": "1.0.0", "Upload-Offset": String(next) });
           response.end();
           return;
@@ -208,7 +241,8 @@ async function fakeServices(directory: string) {
           cancels++;
           return json(job());
         }
-        if (url.pathname === `/v1/transcripts/${TRANSCRIPT_ID}`)
+        if (url.pathname === `/v1/transcripts/${TRANSCRIPT_ID}`) {
+          transcripts.push(url.pathname);
           return json({
             schema_version: 1,
             id: TRANSCRIPT_ID,
@@ -221,6 +255,7 @@ async function fakeServices(directory: string) {
             duration_ms: 3000,
             segments: [{ start_ms: 0, end_ms: 1500, text: "합성 자막 문장" }],
           });
+        }
       }
       response.writeHead(404);
       response.end();
@@ -238,6 +273,8 @@ async function fakeServices(directory: string) {
     cdn,
     uploads,
     idempotencyKeys,
+    polls,
+    transcripts,
     cancels: () => cancels,
     refuseMultipart: () => {
       refuseMultipart = true;
@@ -245,15 +282,14 @@ async function fakeServices(directory: string) {
     refuseQuota: () => {
       refuseQuota = true;
     },
-    holdNextCdnResponse() {
-      let reached!: () => void;
-      let release!: () => void;
-      const arrived = new Promise<void>((resolve) => (reached = resolve));
-      hold = { reached, release: new Promise<void>((resolve) => (release = resolve)) };
-      return { arrived, release };
-    },
+    holdNextResponse,
+    holdNextCdnResponse: () => holdNextResponse("extracting"),
     close: () =>
       new Promise<void>((resolve, reject) => {
+        for (const gate of gates) {
+          gate.reached();
+          gate.release();
+        }
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
       }),
@@ -352,6 +388,146 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     const opened = await detectOnPlayer();
     await opened.panel.getByRole("button", { name: "AI 자막 생성" }).click();
     return opened;
+  }
+
+  async function activateTab(page: Page) {
+    // Register the actual Chrome activation event before changing the active tab.
+    await worker.evaluate(async (url) => {
+      const tab = (await chrome.tabs.query({})).find((candidate) => candidate.url === url);
+      if (tab?.id === undefined) throw new Error(`tab not found: ${url}`);
+      const tabId = tab.id;
+      const active = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      if (active[0]?.id === tabId) throw new Error("expected a different active tab");
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          clearTimeout(timeout);
+          chrome.tabs.onActivated.removeListener(activated);
+        };
+        const activated = (info: { tabId: number; windowId: number }) => {
+          if (info.tabId !== tabId) return;
+          cleanup();
+          resolve();
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("tab activation event not received"));
+        }, 10_000);
+        chrome.tabs.onActivated.addListener(activated);
+        void chrome.tabs.update(tabId, { active: true }).catch((error: unknown) => {
+          cleanup();
+          reject(error);
+        });
+      });
+    }, page.url());
+  }
+
+  for (const stage of stages) {
+    test(`${stage} survives internal menu round trips and browser tab activation`, async () => {
+      // Given a real extraction/upload/poll request paused at its response.
+      const other = await context.newPage();
+      await other.goto("https://kucom.korea.ac.kr/em/unrelated");
+      const { player, panel } = await openPanelOnPlayer();
+      const held = services.holdNextResponse(stage);
+      await panel.getByRole("button", { name: "음성 보내기" }).click();
+      await held.arrived;
+
+      // When both internal navigation and real Chrome tab activation round-trip.
+      for (const menu of ["내 과목", "설정"]) {
+        await panel.getByRole("button", { name: menu, exact: true }).click();
+        await expect(panel.getByRole("button", { name: "취소", exact: true })).toBeHidden();
+        await activateTab(other);
+        await activateTab(player);
+        await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
+        await expect(panel.getByRole("button", { name: "취소", exact: true })).toBeVisible();
+        expect(services.cancels()).toBe(0);
+        expect(services.idempotencyKeys).toHaveLength(1);
+      }
+      const transcript = context.waitForEvent("response", {
+        predicate: (response) =>
+          response.url() === `https://captions.test/v1/transcripts/${TRANSCRIPT_ID}` &&
+          response.request().method() === "GET",
+        timeout: 20_000,
+      });
+      held.release();
+
+      // Then the original run publishes its final transcript, without restarting.
+      expect((await transcript).status()).toBe(200);
+      await expectFinished(panel, []);
+      expect(services.idempotencyKeys).toHaveLength(1);
+      expect(services.polls).toHaveLength(1);
+      expect(services.transcripts).toHaveLength(1);
+      expect(services.cancels()).toBe(0);
+      expect(services.cdn.every((hit) => hit.status === 206)).toBe(true);
+      expectAudioOnly(services.cdn);
+      expectUploadedAudio();
+    });
+  }
+
+  for (const sourceChange of ["navigation", "reload", "close"] as const) {
+    for (const stage of stages) {
+      test(`source ${sourceChange} invalidates ${stage} without publishing a late result`, async () => {
+        // Given an accepted job with a response still held by the fake service.
+        const { player, panel } = await openPanelOnPlayer();
+        const held = services.holdNextResponse(stage);
+        await panel.getByRole("button", { name: "음성 보내기" }).click();
+        await held.arrived;
+        expect(services.idempotencyKeys).toHaveLength(1);
+        const aborted = context.waitForEvent("requestfailed", {
+          predicate: (request) => {
+            switch (stage) {
+              case "extracting":
+                return request.url() === CDN_URL && request.method() === "GET";
+              case "uploading":
+                return request.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}/audio` &&
+                  request.method() === "PATCH";
+              case "polling":
+                return request.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}` &&
+                  request.method() === "GET";
+            }
+          },
+          timeout: 10_000,
+        });
+        const cancelled = context.waitForEvent("response", {
+          predicate: (response) =>
+            response.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}/cancel` &&
+            response.request().method() === "POST",
+          timeout: 10_000,
+        });
+
+        // When the source document is lost, not merely deactivated.
+        switch (sourceChange) {
+          case "navigation":
+            await player.goto("https://kucom.korea.ac.kr/em/another-lecture");
+            break;
+          case "reload":
+            await player.reload();
+            break;
+          case "close":
+            await player.close();
+            break;
+        }
+        const [failedRequest, cancelResponse] = await Promise.all([aborted, cancelled]);
+        expect(failedRequest.failure()).not.toBeNull();
+        expect(cancelResponse.status()).toBe(200);
+        // CaptionsPanel clears the source offer; useAiCaptions must cancel the
+        // already-created job before that child unmounts (even during extraction).
+        await expect(panel.locator(".ai-offer")).toHaveCount(0);
+        held.release();
+
+        // Then even the held success response cannot advance the aborted run.
+        await expect(
+          panel.getByRole("button", { name: "AI 자막 TXT·JSON 다운로드" }),
+        ).toHaveCount(0);
+        expect(services.cancels()).toBe(1);
+        expect(services.idempotencyKeys).toHaveLength(1);
+        expect(services.uploads).toHaveLength(stage === "extracting" ? 0 : 1);
+        expect(services.polls).toHaveLength(stage === "polling" ? 1 : 0);
+        expect(services.transcripts).toHaveLength(0);
+        expectAudioOnly(services.cdn);
+        if (stage !== "extracting") expectUploadedAudio();
+        await expect.poll(() => captionRules(worker)).toEqual([]);
+      });
+    }
   }
 
   const probe = (panel: import("@playwright/test").Page) =>

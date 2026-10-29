@@ -29,7 +29,10 @@ declare global {
   }
 }
 
-test("clearing a held initial caption capture stops follow-on injections", async ({
+for (const change of ["menu", "navigation", "reload", "close"] as const) {
+test(change === "menu"
+  ? "menu round trips preserve pending caption detection and its completed result"
+  : `source ${change} during caption capture stops follow-on injections`, async ({
   playwright,
 }) => {
   await stat(path.join(extensionPath, "manifest.json"));
@@ -112,26 +115,54 @@ test("clearing a held initial caption capture stops follow-on injections", async
     await panel.getByRole("button", { name: "자막 감지" }).click();
     await panel.evaluate(() => window.captionCancellationGate!.initial());
 
-    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
-    await panel.evaluate(() => window.captionCancellationGate!.release());
-    await panel.evaluate(() => window.captionCancellationGate!.drained());
-    expect(
-      await panel.evaluate(() => window.captionCancellationGate!.calls()),
-    ).toBe(1);
+    const result = panel.getByText("자막 1개 · 5분 동안 메모리에 보관");
+    if (change === "menu") {
+      await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+      await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
+      await expect(panel.getByRole("button", { name: "감지 중…" })).toBeVisible();
+      expect(
+        await panel.evaluate(() => window.captionCancellationGate!.calls()),
+      ).toBe(1);
+      await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+      await panel.evaluate(() => window.captionCancellationGate!.release());
+      // Detection finishes while its screen is hidden, without another click.
+      await expect(result).toBeAttached();
+      await expect(result).toBeHidden();
+      const completedCalls = await panel.evaluate(() => window.captionCancellationGate!.calls());
+      await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
+      await expect(result).toBeVisible();
+      expect(
+        await panel.evaluate(() => window.captionCancellationGate!.calls()),
+      ).toBe(completedCalls);
+    } else {
+      switch (change) {
+        case "navigation":
+          await lms.goto("https://mylms.korea.ac.kr/?changed=1");
+          break;
+        case "reload":
+          await lms.reload();
+          break;
+        case "close":
+          await lms.close();
+          break;
+      }
+      // Wait for the panel's invalidation handler before releasing stale work.
+      await expect(panel.getByRole("button", { name: "자막 감지", exact: true })).toBeVisible();
+      await panel.evaluate(() => window.captionCancellationGate!.release());
+      await panel.evaluate(() => window.captionCancellationGate!.drained());
+      expect(
+        await panel.evaluate(() => window.captionCancellationGate!.calls()),
+      ).toBe(1);
+      await expect(result).toHaveCount(0);
+    }
     await expect(panel.getByRole("alert")).toHaveCount(0);
-
-    await lms.bringToFront();
-    await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
-    await panel.getByRole("button", { name: "자막 감지" }).click();
-    await expect(
-      panel.getByText("자막 1개 · 5분 동안 메모리에 보관"),
-    ).toBeVisible();
   } finally {
     await context?.close();
     await server.close();
     await rm(profile, { recursive: true, force: true });
   }
 });
+}
 
 test("rejects same-document iframe URL changes and accepts stable iframe captions", async ({
   playwright,

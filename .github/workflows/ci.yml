@@ -26,3 +26,4 @@ jobs:
       - run: npm run build
       - run: npm run test:e2e
       - run: npm run test:e2e:analytics
+      - run: UNIDOCK_RELEASE=1 npm run test:e2e:full
