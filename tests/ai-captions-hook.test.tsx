@@ -127,6 +127,7 @@ afterEach(async () => {
   ui = undefined;
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 async function generate() {
@@ -347,13 +348,36 @@ it("cancels when the job's own tab navigates", async () => {
   expect(hook.state.phase).toBe("idle");
 });
 
-it("cancels when the job's tab closes or another tab in its window is selected", async () => {
-  await startPendingJob();
+it("keeps processing progress and receives the result after switching tabs", async () => {
+  const firstPoll = Promise.withResolvers<void>();
+  const completed = Promise.withResolvers<ReturnType<typeof job>>();
+  getJob.mockReset();
+  getJob.mockImplementationOnce(async () => {
+    firstPoll.resolve();
+    return job("running", { progress: { done: 60, total: 100 } });
+  }).mockReturnValueOnce(completed.promise);
+  vi.useFakeTimers();
+  ui = await mount(<Probe />);
+  await act(async () => {
+    void hook.generate();
+    await firstPoll.promise;
+  });
+  const progress = hook.state;
   await fire("activated", { tabId: 8, windowId: 1 });
-  expect(cancelJob).toHaveBeenCalledWith("job_1");
-  await ui!.unmount();
-  cancelJob.mockClear();
-  saveActiveJob.mockClear();
+  await fire("activated", { tabId: 7, windowId: 1 });
+  expect(hook.state).toBe(progress);
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(clearActiveJob).not.toHaveBeenCalled();
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+    completed.resolve(succeeded);
+  });
+  expect(hook.state.phase).toBe("succeeded");
+  expect(createJob).toHaveBeenCalledTimes(1);
+  vi.useRealTimers();
+});
+
+it("cancels when the job's tab closes", async () => {
   await startPendingJob();
   await fire("removed", 7);
   expect(cancelJob).toHaveBeenCalledWith("job_1");

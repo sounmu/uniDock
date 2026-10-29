@@ -60,14 +60,6 @@ export function CaptionsPanel({
       setExportPending(false);
       setNotice("");
     };
-    const activated = (info: { tabId: number; windowId: number }) => {
-      if (
-        !target.current ||
-        (info.windowId === target.current.windowId &&
-          info.tabId !== target.current.tabId)
-      )
-        clear();
-    };
     const updated = (
       tabId: number,
       change: { status?: string; url?: string },
@@ -81,7 +73,6 @@ export function CaptionsPanel({
     const removed = (tabId: number) => {
       if (tabId === target.current?.tabId) clear();
     };
-    chrome.tabs.onActivated.addListener(activated);
     chrome.tabs.onUpdated.addListener(updated);
     chrome.tabs.onRemoved.addListener(removed);
     return () => {
@@ -93,7 +84,6 @@ export function CaptionsPanel({
       exportController.current = null;
       exportLocked.current = false;
       target.current = null;
-      chrome.tabs.onActivated.removeListener(activated);
       chrome.tabs.onUpdated.removeListener(updated);
       chrome.tabs.onRemoved.removeListener(removed);
     };

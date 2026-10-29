@@ -47,7 +47,7 @@ afterEach(async () => {
   vi.clearAllMocks();
   vi.useRealTimers();
 });
-it("keeps captions across unrelated updates and activation in another window", async () => {
+it("keeps captions across unrelated updates and tab switches", async () => {
   ui = await mount(<CaptionsPanel />);
   await click("자막 감지");
   await act(async () => {
@@ -57,11 +57,15 @@ it("keeps captions across unrelated updates and activation in another window", a
       audible: true,
       status: "complete",
     });
-    activated.addListener.mock.calls[0]![0]({ tabId: 999, windowId: 2 });
+    for (const [listener] of activated.addListener.mock.calls) {
+      listener({ tabId: 999, windowId: 2 });
+      listener({ tabId: 8, windowId: 1 });
+      listener({ tabId: 7, windowId: 1 });
+    }
   });
   expect(document.querySelectorAll("li")).toHaveLength(1);
 });
-it("keeps the AI caption offer when visiting AI settings and returning", async () => {
+it("keeps the same AI caption offer across settings, menus and browser tabs", async () => {
   // Given: no provided captions, so the panel offers AI generation.
   detect.mockResolvedValue({ status: "error", code: "NO_CAPTIONS" });
   vi.stubGlobal("chrome", {
@@ -78,6 +82,7 @@ it("keeps the AI caption offer when visiting AI settings and returning", async (
   ui = await mount(<App />);
   await click("자막 추출");
   await click("자막 감지");
+  const offer = ui.host.querySelector(".ai-offer");
   const trigger = [...ui.host.querySelectorAll("button")].find(
     (button) => button.textContent === "AI 자막 설정",
   );
@@ -88,6 +93,17 @@ it("keeps the AI caption offer when visiting AI settings and returning", async (
   await click("← 돌아가기");
   // Then: the same offer, still mounted, and no re-detection.
   expect(document.activeElement).toBe(trigger);
+  await click("내 과목");
+  expect(offer?.closest("[hidden]")).not.toBeNull();
+  await act(async () => {
+    for (const [listener] of activated.addListener.mock.calls) {
+      listener({ tabId: 8, windowId: 1 });
+      listener({ tabId: 7, windowId: 1 });
+    }
+  });
+  await click("자막 추출");
+  expect(ui.host.querySelector(".ai-offer")).toBe(offer);
+  expect(offer?.closest("[hidden]")).toBeNull();
   expect(detect).toHaveBeenCalledTimes(1);
   expect(ui.host.textContent).toContain("AI 자막 섹션");
 });
@@ -104,7 +120,7 @@ it("offers AI settings only when the AI offer is shown", async () => {
   expect(ui.host.querySelector(".screen-header .btn-primary")).toBeNull();
   expect(ui.host.querySelector('[role="alert"]')).toBeNull();
 });
-it.each(["reload", "url", "switch", "close"])(
+it.each(["reload", "url", "close"])(
   "clears captions on target %s",
   async (kind) => {
     ui = await mount(<CaptionsPanel />);
@@ -116,8 +132,6 @@ it.each(["reload", "url", "switch", "close"])(
         updated.addListener.mock.calls[0]![0](7, {
           url: "https://kucom.korea.ac.kr/em/other",
         });
-      if (kind === "switch")
-        activated.addListener.mock.calls[0]![0]({ tabId: 8, windowId: 1 });
       if (kind === "close") removed.addListener.mock.calls[0]![0](7);
     });
     expect(document.querySelectorAll("li")).toHaveLength(0);
@@ -339,7 +353,7 @@ it("expires captions after five minutes and removes listeners on unmount", async
   await act(async () => vi.advanceTimersByTime(300000));
   expect(document.querySelectorAll("li")).toHaveLength(0);
   await ui.unmount();
-  for (const event of [updated, activated, removed])
+  for (const event of [updated, removed])
     expect(event.removeListener).toHaveBeenCalledWith(
       event.addListener.mock.calls[0]![0],
     );
