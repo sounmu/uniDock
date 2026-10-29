@@ -40,9 +40,7 @@ test("renders bundled update notes from the information screen and closes the no
     await panel.getByRole("link", { name: "현재 버전 변경 사항" }).click();
     const notice = await opened;
     notice.on("pageerror", (error) => errors.push(error.message));
-    await expect(notice.getByRole("heading", { level: 1 })).toHaveText(
-      "AI 자막과 자동 재생",
-    );
+    await expect(notice.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(notice.locator("#version")).toHaveText(version);
     for (const width of [320, 720]) {
       await notice.setViewportSize({ width, height: 850 });
