@@ -239,7 +239,7 @@
 - 자막 서버 origin: E2E용 테스트 origin(`captions.test`)이면 실패하고, 어떤 JS 번들에도 이 문자열이 있으면 실패합니다.
 - 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`, `alarms`, `declarativeNetRequestWithHostAccess`, `identity`와 정확히 일치해야 합니다. 상시 호스트는 기존 세 호스트 그대로입니다.
 - 선택 호스트: `https://lms.korea.ac.kr/*`와 강의 영상 CDN(`https://korea-cms-object.cdn.gov-ntruss.com/*`) 두 개, 이 순서와 정확히 일치해야 합니다.
-- CSP `extension_pages`: `connect-src`가 PostHog EU, 강의 영상 CDN, 빌드 상수 자막 서버 origin 하나뿐인 고정 문자열과 일치해야 합니다.
+- CSP `extension_pages`: `connect-src`가 (2026-11-01부터 PostHog EU 대신 통계 수집 서버), 강의 영상 CDN, 빌드 상수 자막 서버 origin 하나뿐인 고정 문자열과 일치해야 합니다.
 - manifest 금지 키: `key`, `oauth2`, `optional_permissions`, `externally_connectable`, `web_accessible_resources`, `update_url`. 확장 ID를 고정하는 `key`는 개발 빌드에서만 쓰며, release 스크립트는 `UNIDOCK_RELEASE=1`로 빌드해 넣지 않고 패키징이 다시 확인합니다.
 - 콘텐츠 스크립트: 선언은 두 개입니다. `content-scripts/lms.js`(최상위 프레임, LMS 두 호스트)와 `content-scripts/player.js`(`all_frames: true`, LMS 두 호스트와 `https://kucom.korea.ac.kr/em/*`). ZIP 경로 allowlist에 `player.js`를 추가했습니다. `lms-popup.js`는 계속 선언 없이 런타임에 등록합니다.
 - 포함 확인: 두 기능이 실제로 컴파일됐는지 번들에서 `PLAYBACK_PLAYER_HELLO`, `PLAYBACK_DISCOVER`, `transcription-jobs`, `launchWebAuthFlow`, 자막 서버 origin을 찾고 없으면 실패합니다. 이전의 재생·AI 자막 마커 "유출" 검사는 없어졌습니다.
@@ -257,3 +257,23 @@
 - 공유 캐시: 같은 음원에서 이미 만든 자막은 다른 사용자에게도 연결됩니다. 소유 확인은 서버가 업로드된 음원으로 계산한 digest에 의존합니다.
 - 세션 토큰: 자막 서버 refresh 토큰은 `TRUSTED_CONTEXTS`로 제한한 `chrome.storage.local`에 평문으로 저장됩니다(2026-10-23 절과 같음).
 - 실제 검증: 실제 LMS·CDN·자막 서버·Google 로그인으로 배포 ZIP 전체를 돌린 기록, Chrome 114 로드 확인, 출석·시청 기록 영향 확인은 아직 없습니다. `documentation/store/RELEASE-CHECKLIST.md`의 0.4.0 항목으로 추적합니다.
+
+## 2026-11-01 GA4 집계 사용 통계로 교체
+
+2026-09-30 "선택적 PostHog 사용 통계"의 opt-in PostHog 수집을 기본 켜짐 집계 통계로 바꿉니다. 이전 절은 기록으로 남깁니다. 지표 정의는 [ANALYTICS.md](ANALYTICS.md)에 있습니다.
+
+- 목적: 기능 사용, 결과 도달, 작업 실패·지연을 제품 단위로 보는 것. 개인 행동·경로는 보지 않습니다.
+- 기본값: 새 설치는 켜짐이며 패널이 첫 안내를 표시한 뒤에만 수집합니다. 업데이트 시 이전 거절(`enabled:false`)은 꺼짐 유지, 이전 동의자와 미선택 설치는 변경 안내 표시 후 수집합니다. 이 설정을 법적 동의로 보지 않습니다.
+- 전송 항목: 서울 기준 하루 단위 증분 보고로, 고정 코드·범위 제한 정수·날짜·확장 버전과 중복 방지용 1회용 `report_id`만 담습니다. 설치·사용자 식별자, LMS 데이터, URL, 제목, 입력값, 자막, 파일, 원본 오류·스택은 없습니다.
+- 경로: background가 유일한 기록자로 `unidock.analytics.v2`, `unidock.analytics-counters.v1`(최대 30개 보고·7일·12회 시도)에 모으고, 활동 중 약 10분마다 `alarms`로 빌드 상수 `UNIDOCK_STATS_SERVER` origin에 HTTPS POST합니다. 새 Chrome 권한은 없고 CSP `connect-src`에서 PostHog EU를 이 origin으로 바꿨습니다.
+- 수집 서버(Cloudflare Worker + D1): 닫힌 스키마 검증, `report_id` 중복 제거, 날짜별 전체 합계에 원자적으로 더하기. 설치별 데이터는 남기지 않습니다. 요청 중 접속 IP를 보지만 저장하거나 통계와 연결하지 않습니다. 운영에서 Workers 로그·Logpush를 끕니다.
+- GA4: 한 시간마다 새 증분 합계를 전용 속성에 Measurement Protocol로 보냅니다. `api_secret`은 서버에만 있고, 설치와 무관한 요청별 합성 `client_id`를 쓰며 IP·헤더·쿠키·리퍼러를 전달하지 않습니다. 완전한 익명성을 보장한다고 주장하지 않습니다.
+- 보관: 서버는 날짜별 합계만 보관, `report_id` 기록 10일, 합계 전송 기록 90일. GA4 이벤트 단위 보관은 최소 2개월로 설정합니다.
+- 끄기: 즉시 수집·전송 중단, 진행 중 요청 abort, 미전송 통계 삭제, 꺼진 동안 누적 없음. 같은 날 다시 켜도 사용 설치를 다시 세지 않습니다. 이미 합계에 더해진 값은 분리할 수 없어 원격 삭제를 약속하지 않으며 삭제 요청용 식별자도 없습니다. 로컬 데이터 모두 삭제는 미전송 통계를 지우되 켜짐/꺼짐 선택과 오늘의 중복 방지 표시는 유지합니다.
+- 이전 데이터: 업데이트 때 PostHog 무작위 설치 UUID와 미전송 데이터를 삭제하고 옮기지 않습니다. `@posthog/core`를 번들과 `THIRD_PARTY_NOTICES.txt`에서 제거했습니다.
+- 패키징: `npm run release`는 실제 `UNIDOCK_STATS_SERVER`(`https://stats.test` 불가)를 요구하고 번들에서 GA 비밀값·엔드포인트·PostHog·`client_id`를 검사합니다. 값이 없는 빌드와 개발 빌드는 아무것도 보내지 않습니다.
+- 처리 위탁: Cloudflare(수집 서버), Google LLC(Google Analytics 4). PostHog EU는 더 이상 쓰지 않습니다.
+
+### 남은 위험
+- 서버 동작(로그 끄기, 보관 기간, IP 미저장)과 GA4 속성 설정은 이 저장소 코드로 강제되지 않습니다. `documentation/store/RELEASE-CHECKLIST.md`로 추적합니다.
+- GA4의 HTTP 2xx 응답은 수신 증거가 아니므로 테스트 속성에서 Data API로 실제 값을 확인해야 합니다.

@@ -25,7 +25,7 @@ npm run store:assets   # 개발용: macOS Chrome, sips 필요. 개인 프로필 
 
 `npm run`은 `~/.npmrc` 등의 npm 설정을 `npm_config_*` 환경변수로 하위 명령에 넘깁니다. 전역 `allow-scripts` 설정이 있으면 npm 11이 하위 `npm audit`을 `EALLOWSCRIPTS`로 중단하므로, `release` 스크립트는 audit 단계에서만 `env -u npm_config_allow_scripts`로 이 변수를 제거합니다. 전역 설정은 바꾸지 않습니다.
 
-분석 토큰은 루트 `.env.local`의 `VITE_POSTHOG_KEY`를 빌드 시 읽습니다. 이 파일은 CI/다른 개발 환경에 자동 전달되지 않습니다. `npm run build`는 `.output/`만 갱신하므로 토큰을 추가·변경한 후의 배포 ZIP은 `npm run release`로 다시 생성해야 합니다. 테스트용 토큰으로 배포하지 않습니다. 아래 PostHog 운영 설정을 마치지 못하면 토큰 없이 빌드해 통계를 끈 채 배포합니다.
+통계 수집 서버 origin은 루트 `.env.local` 등의 `UNIDOCK_STATS_SERVER`를 빌드 시 읽습니다. 이 파일은 CI/다른 개발 환경에 자동 전달되지 않습니다. `npm run release`는 이 값이 없거나 `https://stats.test`이면 실패하고, 번들에서 GA 비밀값·엔드포인트·PostHog·`client_id`를 검사합니다. `npm run build`는 `.output/`만 갱신하므로 값을 바꾼 뒤 배포 ZIP은 `npm run release`로 다시 생성합니다.
 
 ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행하고 해시를 갱신합니다. ZIP 루트에 manifest.json이 있어야 합니다. 소스 프로젝트 전체를 업로드하지 않습니다.
 
@@ -34,7 +34,7 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 - 기능 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`에 `alarms`(자동 재생), `declarativeNetRequestWithHostAccess`·`identity`(AI 자막)를 추가. 정확한 목록은 `package-release.mjs`가 강제합니다.
 - 상시 호스트: `mylms.korea.ac.kr`, `canvas.korea.ac.kr`, `kucom.korea.ac.kr` (0.3.0과 동일).
 - 선택 호스트(`optional_host_permissions`): `https://lms.korea.ac.kr/*`(팝업 자동 닫기), `https://korea-cms-object.cdn.gov-ntruss.com/*`(AI 자막의 음성 취득, ‘음성 보내기’를 누를 때만 요청). 설치·업데이트 때 묻지 않습니다.
-- CSP `connect-src`: PostHog EU, 강의 영상 CDN, 자막 서버 origin 하나.
+- CSP `connect-src`: 통계 수집 서버, 강의 영상 CDN, 자막 서버 origin 하나씩.
 - 콘텐츠 스크립트 선언: `content-scripts/lms.js`와 `content-scripts/player.js`(모든 프레임, LMS 두 호스트와 `kucom.korea.ac.kr/em/*`). `content-scripts/lms-popup.js`는 ZIP에 포함되지만 manifest에 선언하지 않고 opt-in 후 런타임 등록합니다.
 - manifest `key`, `oauth2`는 없어야 합니다(`package-release.mjs`가 강제).
 - 상시 권한과 콘텐츠 스크립트가 늘어 기존 설치에 업데이트 권한 경고가 뜰 수 있습니다. 첫 스토어 등록에는 해당하지 않지만 GitHub 릴리스 사용자에게는 안내가 필요합니다.
@@ -95,15 +95,14 @@ AI 자막 (실제 Chrome, 압축 해제한 `.output/chrome-mv3`):
 - [ ] GitHub Pages를 `main`의 `/docs`로 설정하여 공개 HTTPS URL에 게시하고, 비로그인 브라우저에서 `/privacy.html`이 ‘적용 버전: 0.4.0’으로 보이는지 확인한 뒤 LISTING과 대시보드에 URL 입력 ([배포 안내](../../README.md#개인정보처리방침-github-pages-배포))
 - [ ] Chrome Web Store 개발자 등록 및 계정 보안/2단계 인증 요구 충족. 비용 지급·계정 설정은 배포자 수행
 
-PostHog 사용 통계 (공개 정책의 약속과 일치해야 함):
+GA4 집계 사용 통계 (공개 정책의 약속과 일치해야 함, 지표 정의는 [ANALYTICS.md](../ANALYTICS.md)):
 
-- [x] 2026-10-04 운영 토큰의 합성 SDK `/batch/` 요청 HTTP 200 확인 (`scripts/verify-analytics-live.mjs`)
-- [x] 실제 PostHog 이벤트 도착 확인 (사용자 확인). 보관 설정·전체 속성·그래프 검증을 뜻하지 않음
-- [ ] 최종 배포 ZIP을 해당 EU 프로젝트 토큰으로 재생성하고 재로드하여 수신 확인. 개인 API 키는 확장에 포함하지 않음
-- [ ] PostHog의 IP 폐기와 GeoIP/자동 기능 비활성 확인, 원시 이벤트 최대 90일 보관·삭제 정책 설정 및 검증. 해당 기능을 제공하지 않는 플랜이면 서버측 만료 삭제 운영을 마련하기 전 수집을 활성화하지 않음
-- [ ] 지원 연락처를 통한 설치 ID별 원격 이벤트 삭제 절차 확인. 로컬 삭제와 원격 삭제의 차이를 고지
-- [ ] 동의 전 네트워크/분석 ID 없음, 거절 후 기능 이용, 동의 후 고정 이벤트(0.3.0에서 `filter_kind` 추가), 철회/재시작/모든 데이터 삭제 후 중단 확인
-- [ ] 실제 PostHog 프로젝트에서 가상 데이터로 속성·DAU/WAU/MAU·리텐션 대시보드 확인. [설정 안내](../ANALYTICS.md#대시보드-구성)
+- [ ] 수집 서버 배포(`server/stats/README.md`), 운영 환경 Workers 로그·Logpush 끄기
+- [ ] 전용 GA4 속성: 시간대 Asia/Seoul, 데이터 보관 2개월, Google 신호 끄기, 맞춤 정의 등록(`npm run ga4:setup`)
+- [ ] 테스트 속성에서 수집 서버 관리자 export `?validate=1`로 Measurement Protocol 검증
+- [ ] 운영 전에 테스트 속성에서 Data API로 맞춤 측정항목 실제 값 확인(`npm run ga4:report -- --source ga`). HTTP 2xx는 수신 증거가 아님
+- [ ] 최종 배포 ZIP을 실제 `UNIDOCK_STATS_SERVER`로 재생성하고 재로드하여 수신 확인
+- [ ] 첫 안내 표시 전 전송 없음, 업데이트 시 거절 유지·변경 안내·이전 설치 UUID 삭제, 끄기 후 즉시 중단·미전송 삭제, 로컬 데이터 삭제 후 켜짐/꺼짐 유지 확인
 
 실제 LMS·브라우저 (이전 버전부터 남은 항목):
 
@@ -121,7 +120,7 @@ PostHog 사용 통계 (공개 정책의 약속과 일치해야 함):
 
 ## 승인 후
 
-- [ ] 스토어 설치본에서 설정 화면 버전 0.4.0, 개인정보처리방침 링크, 자동 재생·통계·팝업 닫기 기본 꺼짐, AI 자막 로그아웃 상태 확인
+- [ ] 스토어 설치본에서 설정 화면 버전 0.4.0, 개인정보처리방침 링크, 자동 재생·팝업 닫기 기본 꺼짐, 사용 통계는 첫 안내 표시 후 기본 켜짐, AI 자막 로그아웃 상태 확인
 - [ ] 첫 등록이므로 설치 사용자에게 `NEW` 배지·업데이트 안내가 뜨지 않는 것이 정상. 다음 버전부터 스토어 업데이트 후 새 탭 없이 배지와 패널 알림이 한 번 표시되고 열린 LMS 탭이 새로고침 없이 조회되는지 확인
 - [ ] GitHub 릴리스 `v0.4.0`에 같은 ZIP과 `inventory.json`을 첨부하고 해시가 스토어 업로드본과 같은지 확인
 
