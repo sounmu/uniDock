@@ -20,7 +20,6 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           <button
             className="btn-ghost"
             onClick={model.showCourses}
-            data-analytics-action="back"
           >
             ← 과목 선택
           </button>
@@ -37,13 +36,6 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
             ).map(([type, label]) => (
               <button
                 key={type}
-                data-analytics-action={
-                  type === "ASSIGNMENTS_LIST"
-                    ? "tab_assignments"
-                    : type === "RECORDINGS_LIST"
-                      ? "tab_recordings"
-                      : "tab_materials"
-                }
                 className="btn-ghost"
                 aria-pressed={model.view === type}
                 onClick={() => {
@@ -85,7 +77,7 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           />
           {model.course && (
             <details className="guidance">
-              <summary data-analytics-action="guidance">
+              <summary>
                 {model.view === "RECORDINGS_LIST"
                   ? "강의 열기 안내"
                   : "표시 기준"}

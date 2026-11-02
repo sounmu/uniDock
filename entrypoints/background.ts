@@ -31,7 +31,10 @@ import {
   reinjectLmsContentScripts,
   takeUpdateBadge,
 } from "../src/update-notice";
-import { isAnalyticsCommand } from "../src/analytics/contract";
+import {
+  ANALYTICS_ALARM,
+  isAnalyticsCommand,
+} from "../src/analytics/contract";
 import {
   applyPopupAutoCloseChange,
   isPopupAutoCloseGet,
@@ -477,10 +480,29 @@ export default defineBackground(() => {
   } catch {
     // Unsupported runtime: the consent path still sets the level before writing.
   }
+  // Development builds never report: the collector origin is a release build constant.
   const analytics = new AnalyticsRuntime(
-    import.meta.env.PROD ? (import.meta.env.VITE_POSTHOG_KEY ?? "") : "",
+    import.meta.env.PROD ? __UNIDOCK_STATS_SERVER__ : "",
     chrome.runtime.getManifest?.().version ?? "0",
+    chrome.alarms?.create
+      ? {
+          alarm: {
+            set: (when) => chrome.alarms.create(ANALYTICS_ALARM, { when }),
+            clear: async () => {
+              await chrome.alarms.clear(ANALYTICS_ALARM);
+            },
+          },
+        }
+      : {},
   );
+  chrome.runtime.onInstalled?.addListener((details) => {
+    void analytics.installed(details.reason).catch(() => {});
+  });
+  chrome.alarms?.onAlarm?.addListener((alarm) => {
+    if (alarm.name === ANALYTICS_ALARM) void analytics.wake();
+  });
+  // Resume unsent reports after a worker restart, browser restart or going offline.
+  void analytics.wake();
   // Chrome 114 supports these APIs; baseline tests/older unsupported runtimes may not.
   // Release builds compile playback out; the constant folds this to null.
   const playback =
@@ -559,8 +581,7 @@ export default defineBackground(() => {
         return false;
       }
       void analytics
-        .erase()
-        .then(async () => {
+        .erase(async () => {
           // The opt-in goes first, then its optional grant, before the panel
           // (which holds its popup change lock until this reply) may turn it on.
           // Playback erases only its own keys; reset the popup opt-in too.
@@ -691,6 +712,7 @@ export default defineBackground(() => {
       void playback.startup().then(notifyPlayback);
     };
     chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === ANALYTICS_ALARM) return;
       void playback.alarm(alarm.name).then(notifyPlayback);
     });
     chrome.runtime.onStartup?.addListener(recover);

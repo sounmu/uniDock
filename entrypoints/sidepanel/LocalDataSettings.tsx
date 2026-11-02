@@ -19,9 +19,7 @@ export function LocalDataSettings() {
       });
       if (!ran) return;
       setConfirm(false);
-      setNotice(
-        "로컬 데이터를 삭제했습니다. 이미 전송된 통계는 별도 삭제 요청이 필요합니다.",
-      );
+      setNotice("로컬 데이터를 삭제했습니다.");
     } catch {
       setNotice("로컬 데이터를 삭제하지 못했습니다. 다시 시도하세요.");
     }
@@ -36,8 +34,8 @@ export function LocalDataSettings() {
           <div className="row-text">
             <p className="row-title">저장된 설정 삭제</p>
             <p className="row-sub">
-              팝업 자동 닫기 설정, 통계 동의와 설치 식별자 등 저장된 설정을
-              삭제합니다. 다운로드한 파일은 유지됩니다.
+              팝업 자동 닫기 설정과 미전송 사용 통계 등 저장된 데이터를 삭제합니다.
+              사용 통계 켜짐/꺼짐 선택과 다운로드한 파일은 유지됩니다.
             </p>
             {notice && (
               <p className="row-sub" role="status">

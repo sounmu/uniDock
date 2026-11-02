@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { downloadCaption } from "../../src/captions/download";
-import { featureResult } from "./analytics";
+import { coreResult, startOperation } from "./analytics";
 import { useAiCaptions } from "./useAiCaptions";
 import { useCaptionSession } from "./useCaptionSession";
 
@@ -66,17 +66,20 @@ export function AiCaptionsSection({
   async function exportResult() {
     const result = state.result;
     if (!result) return;
-    const report = featureResult("captions_ai");
+    const op = startOperation("ai_captions_export");
     try {
       const outcome = await downloadCaption(result.transcript, { variant: "ai" });
-      report(outcome.status === "complete");
+      if (outcome.status === "complete") {
+        op.success();
+        coreResult("ai_captions_exported");
+      } else op.failure("PARTIAL");
       setNotice(
         outcome.status === "complete"
           ? "output/에 AI 자막 TXT·JSON 다운로드를 요청했습니다."
           : "다운로드를 일부만 요청했습니다. 다운로드 목록을 확인하세요.",
       );
     } catch {
-      report(false);
+      op.failure("DOWNLOAD_FAILED");
       setNotice("다운로드를 요청하지 못했습니다. 다시 시도하세요.");
     }
   }
@@ -97,7 +100,6 @@ export function AiCaptionsSection({
         <div className="settings-row row-actions">
           <button
             className="btn-primary"
-            data-analytics-action="captions_ai_confirm"
             onClick={() => {
               setConfirming(false);
               setNotice("");
@@ -139,7 +141,6 @@ export function AiCaptionsSection({
         <div className="settings-row row-actions">
           <button
             className="btn-primary"
-            data-analytics-action="captions_ai_generate"
             onClick={() => setConfirming(true)}
           >
             AI 자막 생성
@@ -162,7 +163,6 @@ export function AiCaptionsSection({
           <div className="row-actions">
             <button
               className="btn-ghost"
-              data-analytics-action="captions_ai_cancel"
               onClick={() => cancel()}
             >
               취소
@@ -181,7 +181,6 @@ export function AiCaptionsSection({
           <div className="row-actions">
             <button
               className="btn-secondary"
-              data-analytics-action="captions_ai_generate"
               onClick={() => setConfirming(true)}
             >
               다시 시도
@@ -201,7 +200,6 @@ export function AiCaptionsSection({
           <div className="row-actions">
             <button
               className="btn-primary"
-              data-analytics-action="captions_ai"
               onClick={() => void exportResult()}
             >
               AI 자막 TXT·JSON 다운로드

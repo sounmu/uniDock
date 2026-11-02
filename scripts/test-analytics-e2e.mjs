@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-// The fake public token must never remain in the normal build output after this check.
+// Builds against the routed synthetic collector, then restores the normal build
+// so the test origin never stays in .output/.
 const env = {
   ...process.env,
-  VITE_POSTHOG_KEY: "phc_unidock_synthetic_test",
-  UNIDOCK_ANALYTICS_E2E: "1",
+  UNIDOCK_STATS_SERVER: "https://stats.test",
 };
 let status = 1;
 try {

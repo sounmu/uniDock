@@ -11,7 +11,7 @@ import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
 import { Notice } from "./ui/Notice";
 import { softDisabled } from "./ui/a11y";
-import { featureResult } from "./analytics";
+import { coreResult, startOperation } from "./analytics";
 import { AiCaptionsSection } from "./AiCaptionsSection";
 const messages = {
   ACTIVATE_TAB:
@@ -102,7 +102,7 @@ export function CaptionsPanel({
     return () => clearTimeout(timer);
   }, [state]);
   async function detect() {
-    const report = featureResult("captions_detect");
+    const op = startOperation("captions_detect");
     back();
     detection.current?.abort();
     exportController.current?.abort();
@@ -129,13 +129,13 @@ export function CaptionsPanel({
     );
     if (isCurrent()) {
       detection.current = null;
-      report(result.status === "success");
+      op.result(result);
       setState(result);
     }
   }
   async function download() {
     if (!selected || exportLocked.current) return;
-    const report = featureResult("captions_export");
+    const op = startOperation("captions_export");
     exportLocked.current = true;
     const controller = new AbortController();
     exportController.current = controller;
@@ -151,7 +151,10 @@ export function CaptionsPanel({
         isCurrent,
       });
       if (!isCurrent()) return;
-      report(result.status === "complete");
+      if (result.status === "complete") {
+        op.success();
+        coreResult("captions_exported");
+      } else op.failure(result.accepted === 1 ? "PARTIAL" : "DOWNLOAD_FAILED");
       if (result.status === "complete") {
         setNotice(
           "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
@@ -164,7 +167,7 @@ export function CaptionsPanel({
         setNotice("다운로드를 요청하지 못했습니다. 다시 시도하세요.");
       }
     } catch {
-      if (isCurrent()) report(false);
+      if (isCurrent()) op.failure("DOWNLOAD_FAILED");
       if (isCurrent())
         setNotice(
           "다운로드 요청을 완료하지 못했습니다. 일부 파일만 저장되었을 수 있으니 다운로드 목록을 확인하세요.",
@@ -194,14 +197,13 @@ export function CaptionsPanel({
             <button
               className={aiOffer ? "btn-secondary" : "btn-primary"}
               {...softDisabled(state.status === "loading", () => void detect())}
-              data-analytics-action="captions_detect"
             >
               {state.status === "loading" ? "감지 중…" : "자막 감지"}
             </button>
           }
         />
         <details className="guidance">
-          <summary data-analytics-action="guidance">자막 찾는 방법</summary>
+          <summary>자막 찾는 방법</summary>
           <p className="hint">
             강의 플레이어 탭에서 감지하세요. 감지는 서버로 보내지 않으며, 자막은
             output/ 폴더에 TXT·JSON으로 저장합니다(JSON에 강의 URL·제목 포함).
@@ -293,7 +295,6 @@ export function CaptionsPanel({
             className="btn-primary"
             disabled={exportPending}
             onClick={() => void download()}
-            data-analytics-action="captions_export"
           >
             TXT·JSON 다운로드
           </button>

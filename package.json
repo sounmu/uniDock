@@ -35,7 +35,6 @@
     "demo": "npm run build && node scripts/demo.mjs"
   },
   "dependencies": {
-    "@posthog/core": "1.55.2",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

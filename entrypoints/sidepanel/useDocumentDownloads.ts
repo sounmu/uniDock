@@ -8,7 +8,11 @@ import {
   safeDownloadPath,
 } from "../../src/security/download";
 import type { QueryGate } from "./query-gate";
-import { featureResult } from "./analytics";
+import {
+  coreResult,
+  startOperation,
+  type OperationHandle,
+} from "./analytics";
 
 export type DownloadStatus =
   "queued" | "requested" | "complete" | "failed" | "cancelled" | "review";
@@ -48,6 +52,8 @@ export function useDocumentDownloads(context: {
   const candidates = useRef(new Set<number>());
   const bindings = useRef(new Map<number, string>());
   const observed = useRef(new Map<string, DownloadStatus>());
+  // One logical download per requested file, finalized by the browser result.
+  const operations = useRef(new Map<string, OperationHandle>());
   // Unlike batch cancellation, a list reset retires browser observations too.
   const observationEpoch = useRef(0);
   const source = useRef(context);
@@ -97,6 +103,15 @@ export function useDocumentDownloads(context: {
               : "review"
             : "requested";
       observed.current.set(handle, state);
+      const operation = operations.current.get(handle);
+      if (operation && state !== "requested") {
+        operations.current.delete(handle);
+        if (state === "complete") {
+          operation.success();
+          coreResult("document_downloaded");
+        } else
+          operation.failure(state === "review" ? "MIME_MISMATCH" : "INTERRUPTED");
+      }
       setStatuses((previous) => ({ ...previous, [handle]: state }));
     };
     const created = (item: chrome.downloads.DownloadItem) => {
@@ -143,6 +158,7 @@ export function useDocumentDownloads(context: {
     chrome.downloads.onChanged.addListener(changed);
     return () => {
       active = false;
+      operations.current.clear();
       observationEpoch.current++;
       batch.current++;
       chrome.downloads.onCreated.removeListener(created);
@@ -157,6 +173,7 @@ export function useDocumentDownloads(context: {
     candidates.current.clear();
     bindings.current.clear();
     observed.current.clear();
+    operations.current.clear();
     setStatuses({});
     setProgress({ running: false, done: 0, total: 0 });
     setNotice("");
@@ -175,7 +192,6 @@ export function useDocumentDownloads(context: {
         !used.current.has(item.downloadHandle),
     );
     if (!selected.length) return;
-    const report = featureResult("download");
     const current = generation.current,
       token = ++batch.current;
     running.current = true;
@@ -204,6 +220,8 @@ export function useDocumentDownloads(context: {
           path,
           origin: new URL(destination.url).origin,
         });
+      const operation = startOperation("document_download");
+      operations.current.set(handle, operation);
       const work = queryActive(
         { version: 1, type: "DOCUMENT_DOWNLOAD", handle, course },
         { target: destination },
@@ -219,6 +237,8 @@ export function useDocumentDownloads(context: {
         // batch; it and the rest stay queued, end as cancelled, and remain
         // selectable for a retry from this same list.
         used.current.delete(handle);
+        operations.current.delete(handle);
+        operation.failure(result.code);
         expected.current = expected.current.filter(
           (entry) => entry.handle !== handle,
         );
@@ -230,7 +250,10 @@ export function useDocumentDownloads(context: {
           );
         break;
       }
-      report(result.status === "success");
+      if (result.status === "error") {
+        operations.current.delete(handle);
+        operation.result(result);
+      }
       done++;
       if (current !== generation.current) break;
       const observedState = observed.current.get(handle);
