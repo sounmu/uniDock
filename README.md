@@ -296,7 +296,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - **새 설치는 기본 켜짐**. 패널을 처음 열 때 보내는 것·보내지 않는 것과 끄는 방법을 안내하고, 안내를 표시한 뒤에만 수집합니다. **설정 → 사용 통계 → 사용 통계 보내기** 또는 안내의 **통계 끄기**로 끌 수 있으며, 꺼도 학습 기능은 같습니다. 이 설정은 법적 동의 절차가 아닙니다.
 - 업데이트 사용자: 이전에 거절(`enabled:false`)한 설치는 계속 꺼져 있습니다. 이전 동의자와 미선택 설치는 "사용 통계 방식이 바뀌었습니다" 안내를 표시한 뒤에만 수집합니다. 이전 PostHog 설치 UUID와 미전송 데이터는 업데이트 때 삭제하며 옮기지 않습니다.
 - 서울 기준 하루 단위 증분 보고만 보냅니다. 고정 코드, 범위가 제한된 정수, 날짜, 확장 버전, 중복 방지용 1회용 `report_id`뿐이며 설치·사용자 식별자, LMS 데이터, URL, 페이지 제목, 입력값, 자막, 파일, 원본 오류는 보내지 않습니다. 지표 정의는 [분석 운영 안내](documentation/ANALYTICS.md)에 있습니다.
-- 백그라운드가 유일한 기록자로, `unidock.analytics.v2`(켜짐/꺼짐, 안내 대기)와 `unidock.analytics-counters.v1`(오늘 표시, 미전송 증분, 최대 30개 보고·7일·12회 시도)에 모읍니다. 활동 중 약 10분마다 `alarms`로 개발자 수집 서버(Cloudflare Worker + D1)에 HTTPS POST합니다. 서버는 닫힌 스키마 검증, `report_id` 중복 제거 후 날짜별 전체 합계에 더하고, 한 시간마다 새 증분을 전용 GA4 속성에 Measurement Protocol로 보냅니다. `api_secret`은 서버에만 있습니다.
+- 백그라운드가 유일한 기록자로, `unidock.analytics.v2`(켜짐/꺼짐, 안내 대기)와 `unidock.analytics-counters.v1`(오늘 표시, 미전송 증분, 최대 30개 보고·7일·12회 시도)에 모읍니다. 활동 중 약 10분마다 `alarms`로 개발자 수집 서버(Cloudflare Tunnel 뒤의 Go 서비스·전용 PostgreSQL)에 HTTPS POST합니다. 서버는 닫힌 스키마 검증, `report_id` 중복 제거 후 날짜별 전체 합계에 더하고, 한 시간마다 새 증분을 전용 GA4 속성에 Measurement Protocol로 보냅니다. `api_secret`은 서버에만 있습니다.
 - 끄면 수집·전송이 즉시 멈추고 진행 중 요청을 취소하며 기기의 미전송 통계를 지웁니다. 꺼진 동안의 활동은 나중에 보내지 않습니다. 이미 합계에 더해진 숫자는 설치별로 분리할 수 없어 삭제되지 않습니다. **설정 → 로컬 데이터 모두 삭제**는 미전송 통계를 지우지만 켜짐/꺼짐 선택과 오늘의 중복 방지 표시는 유지합니다.
 
 수집 서버 origin은 빌드 시 `UNIDOCK_STATS_SERVER`에서 읽어 CSP `connect-src`에 넣습니다. 새 Chrome 권한은 없습니다. 값이 없는 빌드와 개발/HMR 빌드는 아무것도 보내지 않으며 설정에 "이 빌드는 통계를 보내지 않습니다"가 표시됩니다.
@@ -306,7 +306,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 UNIDOCK_STATS_SERVER=https://stats.example.com
 ```
 
-`npm run release`는 실제 수집 서버 값(`https://stats.test` 불가)을 요구하고 번들에 GA 비밀값·엔드포인트·PostHog·`client_id`가 없는지 검사합니다. 서버 배포는 `server/stats/README.md`, GA4 설정과 확인 절차는 [분석 운영 안내](documentation/ANALYTICS.md)를 참고하세요.
+`npm run release`는 실제 수집 서버 값(`https://stats.test` 불가)을 요구하고 번들에 GA 비밀값·엔드포인트·PostHog·`client_id`가 없는지 검사합니다. 이 저장소는 확장만 담당합니다. 수집 서버·GA4 도구·배포 안내는 [unidock-server의 stats](https://github.com/sounmu/unidock-server/tree/main/stats), 확장 계측과 분모 정의는 [분석 안내](documentation/ANALYTICS.md)를 참고하세요.
 
 ## 개인정보처리방침 GitHub Pages 배포
 

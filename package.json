@@ -31,9 +31,6 @@
     "release": "npm run notices && UNIDOCK_RELEASE=1 npm run check && env -u npm_config_allow_scripts npm audit --audit-level=moderate && node scripts/package-release.mjs",
     "store:assets": "node scripts/brand-assets.mjs && node scripts/store-assets.mjs",
     "notices": "node scripts/notices.mjs",
-    "stats:dev": "node --experimental-strip-types scripts/stats-dev-server.mjs",
-    "ga4:setup": "node --experimental-strip-types scripts/ga4-setup.mjs",
-    "ga4:report": "node --experimental-strip-types scripts/ga4-report.mjs",
     "test:captions:live": "node scripts/test-caption-live.mjs",
     "demo": "npm run build && node scripts/demo.mjs"
   },

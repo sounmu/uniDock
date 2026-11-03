@@ -97,10 +97,10 @@ AI 자막 (실제 Chrome, 압축 해제한 `.output/chrome-mv3`):
 
 GA4 집계 사용 통계 (공개 정책의 약속과 일치해야 함, 지표 정의는 [ANALYTICS.md](../ANALYTICS.md)):
 
-- [ ] 수집 서버 배포(`server/stats/README.md`), 운영 환경 Workers 로그·Logpush 끄기
-- [ ] 전용 GA4 속성: 시간대 Asia/Seoul, 데이터 보관 2개월, Google 신호 끄기, 맞춤 정의 등록(`npm run ga4:setup`)
+- [ ] `unidock-server/stats/README.md`에 따라 별도 통계 컨테이너·DB role 배포, Cloudflare Tunnel 연결과 접근 로그·Logpush 비활성 확인
+- [ ] 전용 GA4 속성: 시간대 Asia/Seoul, 데이터 보관 2개월, Google 신호 끄기, 서버 저장소의 관리 도구로 맞춤 정의 등록
 - [ ] 테스트 속성에서 수집 서버 관리자 export `?validate=1`로 Measurement Protocol 검증
-- [ ] 운영 전에 테스트 속성에서 Data API로 맞춤 측정항목 실제 값 확인(`npm run ga4:report -- --source ga`). HTTP 2xx는 수신 증거가 아님
+- [ ] 운영 전에 테스트 속성에서 Data API로 맞춤 측정항목 실제 값 확인(서버 저장소의 보고서 도구 사용). HTTP 2xx는 수신 증거가 아님
 - [ ] 최종 배포 ZIP을 실제 `UNIDOCK_STATS_SERVER`로 재생성하고 재로드하여 수신 확인
 - [ ] 첫 안내 표시 전 전송 없음, 업데이트 시 거절 유지·변경 안내·이전 설치 UUID 삭제, 끄기 후 즉시 중단·미전송 삭제, 로컬 데이터 삭제 후 켜짐/꺼짐 유지 확인
 

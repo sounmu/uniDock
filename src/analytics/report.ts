@@ -1,6 +1,6 @@
 // Shared, dependency-free wire contract for aggregate usage reports.
-// Imported by the extension background, the collector server and the GA4
-// scripts, so it must not reference browser globals or build flags.
+// Used by the extension background. The Go collector in unidock-server/stats
+// implements the same wire contract, checked against shared golden fixtures.
 // Every value is a closed code, a bounded integer or a Seoul calendar date:
 // a report cannot carry LMS data, URLs, free text or install identifiers.
 

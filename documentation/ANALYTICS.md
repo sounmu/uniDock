@@ -6,7 +6,7 @@
 - 이 설정은 법적 동의를 자동으로 대신하지 않습니다. GA4가 완전한 익명성을 자동으로 보장한다고 설명하지 않습니다.
 - 모든 날짜는 **Asia/Seoul**(UTC+9, 서머타임 없음) 달력 날짜입니다.
 
-코드 기준: 계약 `src/analytics/report.ts`, 메시지 `src/analytics/contract.ts`, 기기 집계 `src/analytics/runtime.ts`, 패널 계측 `entrypoints/sidepanel/analytics.ts`·`useAnalytics.ts`, GA4 매핑 `src/analytics/ga4.ts`, 보고서 계산 `src/analytics/metrics.ts`·`summary.ts`, 수집 서버 `server/stats/`([배포 안내](../server/stats/README.md)).
+코드 기준: 전송 계약 `src/analytics/report.ts`, 메시지 `src/analytics/contract.ts`, 기기 집계 `src/analytics/runtime.ts`, 패널 계측 `entrypoints/sidepanel/analytics.ts`·`useAnalytics.ts`. 수집 서버와 GA4 도구는 별도 `unidock-server/stats` 저장소 경로에서 관리합니다.
 
 ## 1. 데이터 흐름
 
@@ -14,12 +14,12 @@
 패널(전면 UI) ──고정 코드 신호──▶ background (단일 writer: 일별 카운터·중복 방지 플래그·제한 큐)
                                        │ 약 10분마다 봉인한 불변 일별 delta 보고서 (일회성 report_id)
                                        ▼ HTTPS POST text/plain, 쿠키·referrer 없음
-                              수집 API (Cloudflare Worker + D1)
+                              수집 API (Cloudflare Tunnel → Go → 전용 PostgreSQL)
                                        │ 엄격 검증 → report_id 중복 제거 → 날짜별 전체 합계에 원자적 가산
-                                       ▼ 매시 :17 cron, 새로 늘어난 delta만
+                                       ▼ 매시간 서버 스케줄러, 새로 늘어난 delta만
                               GA4 Measurement Protocol (집계 전용 property, api_secret은 서버에만)
                                        ▼
-                         GA4 Explorations / Looker Studio / Data API (`npm run ga4:report`)
+                         GA4 Explorations / Looker Studio / Data API (서버 저장소 보고서 도구)
 ```
 
 확장은 Google에 직접 연결하지 않습니다. 확장 번들에는 GA SDK·measurement ID·api_secret이 없으며 `scripts/package-release.mjs`가 이를 검사합니다. 콘텐츠 스크립트는 통계 메시지를 보낼 수 없습니다(background가 패널 발신자만 허용).
@@ -119,107 +119,27 @@
 
 OFF는 이미 전체 합계에 더해진 통계를 지우지 않습니다. 합계는 설치별로 구분되지 않기 때문입니다. 안내 문구 위치: 첫 실행·변경 안내(패널 상단), 설정 → 사용 통계, 개인정보처리방침, 스토어 문안.
 
-## 6. 수집 서버 정책 (`server/stats/`)
+## 6. 서버 운영과 GA4 보고서
 
-- `POST /v1/reports`만 공개. 허용 Origin(확장 ID), `text/plain`/`application/json`, 8 KB 이하, `isDailyReport` 엄격 검증(닫힌 키·코드, 정수 범위, 구간 합 = 표본 수, 오류 합 = 실패 + 시간초과). 임의 문자열·임의 GA 이벤트를 받지 않습니다.
-- `report_id` 마커 + 요청별 nonce를 쓰는 D1 batch(트랜잭션) 하나로 중복 제거와 합계 가산을 원자적으로 처리합니다. 같은 `report_id`를 다시 보내면 `duplicate`이고 합계는 변하지 않습니다.
-- 보관: 날짜별 전체 합계(`totals`), GA로 넘긴 양(`exported`), 10일짜리 `report_id` 마커, 90일 집계 export 로그, 메타 시각. 개별 설치의 일별 이력·요청 본문·IP·헤더·쿠키·referer는 저장하지 않습니다.
-- 운영 Worker는 Workers Logs·Logpush·Tail을 끕니다([배포 안내](../server/stats/README.md)).
+수집·중복 제거·PostgreSQL 집계·GA4 export·설정 및 보고서 도구는 **unidock-server의 stats/**가 소유합니다. 자막은 같은 저장소의 **captions/**에서 별도 컨테이너로 운영하며 통계에 자막 로그인 토큰이나 계정 DB를 사용하지 않습니다.
 
-## 7. GA4 export 정책
+- [서버 배포·환경변수·GA4 설정 및 보고서 안내](https://github.com/sounmu/unidock-server/tree/main/stats)
+- 수집 인터페이스: `POST /v1/reports`, 닫힌 코드·정수·날짜, 8 KB 이하, 일회성 `report_id`로 중복 제거.
+- 수집 원장이 기준이며 GA4에는 새 증분만 전송합니다. 응답이 유실된 export는 중복을 피하려고 자동 재전송하지 않으므로 GA 합계와 원장에 차이가 생길 수 있습니다.
+- GA 보고서는 `customEvent:` 측정항목의 **합계**를 사용합니다. 집계 이벤트 하나에 이용 200회가 담겼다면 이용량은 200이지 Event count 1이 아닙니다.
+- 합성 batch client ID는 사용자 식별자가 아닙니다. GA 기본 Users·Sessions·Retention·사용자별 퍼널은 제품 지표로 해석하지 않습니다.
+- 프록시 제공자는 접속 IP를 처리할 수 있습니다. 서비스 요청 본문·IP·쿠키·토큰을 로그로 남기지 않도록 배포 설정도 점검합니다.
 
-- 대상: **집계 전용 GA4 property + Web stream**, reporting time zone **Asia/Seoul**. 개발·스테이징 이벤트는 별도 Worker·D1·테스트 property로만 보냅니다.
-- 매시 오늘 포함 4일(오늘−3 ~ 오늘)에 대해 `totals − exported` delta만 이벤트로 만듭니다. 전 기간 누적 snapshot을 반복 전송하지 않습니다.
-- `timestamp_micros`: 그 Seoul 날짜 안이면서 지금부터 71시간 이내인 시각(GA4 72시간 소급 제한). 그런 시각이 없으면 보내지 않고 상태 API의 `exportable:false`로 남깁니다. 오래된 delta를 오늘로 보내지 않습니다.
-- `client_id`: 요청마다 새로 만드는 합성 값(저장·재사용 안 함). 설치·사용자와 무관합니다. `user_id`, `user_properties`, `session_id`, `engagement_time_msec`, IP·UA·위치 override를 보내지 않습니다. 이것은 GA4의 공식 익명 모드가 아닙니다.
-- **수집 API의 중복 제거 ≠ GA 정확히 한 번.** GA MP는 중복 제거를 하지 않으므로 export는 *최대 한 번*입니다: 보내기 전에 `exported`를 올리고, 429/5xx 응답이면 되돌려 다음 실행에서 재전송, 그 외 4xx는 되돌리고 중단, 응답 유실·시간초과는 `unknown`으로 기록하고 재전송하지 않습니다(이중 집계보다 누락을 택함). 15분 넘게 `sending`인 기록은 `unknown`. **D1 합계가 기준 원장**입니다.
-
-이벤트(필요한 차원만 event-scoped로 부착, 숫자는 custom metric):
-
-| 이벤트 | 차원 | 측정항목 |
-|---|---|---|
-| `ud_activity_agg` | — | `ud_active_installs`, `ud_core_installs` |
-| `ud_core_agg` | `ud_core_result` | `ud_core_results` |
-| `ud_service_agg` | `ud_service` | `ud_service_entries`, `ud_service_installs` |
-| `ud_operation_agg` | `ud_operation`, `ud_trigger`, `ud_extension_version` | `ud_op_started`, `ud_op_success`, `ud_op_failure`, `ud_op_timeout`, `ud_op_cancel`, `ud_duration_ms_sum`, `ud_duration_count` |
-| `ud_error_agg` | 위 3개 + `ud_error_code` | `ud_op_errors` |
-| `ud_latency_agg` | 위 3개 + `ud_latency_bucket` | `ud_latency_count` |
-| `ud_pipeline_agg` | `ud_pipeline_status` | `ud_pipeline_reports` |
-
-사용 200회를 담은 이벤트 1건은 Event count가 1이지만 `customEvent:ud_service_entries` 합은 200입니다. 보고서는 항상 custom metric 합계를 쓰고 `eventCount`/`countCustomEvent`로 대체하지 않습니다.
-
-### Measurement Protocol 단독 전송의 제약
-
-- GA4 기본 **Users·Sessions·Engagement·Retention·Realtime·사용자 기반 전환율은 의미가 없습니다**(합성 client_id, 세션 없음). 제품 지표로 쓰지 않습니다. Realtime을 채우려고 가짜 세션을 만들지 않습니다.
-- 운영 엔드포인트 `/mp/collect`는 형식이 틀려도 2xx를 돌려줍니다. **HTTP 2xx는 반영 증거가 아닙니다.** 형식 검증은 `/debug/mp/collect`(관리 API `?validate=1`), 실제 반영은 처리 후(보통 24~48시간) Data API 합계로 확인합니다.
-- custom definitions는 **등록 후 수신된 이벤트에만** 채워집니다. 첫 export 전에 등록하세요.
-- 세션 기반 차원(소스·매체 등)은 `(not set)`이 될 수 있습니다. 사용하지 않습니다.
-
-## 8. GA4 설정 순서 (권한이 있는 운영자)
-
-1. GA4에서 집계 전용 **테스트 property**와 **운영 property**를 따로 만들고 각각 **Web data stream** 하나를 만듭니다(사이트 URL은 수집 서버 origin 등 실제 소유 주소. 웹 태그는 설치하지 않음). Enhanced measurement는 꺼 둡니다.
-2. Admin → Property details: reporting time zone **Asia/Seoul**(또는 `npm run ga4:setup -- --property <id> --apply --set-timezone`).
-3. Admin → Data collection and modification: Google signals 끔, 데이터 보관 기간 **2개월**.
-4. Admin → Data streams → 해당 stream → Measurement Protocol API secrets에서 secret 생성 → 수집 서버 `wrangler secret put GA_API_SECRET`. measurement ID(`G-…`)는 Worker 변수 `GA_MEASUREMENT_ID`. 확장에는 넣지 않습니다.
-5. custom definitions 등록: `npm run ga4:setup`(표 출력) → `GA_ADMIN_TOKEN=… npm run ga4:setup -- --property <id> --apply`. 또는 Admin → Data display → Custom definitions에서 위 표의 차원 8개(Event scope)와 측정항목 15개(Event scope, Standard 단위)를 같은 parameter 이름으로 직접 만듭니다.
-6. 테스트 property로 연결한 스테이징 Worker에서 `POST /v1/admin/export?validate=1` → `validationMessages`가 비어 있는지 확인(형식 검증).
-7. 실제 export 후 24~48시간 뒤 `npm run ga4:report -- --source ga`와 `--compare`로 custom metric 합계가 원장과 일치하는지 확인(실제 반영 검증). 확인 전에는 운영 property로 전환하지 않습니다.
-
-## 9. 보고서 구성
-
-### GA4 Explorations (Explore → Free form)
-
-공통: 기간 선택, **Event name 정확히 일치** 필터, 행 `Date`, 값은 아래 custom metric(합계).
-
-1. **전체 현황**: 필터 `ud_activity_agg` / 값 `UD active installs`, `UD core installs` / 시각화 선 그래프. 핵심 가치 도달률은 Admin → Data display → Calculated metrics에서 `{ud_core_installs} / {ud_active_installs}` 계산 측정항목을 만들어 같은 표에 추가합니다(행별 합계에 대해 계산되므로 기간 합계 행도 Σ/Σ). 완료된 핵심 결과 수: 필터 `ud_core_agg`, 행 `UD core result`, 값 `UD core results`.
-2. **기능 분석**: 필터 `ud_service_agg` + `UD service`가 `settings`가 아님 / 행 `Date`, 열 `UD service` / 값 `UD service entries`, `UD service installs`. 도달률은 같은 날짜의 활성 설치(1번 표)로 나눕니다. 서로 다른 이벤트의 측정항목을 한 표에서 나누면 필터가 섞이므로 비율은 Looker Studio 혼합 데이터나 `ga4:report`로 계산합니다.
-3. **작업 품질**: 필터 `ud_operation_agg` + `UD trigger` = `user` / 행 `UD operation`(버전 비교 시 `UD extension version` 추가) / 값 started·success·failure·timeout·cancel·duration sum·duration samples. 성공률·취소율·가중 평균은 계산 측정항목(예: `{ud_op_success} / ({ud_op_success} + {ud_op_failure} + {ud_op_timeout})`, `{ud_duration_ms_sum} / {ud_duration_count}`)으로 만듭니다(표준 property는 계산 측정항목 수에 제한이 있으니 필요한 것만). 오류 분포: 필터 `ud_error_agg`, 행 `UD operation`·`UD error code`, 값 `UD operation errors`. 지연 분포: 필터 `ud_latency_agg`, 행 `UD latency bucket`, 값 `UD latency bucket count`. 버전 비교 표에는 항상 표본 수(`UD duration samples`, 결과 합)와 기간을 함께 둡니다.
-4. **데이터 상태**: 필터 `ud_pipeline_agg`, 행 `Date`·`UD pipeline status`, 값 `UD pipeline reports`.
-
-### Looker Studio (선택)
-
-GA4 커넥터로 위 property를 연결합니다.
-
-- **100% 누적 막대**: 차트 "100% stacked column chart", 측정기준 `Date`, 세부 측정기준 `UD service`, 측정항목 `UD service entries`, 필터 Event name = `ud_service_agg` AND `UD service` ≠ `settings`. 막대마다 그 날짜 합계로 정규화되므로 분모가 날짜별입니다(전체 기간 합계로 나누지 않음).
-- 도달률·핵심 가치 도달률: `ud_activity_agg`와 `ud_service_agg` 차트를 `Date` 기준 **데이터 혼합**한 뒤 `SUM(UD service installs) / SUM(UD active installs)` 계산 필드.
-- Looker Studio에는 7일 창 이동평균과 버킷 기반 백분위 기본 기능이 없으므로 7일 이동평균·전주 같은 요일·근사 p95는 `npm run ga4:report` 결과를 사용합니다.
-
-### Data API (재현 가능한 기준 보고서)
-
-```bash
-GA_PROPERTY_ID=<숫자 id> \
-GA_DATA_TOKEN=$(gcloud auth print-access-token --scopes=https://www.googleapis.com/auth/analytics.readonly) \
-npm run ga4:report -- --source ga --from 2026-11-01 --to 2026-11-14
-```
-
-질의 예(`runReportBody`가 만드는 것과 같음):
-
-```json
-POST https://analyticsdata.googleapis.com/v1beta/properties/<id>:runReport
-{
-  "dateRanges": [{ "startDate": "2026-11-01", "endDate": "2026-11-14" }],
-  "dimensions": [{ "name": "date" }, { "name": "customEvent:ud_service" }],
-  "metrics": [{ "name": "customEvent:ud_service_entries" }, { "name": "customEvent:ud_service_installs" }],
-  "dimensionFilter": { "filter": { "fieldName": "eventName", "stringFilter": { "matchType": "EXACT", "value": "ud_service_agg" } } }
-}
-```
-
-### 데이터 상태와 원장 비교
-
-- `GET /v1/admin/status`(Bearer `ADMIN_TOKEN`): 최종 수신·export 시각, 최근 14일 수신 상태(accepted/accepted_late/duplicate/invalid/expired), 30일 export 결과(sent/failed/rejected/unknown), 날짜별 미전송 delta와 `exportable`.
-- `npm run ga4:report -- --compare`: 원장(`/v1/admin/totals`)과 GA4 합계를 날짜·지표·차원별로 비교. 정상적인 차이는 GA 처리 지연, `unknown` export, 72시간 창을 넘긴 날짜뿐입니다. 수집 장애(수신 0, invalid 급증, export failed)는 이용량 감소로 해석하지 않습니다.
-
-## 10. 검증
+## 7. 검증
 
 자동 테스트(`npm test`):
 
 - `tests/analytics.test.ts`: 신규 설치 안내 전 미집계, PostHog 설정 마이그레이션·UUID 삭제, 여러 번 전송해도 활성·서비스 사용 설치 하루 1회, 핵심 ≤ 활성, 자정 경계, 워커 재시작 후 동일 바이트 재전송, 동시 capture/flush 무손실, 재시도·폐기·상한, OFF 즉시 중단·같은 날 ON 재집계 없음, 삭제 후 OFF 유지, 작업 결과 1회, 금지 값 거부, 7일 초과 폐기.
 - `tests/analytics-client.test.ts`: 작업 최종 결과 1회·OFF 중 시작 작업 미소급, 동적 오류 → 고정 코드, OFF 즉시 중단·다른 패널 동기화, visible일 때만 핵심 결과, StrictMode·재렌더·하위 화면·재선택·설정 왕복에서 진입 1회.
-- `tests/analytics-metrics.test.ts`: 아래 가상 데이터 기대값, GA 왕복(원장 → 이벤트 → Data API 행 → 같은 합계), `customEvent:` 사용·`eventCount` 미사용, Seoul 날짜, 72시간 창.
-- `tests/stats-server.test.ts`: 수신·중복(순차·동시)·검증 실패·만료·Origin·크기, export delta·재전송·unknown·stale·72시간, 검증 모드, 관리 인증, 정리.
+- `tests/analytics-report-contract.test.ts`: Go 수집기와 같은 `analytics-report-contract.json`의 wire JSON을 읽어 허용·거부 결과와 집계 행을 검증합니다. 계약 변경 시 양쪽 fixture를 같은 변경으로 갱신하고 두 저장소 테스트를 모두 실행합니다. 자정·지연 구간 경계도 확인합니다.
 - E2E `npm run test:e2e:analytics`: 실제 빌드에서 첫 실행 안내, 하루 1회 활성, 재선택 무시, 닫힌 payload, 금지 문자열 없음, 다중 패널 OFF, 삭제 후 OFF 유지.
 
-가상 데이터 기대값(`npm run ga4:report -- --fixture`, `scripts/analytics-fixture.ts`):
+서버 저장소의 가상 데이터 보고서가 만족해야 하는 기대값:
 
 | 입력 | 기대값 |
 |---|---|
@@ -230,4 +150,4 @@ POST https://analyticsdata.googleapis.com/v1beta/properties/<id>:runReport
 | 활성 10·10, 핵심 4·6 | 일별 40%, 60%, 기간 20분의 10 = 50% |
 | 사용 200을 담은 집계 이벤트 1건 | `ud_service_entries` = 200 |
 
-**검증 범위**: 위 테스트와 모의 수집 서버(`npm run stats:dev`, 모의 GA 엔드포인트)까지 확인했습니다. 실제 GA4 property에서의 MP validation, 커스텀 수치 조회, Explorations·Looker Studio 구성은 계정 권한이 필요해 아직 확인하지 않았습니다(8장 6~7단계).
+**검증 범위**: 확장 테스트는 이 저장소에서, 수집·DB·GA4 변환·보고서 테스트는 `unidock-server/stats`에서 실행합니다. 실제 GA4 property의 MP validation·커스텀 수치 조회와 Explorations·Looker Studio 구성은 아직 확인하지 않았습니다. HTTP 2xx를 실제 반영 증거로 취급하지 않습니다.
