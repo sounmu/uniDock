@@ -12,6 +12,7 @@ import {
   type AnalyticsSignal,
 } from "../src/analytics/contract";
 import {
+  emptyCounters,
   isDailyReport,
   seoulDate,
   type DailyReport,
@@ -108,6 +109,17 @@ function total(
 ) {
   return reports.reduce((sum, report) => sum + pick(report), 0);
 }
+async function resetStatistics(
+  runtime: AnalyticsRuntime,
+  reset: "off" | "erase",
+) {
+  if (reset === "erase") {
+    await runtime.erase(() => chrome.storage.local.clear());
+    return;
+  }
+  await runtime.command({ version: 1, type: "ANALYTICS_SET", enabled: false });
+  await runtime.command({ version: 1, type: "ANALYTICS_SET", enabled: true });
+}
 
 it("starts a fresh install ON but collects nothing until the panel has shown the notice", async () => {
   const h = harness();
@@ -185,6 +197,226 @@ it("never reports more core installs than active installs for the same date", as
     core_results: { document_downloaded: 1, captions_exported: 1 },
   });
 });
+
+it.each(["off", "erase"] as const)(
+  "restores the denominator after %s discards activity before its first send",
+  async (reset) => {
+    const h = await collectingHarness();
+    await h.send(h.runtime, service("courses"));
+    await h.send(h.runtime, { kind: "core", result: "document_downloaded" });
+    await resetStatistics(h.runtime, reset);
+    expect(h.sent).toHaveLength(0);
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await h.send(h.runtime, service("tasks"));
+    await flush(h);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatchObject({
+      active_installs: 1,
+      core_installs: 1,
+      service_installs: { tasks: 1 },
+      service_entries: { tasks: 1 },
+    });
+    expect(h.sent[0]?.service_entries.courses).toBeUndefined();
+    expect(h.sent[0]?.core_results.document_downloaded).toBeUndefined();
+  },
+);
+
+it.each(["off", "erase"] as const)(
+  "keeps acknowledged install counts across a restart and repeated %s",
+  async (reset) => {
+    const h = await collectingHarness();
+    await h.send(h.runtime, service());
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await flush(h);
+    const restarted = h.make();
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await resetStatistics(restarted, reset);
+      await h.send(restarted, service());
+      await h.send(restarted, service("tasks"));
+      await h.send(restarted, { kind: "core", result: "tasks_shown" });
+      await flush(h, restarted);
+    }
+    expect(total(h.sent, (r) => r.active_installs)).toBe(1);
+    expect(total(h.sent, (r) => r.core_installs)).toBe(1);
+    expect(total(h.sent, (r) => r.service_installs.courses ?? 0)).toBe(1);
+    expect(total(h.sent, (r) => r.service_installs.tasks ?? 0)).toBe(1);
+  },
+);
+
+it.each(["off", "erase"] as const)(
+  "recollects discarded pending numerators with an acknowledged denominator after %s",
+  async (reset) => {
+    const h = await collectingHarness();
+    await h.send(h.runtime, service());
+    await flush(h);
+    await h.send(h.runtime, service("tasks"));
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await resetStatistics(h.runtime, reset);
+    await h.send(h.runtime, service("tasks"));
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await flush(h);
+    expect(h.sent[1]).toMatchObject({
+      active_installs: 0,
+      core_installs: 1,
+      service_installs: { tasks: 1 },
+      service_entries: { tasks: 1 },
+    });
+    expect(total(h.sent, (r) => r.active_installs)).toBe(1);
+    expect(total(h.sent, (r) => r.core_installs)).toBe(1);
+  },
+);
+
+it.each([
+  { reset: "off", accepted: false },
+  { reset: "off", accepted: true },
+  { reset: "erase", accepted: false },
+  { reset: "erase", accepted: true },
+] as const)(
+  "does not guess delivery after $reset when the response is lost (accepted=$accepted)",
+  async ({ reset, accepted }) => {
+    const h = await collectingHarness();
+    const received: DailyReport[] = [];
+    h.fetch.mockImplementation(async () => {
+      const report = h.sent.at(-1);
+      if (!report) throw new Error("missing request");
+      received.push(report);
+      return new Response(null, { status: 200 });
+    });
+    h.fetch.mockImplementationOnce(async () => {
+      const report = h.sent.at(-1);
+      if (!report) throw new Error("missing request");
+      if (accepted) received.push(report);
+      throw new TypeError("response lost");
+    });
+    await h.send(h.runtime, service());
+    await flush(h);
+    const restarted = h.make();
+    await resetStatistics(restarted, reset);
+    await h.send(restarted, service());
+    await h.send(restarted, service("tasks"));
+    await h.send(restarted, { kind: "core", result: "tasks_shown" });
+    await flush(h, restarted);
+    expect(h.sent[1]).toMatchObject({
+      active_installs: 0,
+      core_installs: 0,
+      service_installs: {},
+      service_entries: { courses: 1, tasks: 1 },
+      core_results: { tasks_shown: 1 },
+    });
+    expect(total(received, (r) => r.active_installs)).toBe(accepted ? 1 : 0);
+    expect(total(received, (r) => r.core_installs)).toBe(0);
+    // The uncertainty lasts only for its original Seoul day.
+    h.clock.now = at("2026-11-02T10:00:00");
+    await h.send(restarted, { kind: "core", result: "tasks_shown" });
+    await h.send(restarted, service("tasks"));
+    await flush(h, restarted);
+    expect(h.sent[2]).toMatchObject({
+      date: "2026-11-02",
+      active_installs: 1,
+      core_installs: 1,
+      service_installs: { tasks: 1 },
+    });
+  },
+);
+
+it("treats sealed reports as unsent when the pre-fetch durable write fails", async () => {
+  const h = await collectingHarness();
+  await h.send(h.runtime, service());
+  vi.mocked(chrome.storage.local.set)
+    .mockImplementationOnce(async (values) => {
+      Object.assign(h.stored, structuredClone(values));
+    })
+    .mockRejectedValueOnce(new Error("storage unavailable"));
+  await flush(h);
+  expect(h.fetch).not.toHaveBeenCalled();
+  expect(h.stored[ANALYTICS_STATE_KEY]).toMatchObject({
+    pending: [],
+    queue: [expect.objectContaining({ attempts: 0 })],
+  });
+  const restarted = h.make();
+  await resetStatistics(restarted, "erase");
+  await h.send(restarted, { kind: "core", result: "tasks_shown" });
+  await flush(h, restarted);
+  expect(h.sent[0]).toMatchObject({ active_installs: 1, core_installs: 1 });
+});
+
+it.each(["off", "erase"] as const)(
+  "preserves an uncertain numerator without blocking other reach after %s when active is confirmed",
+  async (reset) => {
+    const h = await collectingHarness();
+    await h.send(h.runtime, service());
+    await flush(h);
+    h.fetch.mockRejectedValueOnce(new TypeError("response lost"));
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await flush(h);
+    await resetStatistics(h.runtime, reset);
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await h.send(h.runtime, service("tasks"));
+    await flush(h);
+    expect(h.sent[2]).toMatchObject({
+      active_installs: 0,
+      core_installs: 0,
+      service_installs: { tasks: 1 },
+      core_results: { tasks_shown: 1 },
+    });
+  },
+);
+
+it.each(["pending", "queued", "unproven"] as const)(
+  "migrates legacy %s flags without assuming that attempts=0 proves non-delivery",
+  async (location) => {
+    const date = "2026-11-01";
+    const counters = {
+      ...emptyCounters(),
+      active_installs: 1 as const,
+      service_entries: { courses: 1 },
+      service_installs: { courses: 1 as const },
+    };
+    const report: DailyReport = {
+      ...counters,
+      schema: 1,
+      report_id: uuid(),
+      date,
+      extension_version: "0.5.0",
+    };
+    const h = await collectingHarness({
+      initial: {
+        [ANALYTICS_STATE_KEY]: {
+          version: 1,
+          day: { date, active: true, core: false, services: ["courses"] },
+          pending:
+            location === "pending"
+              ? [{ date, version: "0.5.0", counters }]
+              : [],
+          queue:
+            location === "queued"
+              ? [
+                  {
+                    id: report.report_id,
+                    date,
+                    body: JSON.stringify(report),
+                    attempts: 0,
+                    next_attempt_at: 0,
+                  },
+                ]
+              : [],
+          last_seal_at: 0,
+        },
+      },
+    });
+    await resetStatistics(h.runtime, "erase");
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await h.send(h.runtime, service("tasks"));
+    await flush(h);
+    const knownUnsent = location === "pending";
+    expect(h.sent[0]).toMatchObject({
+      active_installs: knownUnsent ? 1 : 0,
+      core_installs: knownUnsent ? 1 : 0,
+      service_installs: knownUnsent ? { tasks: 1 } : {},
+      core_results: { tasks_shown: 1 },
+    });
+  },
+);
 
 it("keeps each report on its original Seoul date across midnight", async () => {
   const h = await collectingHarness();
@@ -279,53 +511,51 @@ it("retries transient failures with backoff, drops rejected reports, and bounds 
   expect(new Set(h.sent.slice(1).map((r) => r.report_id)).size).toBe(1);
 });
 
-it("OFF stops capture and sending at once, discards unsent data, and same-day ON does not recount", async () => {
+it.each(["off", "erase"] as const)(
+  "%s during an in-flight send keeps uncertain flags without orphan numerators",
+  async (reset) => {
+    const h = await collectingHarness();
+    const started = Promise.withResolvers<void>();
+    const response = Promise.withResolvers<Response>();
+    h.fetch.mockImplementationOnce((_url, init) => {
+      init.signal?.addEventListener("abort", () =>
+        response.reject(new Error("abort")),
+      );
+      started.resolve();
+      return response.promise;
+    });
+    await h.send(h.runtime, service());
+    h.clock.now += SEAL_INTERVAL_MS;
+    const sending = h.runtime.wake();
+    await started.promise;
+    await resetStatistics(h.runtime, reset);
+    response.resolve(new Response(null, { status: 200 }));
+    await sending;
+    expect(h.stored[ANALYTICS_STATE_KEY]).toMatchObject({
+      pending: [],
+      queue: [],
+    });
+    await h.send(h.runtime, service());
+    await h.send(h.runtime, service("tasks"));
+    await h.send(h.runtime, { kind: "core", result: "tasks_shown" });
+    await flush(h);
+    const after = h.sent.slice(1);
+    expect(total(after, (r) => r.active_installs)).toBe(0);
+    expect(total(after, (r) => r.core_installs)).toBe(0);
+    expect(total(after, (r) => r.service_installs.tasks ?? 0)).toBe(0);
+    expect(total(after, (r) => r.service_entries.courses ?? 0)).toBe(1);
+  },
+);
+
+it("clear-data keeps an earlier OFF but can recollect discarded unsent flags", async () => {
   const h = await collectingHarness();
-  let release!: () => void;
-  h.fetch.mockImplementationOnce(
-    (_url, init) =>
-      new Promise((resolve, reject) => {
-        release = () => resolve(new Response(null, { status: 200 }));
-        init.signal?.addEventListener("abort", () =>
-          reject(new Error("abort")),
-        );
-      }),
-  );
   await h.send(h.runtime, service());
-  h.clock.now += SEAL_INTERVAL_MS;
-  const sending = h.runtime.wake();
-  await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledOnce());
   await h.runtime.command({
     version: 1,
     type: "ANALYTICS_SET",
     enabled: false,
-  });
-  release();
-  await sending;
-  expect(h.stored[ANALYTICS_STATE_KEY]).toMatchObject({
-    pending: [],
-    queue: [],
   });
   expect(await h.send(h.runtime, service())).toEqual({ ok: false });
-  expect(
-    await h.runtime.command({ version: 1, type: "ANALYTICS_STATUS" }),
-  ).toEqual({ available: true, enabled: false, notice: null });
-  await h.runtime.command({ version: 1, type: "ANALYTICS_SET", enabled: true });
-  await h.send(h.runtime, service());
-  await flush(h);
-  const after = h.sent.slice(1);
-  expect(total(after, (r) => r.active_installs)).toBe(0);
-  expect(total(after, (r) => r.service_entries.courses ?? 0)).toBe(1);
-});
-
-it("clear-data keeps an earlier OFF (never back to default ON) and today's duplicate flags", async () => {
-  const h = await collectingHarness();
-  await h.send(h.runtime, service());
-  await h.runtime.command({
-    version: 1,
-    type: "ANALYTICS_SET",
-    enabled: false,
-  });
   const result = await h.runtime.erase(async () => {
     await chrome.storage.local.clear();
     return "cleared";
@@ -339,7 +569,7 @@ it("clear-data keeps an earlier OFF (never back to default ON) and today's dupli
   await h.runtime.command({ version: 1, type: "ANALYTICS_SET", enabled: true });
   await h.send(h.runtime, service());
   await flush(h);
-  expect(total(h.sent, (r) => r.active_installs)).toBe(0);
+  expect(total(h.sent, (r) => r.active_installs)).toBe(1);
 });
 
 it("records one final outcome per operation with fixed codes and valid reports", async () => {

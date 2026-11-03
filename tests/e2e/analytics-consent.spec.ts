@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
+import { ANALYTICS_ALARM } from "../../src/analytics/contract";
 
 const COLLECTOR = "https://stats.test";
 type Report = Record<string, unknown> & {
@@ -13,6 +14,91 @@ type Report = Record<string, unknown> & {
   service_installs: Record<string, number>;
   operations: Record<string, Record<string, Record<string, number>>>;
 };
+
+for (const reset of ["off", "erase"] as const) {
+  test(`daily reach includes its denominator after unsent ${reset}`, async ({
+    playwright,
+  }) => {
+    test.skip(
+      process.env.UNIDOCK_STATS_SERVER !== COLLECTOR,
+      "requires the synthetic collector build",
+    );
+    // Finish before the normal first-send timer; trigger the real alarm only
+    // after the reset sequence, without sleeping or polling for a packet.
+    test.setTimeout(45_000);
+    const profile = await mkdtemp(path.join(tmpdir(), "unidock-reach-"));
+    let context: BrowserContext | undefined;
+    const captured = Promise.withResolvers<Report>();
+    let requests = 0;
+    try {
+      context = await playwright.chromium.launchPersistentContext(profile, {
+        channel: "chromium",
+        headless: true,
+        args: [
+          `--disable-extensions-except=${path.resolve(".output/chrome-mv3")}`,
+          `--load-extension=${path.resolve(".output/chrome-mv3")}`,
+          "--host-resolver-rules=MAP * ~NOTFOUND",
+          "--no-proxy-server",
+        ],
+      });
+      await context.route(`${COLLECTOR}/v1/reports`, async (route) => {
+        requests++;
+        const body: Report = route.request().postDataJSON();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { "Access-Control-Allow-Origin": "*" },
+          body: '{"status":"accepted"}',
+        });
+        captured.resolve(body);
+      });
+      const worker =
+        context.serviceWorkers()[0] ??
+        (await context.waitForEvent("serviceworker"));
+      const id = new URL(worker.url()).host;
+      const panel = await context.newPage();
+      await panel.goto(`chrome-extension://${id}/sidepanel.html`);
+      await panel.evaluate(async (mode) => {
+        const command = (message: object) =>
+          chrome.runtime.sendMessage({ version: 1, ...message });
+        await command({ type: "ANALYTICS_SET", enabled: false });
+        await command({ type: "ANALYTICS_SET", enabled: true });
+        await command({
+          type: "ANALYTICS_SIGNAL",
+          signal: { kind: "service", service: "courses" },
+        });
+        if (mode === "off") {
+          await command({ type: "ANALYTICS_SET", enabled: false });
+          await command({ type: "ANALYTICS_SET", enabled: true });
+        } else {
+          await command({ type: "LOCAL_DATA_DELETE_ALL" });
+        }
+        await command({
+          type: "ANALYTICS_SIGNAL",
+          signal: { kind: "core", result: "tasks_shown" },
+        });
+        await command({
+          type: "ANALYTICS_SIGNAL",
+          signal: { kind: "service", service: "tasks" },
+        });
+      }, reset);
+      expect(requests).toBe(0);
+      await worker.evaluate(
+        (name) => chrome.alarms.create(name, { when: Date.now() }),
+        ANALYTICS_ALARM,
+      );
+      expect(await captured.promise).toMatchObject({
+        active_installs: 1,
+        core_installs: 1,
+        service_installs: { tasks: 1 },
+      });
+      expect(requests).toBe(1);
+    } finally {
+      await context?.close();
+      await rm(profile, { recursive: true, force: true });
+    }
+  });
+}
 
 test("aggregate statistics: first-run notice, daily dedupe, closed payloads, OFF across panels and clear-data", async ({
   playwright,

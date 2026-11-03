@@ -39,11 +39,14 @@ const MAX_BACKOFF_MS = 6 * 3_600_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_SIGNALS_PER_MINUTE = 600;
 
+type Delivery = "pending" | "unknown" | "confirmed";
 interface DayFlags {
   date: string;
-  active: boolean;
-  core: boolean;
-  services: Service[];
+  active: Delivery | null;
+  core: Delivery | null;
+  services: Partial<Record<Service, Delivery>>;
+  /** An erased, unacknowledged denominator cannot support new install counts. */
+  blocked: boolean;
 }
 interface PendingDelta {
   date: string;
@@ -59,7 +62,7 @@ interface QueuedReport {
   next_attempt_at: number;
 }
 interface AnalyticsState {
-  version: 1;
+  version: 2;
   day: DayFlags | null;
   pending: PendingDelta[];
   queue: QueuedReport[];
@@ -75,26 +78,90 @@ export interface AnalyticsDeps {
 
 const VERSION = /^\d{1,4}(?:\.\d{1,5}){1,3}$/;
 function emptyState(): AnalyticsState {
-  return { version: 1, day: null, pending: [], queue: [], last_seal_at: 0 };
+  return { version: 2, day: null, pending: [], queue: [], last_seal_at: 0 };
 }
-function parseDay(value: unknown): DayFlags | null {
+function delivery(value: unknown): value is Delivery {
+  return value === "pending" || value === "unknown" || value === "confirmed";
+}
+function parseDay(value: unknown, legacy: boolean): DayFlags | null {
+  if (!record(value) || !isSeoulDate(value.date)) return null;
+  if (legacy) {
+    if (
+      typeof value.active !== "boolean" ||
+      typeof value.core !== "boolean" ||
+      !Array.isArray(value.services) ||
+      !value.services.every((service) =>
+        (SERVICES as readonly unknown[]).includes(service),
+      )
+    )
+      return null;
+    // v1 recorded use, not delivery. A queued first attempt may have reached
+    // the collector even with attempts=0, so only pending deltas prove unsent.
+    const services: DayFlags["services"] = {};
+    for (const service of SERVICES)
+      if (value.services.includes(service)) services[service] = "unknown";
+    return {
+      date: value.date,
+      active: value.active ? "unknown" : null,
+      core: value.core ? "unknown" : null,
+      services,
+      blocked: value.active,
+    };
+  }
   if (
-    !record(value) ||
-    !isSeoulDate(value.date) ||
-    typeof value.active !== "boolean" ||
-    typeof value.core !== "boolean" ||
-    !Array.isArray(value.services) ||
-    !value.services.every((service) =>
-      (SERVICES as readonly unknown[]).includes(service),
+    (value.active !== null && !delivery(value.active)) ||
+    (value.core !== null && !delivery(value.core)) ||
+    typeof value.blocked !== "boolean" ||
+    !record(value.services) ||
+    !Object.entries(value.services).every(
+      ([service, status]) =>
+        (SERVICES as readonly string[]).includes(service) && delivery(status),
     )
   )
     return null;
+  const services: DayFlags["services"] = {};
+  for (const service of SERVICES) {
+    const status = value.services[service];
+    if (delivery(status)) services[service] = status;
+  }
   return {
     date: value.date,
     active: value.active,
     core: value.core,
-    services: [...new Set(value.services as Service[])],
+    services,
+    blocked: value.blocked,
   };
+}
+/** Tracks only bounded daily flags, never report IDs or discarded payloads. */
+function markDelivery(
+  day: DayFlags,
+  counters: DailyCounters,
+  status: Delivery,
+) {
+  if (counters.active_installs && day.active !== "confirmed") {
+    day.active = status;
+    day.blocked = false;
+  }
+  if (counters.core_installs && day.core !== "confirmed") day.core = status;
+  for (const service of SERVICES)
+    if (
+      counters.service_installs[service] &&
+      day.services[service] !== "confirmed"
+    )
+      day.services[service] = status;
+}
+function discardUnsent(state: AnalyticsState): AnalyticsState {
+  const day = state.day;
+  if (day) {
+    if (day.active === "pending") day.active = null;
+    if (day.core === "pending") day.core = null;
+    for (const service of SERVICES)
+      if (day.services[service] === "pending") delete day.services[service];
+    // Do not invent a second denominator after an ambiguous send; equally,
+    // do not emit new numerators whose denominator may never have arrived.
+    day.blocked = day.active === "unknown";
+  }
+  return { ...emptyState(), day };
 }
 function parseQueued(value: unknown): QueuedReport | null {
   if (
@@ -126,7 +193,8 @@ function parseQueued(value: unknown): QueuedReport | null {
 }
 /** Any malformed part is dropped rather than trusted or repaired. */
 export function parseState(value: unknown): AnalyticsState {
-  if (!record(value) || value.version !== 1) return emptyState();
+  if (!record(value) || (value.version !== 1 && value.version !== 2))
+    return emptyState();
   const pending = Array.isArray(value.pending)
     ? value.pending.filter(
         (entry): entry is PendingDelta =>
@@ -143,9 +211,13 @@ export function parseState(value: unknown): AnalyticsState {
         .filter((entry): entry is QueuedReport => entry !== null)
         .slice(0, MAX_QUEUE)
     : [];
+  const day = parseDay(value.day, value.version === 1);
+  if (day && value.version === 1)
+    for (const entry of pending)
+      if (entry.date === day.date) markDelivery(day, entry.counters, "pending");
   return {
-    version: 1,
-    day: parseDay(value.day),
+    version: 2,
+    day,
     pending,
     queue,
     last_seal_at: Number.isFinite(value.last_seal_at)
@@ -324,7 +396,13 @@ export class AnalyticsRuntime {
   private apply(state: AnalyticsState, signal: AnalyticsSignal, now: number) {
     const date = seoulDate(now);
     if (state.day?.date !== date)
-      state.day = { date, active: false, core: false, services: [] };
+      state.day = {
+        date,
+        active: null,
+        core: null,
+        services: {},
+        blocked: false,
+      };
     const day = state.day;
     let entry = state.pending.find(
       (pending) => pending.date === date && pending.version === this.version,
@@ -341,15 +419,15 @@ export class AnalyticsRuntime {
     const counters = entry.counters;
     const markActive = () => {
       if (day.active) return;
-      day.active = true;
+      day.active = "pending";
       counters.active_installs = 1;
     };
     switch (signal.kind) {
       case "service":
         markActive();
         bump(counters.service_entries, signal.service);
-        if (!day.services.includes(signal.service)) {
-          day.services.push(signal.service);
+        if (!day.blocked && !day.services[signal.service]) {
+          day.services[signal.service] = "pending";
           counters.service_installs[signal.service] = 1;
         }
         return true;
@@ -357,8 +435,8 @@ export class AnalyticsRuntime {
         // A core result is foreground use, so it never outnumbers active installs.
         markActive();
         bump(counters.core_results, signal.result);
-        if (!day.core) {
-          day.core = true;
+        if (!day.blocked && !day.core) {
+          day.core = "pending";
           counters.core_installs = 1;
         }
         return true;
@@ -490,9 +568,19 @@ export class AnalyticsRuntime {
         const item = await this.serial(async () => {
           if (!(await this.collecting())) return undefined;
           const now = this.deps.now();
-          return (await this.loadState()).queue.find(
+          const state = await this.loadState();
+          const entry = state.queue.find(
             (entry) => entry.next_attempt_at <= now,
           );
+          if (entry && state.day?.date === entry.date) {
+            // Persist before fetch: suspension/crash or OFF may prevent us from
+            // recording the response, but the server may already have accepted.
+            const report: unknown = JSON.parse(entry.body);
+            if (isDailyReport(report))
+              markDelivery(state.day, report, "unknown");
+            await this.saveState(state);
+          }
+          return entry;
         });
         if (!item || generation !== this.generation) return;
         const outcome = await this.post(item.body);
@@ -502,6 +590,11 @@ export class AnalyticsRuntime {
           const index = state.queue.findIndex((entry) => entry.id === item.id);
           if (index < 0) return;
           const entry = state.queue[index]!;
+          if (outcome === "done" && state.day?.date === entry.date) {
+            const report: unknown = JSON.parse(entry.body);
+            if (isDailyReport(report))
+              markDelivery(state.day, report, "confirmed");
+          }
           entry.attempts++;
           if (outcome !== "retry" || entry.attempts >= MAX_ATTEMPTS)
             state.queue.splice(index, 1);
@@ -528,8 +621,8 @@ export class AnalyticsRuntime {
   }
   /**
    * Clear-data: discards unsent deltas and reports, but keeps the on/off
-   * choice (an earlier OFF must never turn back on) and today's
-   * duplicate-suppression flags (so today's install is not counted twice).
+   * choice and confirmed/uncertain daily flags. Flags belonging only to
+   * discarded, never-attempted data can be collected again after resuming.
    */
   erase<T>(clear: () => Promise<T>): Promise<T> {
     this.stop();
@@ -539,7 +632,7 @@ export class AnalyticsRuntime {
         ANALYTICS_STATE_KEY,
       ]);
       const settings: unknown = stored[ANALYTICS_SETTINGS_KEY];
-      const day = parseState(stored[ANALYTICS_STATE_KEY]).day;
+      const retained = discardUnsent(parseState(stored[ANALYTICS_STATE_KEY]));
       await chrome.storage.local.remove([
         ANALYTICS_SETTINGS_KEY,
         ANALYTICS_STATE_KEY,
@@ -549,7 +642,7 @@ export class AnalyticsRuntime {
         return await clear();
       } finally {
         if (isAnalyticsSettings(settings)) await this.writeSettings(settings);
-        if (day) await this.saveState({ ...emptyState(), day });
+        if (retained.day) await this.saveState(retained);
       }
     });
   }
@@ -572,7 +665,7 @@ export class AnalyticsRuntime {
           });
           if (!command.enabled) {
             const state = await this.loadState();
-            await this.saveState({ ...emptyState(), day: state.day });
+            await this.saveState(discardUnsent(state));
           }
           return { before, status: await this.status() };
         });
