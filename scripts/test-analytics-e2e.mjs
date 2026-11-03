@@ -1,11 +1,13 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-// Builds against the routed synthetic collector, then restores the normal build
-// so the test origin never stays in .output/.
+// Use the core build so local .env feature flags cannot hide a dependency on
+// optional permissions. Restore the normal build so stats.test never stays.
 const env = {
   ...process.env,
   UNIDOCK_STATS_SERVER: "https://stats.test",
+  UNIDOCK_PLAYBACK: "0",
+  UNIDOCK_AI_CAPTIONS: "0",
 };
 let status = 1;
 try {

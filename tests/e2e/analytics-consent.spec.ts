@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
-import { ANALYTICS_ALARM } from "../../src/analytics/contract";
 
 const COLLECTOR = "https://stats.test";
 type Report = Record<string, unknown> & {
@@ -23,9 +22,9 @@ for (const reset of ["off", "erase"] as const) {
       process.env.UNIDOCK_STATS_SERVER !== COLLECTOR,
       "requires the synthetic collector build",
     );
-    // Finish before the normal first-send timer; trigger the real alarm only
-    // after the reset sequence, without sleeping or polling for a packet.
-    test.setTimeout(45_000);
+    // Observe the normal first-send event. Core builds use the runtime timer
+    // and do not grant chrome.alarms; no privileged test trigger is needed.
+    test.setTimeout(180_000);
     const profile = await mkdtemp(path.join(tmpdir(), "unidock-reach-"));
     let context: BrowserContext | undefined;
     const captured = Promise.withResolvers<Report>();
@@ -83,10 +82,6 @@ for (const reset of ["off", "erase"] as const) {
         });
       }, reset);
       expect(requests).toBe(0);
-      await worker.evaluate(
-        (name) => chrome.alarms.create(name, { when: Date.now() }),
-        ANALYTICS_ALARM,
-      );
       expect(await captured.promise).toMatchObject({
         active_installs: 1,
         core_installs: 1,
