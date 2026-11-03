@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
 import { URL } from "node:url";
+import { checkServerContract } from "./check-server-contract.mjs";
+checkServerContract();
 const root = path.resolve(".output/chrome-mv3");
 // Read the same env files WXT loads for a production chrome build. Shell
 // variables win, and loadEnvFile never overrides a variable that is already

@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "contractVersion": "1.0.0",
+  "origin": {
+    "sourceCommit": "cc5b0d07bedeb2387f43d0f87f305b6676fcbc02",
+    "kind": "precontract-bootstrap",
+    "note": "Bootstrap: sourceCommit is the last commit before contracts/ existed. No commit containing these artifacts is claimed; the manifest sha256 in contracts/manifest-pins.json is the content-addressed pin."
+  },
+  "artifacts": {
+    "analytics-report-contract.json": "b0797417d6c6652d8efe19b7461e559e313f25d77dde7a3549e11d3fc7850209",
+    "captions-public.openapi.yaml": "c728f57fc64e3af834844f0799999147e4b62b1f6edd72b77fb030df91d0f5bb",
+    "stats-report.schema.json": "c4a2b3be416e3f4090dec6f87e4087f89f3f259164e9c8c47319a82ec573746e"
+  }
+}
