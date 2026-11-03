@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: uniDock captions public API
-  version: 0.1.0-dev
+  version: 1.0.0
   description: |
-    확장 ↔ broker 계약. dev 단계이며 release 전까지 `/v1` 호환성을 보장하지 않는다(ADR-0009).
+    확장 ↔ broker 계약 1.0.0. `/v1` 안에서는 추가만 허용하고 기존 경로·연산·보안·컴포넌트 형태는 바꾸지 않는다(ADR-0009, contracts/releases/1.0.0).
     상태 전이와 quota 규칙은 docs/STATE-MACHINE.md, 에러 코드는 docs/ERRORS.md가 기준이다.
 
     공통 규칙
@@ -585,6 +585,7 @@ components:
         - INFERENCE_TIMEOUT
         - INFERENCE_FAILED
         - RESULT_INVALID
+        - NO_WORKER_AVAILABLE
         - INTERNAL
 
     Job:
@@ -675,6 +676,21 @@ components:
           maxItems: 20000
           items:
             $ref: '#/components/schemas/Segment'
+        provenance:
+          $ref: '#/components/schemas/TranscriptProvenance'
+
+    TranscriptProvenance:
+      type: object
+      additionalProperties: false
+      required: [endpoint_id, protocol, requested_model, model_family, execution_identity, duration_source]
+      properties:
+        endpoint_id: { type: string }
+        protocol: { type: string, enum: [openai-compatible, openrouter, baze-async] }
+        requested_model: { type: string }
+        model_family: { type: string }
+        execution_identity: { type: string, const: unknown }
+        advertised_model: { type: string }
+        duration_source: { type: string, enum: [provider, broker_probe] }
 
     Segment:
       type: object

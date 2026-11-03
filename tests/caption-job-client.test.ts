@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   createJob,
   getJob,
+  getTranscript,
   JobError,
   uploadAudio,
   UPLOAD_CHUNK_BYTES,
@@ -15,6 +16,14 @@ beforeEach(() => {
   seedSession(store);
 });
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([undefined, null, "1", 0, 2])(
+  "rejects unsupported transcript schema version %s",
+  async (schemaVersion) => {
+    mockServer(() => json({ ...fixture("transcript.json"), schema_version: schemaVersion }));
+    await expect(getTranscript("t")).rejects.toMatchObject({ code: "RESPONSE" });
+  },
+);
 
 const headResponse = (offset: number, length?: number) =>
   new Response(null, {

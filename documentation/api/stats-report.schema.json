@@ -1,0 +1,465 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "uniDock aggregate usage report (wire, contract 1.0.0)",
+  "description": "Closed structural schema mirroring the stats collector parser. Cross-field arithmetic (errors total, duration bounds, bucket sums) is not expressed here; it is frozen by analytics-report-contract.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_id",
+    "date",
+    "extension_version",
+    "active_installs",
+    "core_installs",
+    "core_results",
+    "service_entries",
+    "service_installs",
+    "operations"
+  ],
+  "properties": {
+    "schema": {
+      "enum": [
+        1
+      ]
+    },
+    "report_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "extension_version": {
+      "type": "string",
+      "pattern": "^\\d{1,4}(?:\\.\\d{1,5}){1,3}$"
+    },
+    "active_installs": {
+      "$ref": "#/$defs/flag"
+    },
+    "core_installs": {
+      "$ref": "#/$defs/flag"
+    },
+    "core_results": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tasks_shown": {
+          "$ref": "#/$defs/count"
+        },
+        "course_items_shown": {
+          "$ref": "#/$defs/count"
+        },
+        "recording_opened": {
+          "$ref": "#/$defs/count"
+        },
+        "document_opened": {
+          "$ref": "#/$defs/count"
+        },
+        "document_downloaded": {
+          "$ref": "#/$defs/count"
+        },
+        "captions_exported": {
+          "$ref": "#/$defs/count"
+        },
+        "ai_captions_exported": {
+          "$ref": "#/$defs/count"
+        },
+        "playback_started": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "service_entries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "courses": {
+          "$ref": "#/$defs/count"
+        },
+        "tasks": {
+          "$ref": "#/$defs/count"
+        },
+        "playback": {
+          "$ref": "#/$defs/count"
+        },
+        "captions": {
+          "$ref": "#/$defs/count"
+        },
+        "settings": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "service_installs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "courses": {
+          "$ref": "#/$defs/flag"
+        },
+        "tasks": {
+          "$ref": "#/$defs/flag"
+        },
+        "playback": {
+          "$ref": "#/$defs/flag"
+        },
+        "captions": {
+          "$ref": "#/$defs/flag"
+        },
+        "settings": {
+          "$ref": "#/$defs/flag"
+        }
+      }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "courses_load": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "course_items_load": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "tasks_load": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "recording_open": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "document_open": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "document_download": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "captions_detect": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "captions_export": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "ai_captions_generate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "ai_captions_export": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "ai_handoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "playback_start": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        },
+        "playback_refresh": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user": {
+              "$ref": "#/$defs/operation"
+            },
+            "auto": {
+              "$ref": "#/$defs/operation"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "flag": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started",
+        "success",
+        "failure",
+        "timeout",
+        "cancel",
+        "errors",
+        "duration_ms_sum",
+        "duration_count",
+        "buckets"
+      ],
+      "properties": {
+        "started": {
+          "$ref": "#/$defs/count"
+        },
+        "success": {
+          "$ref": "#/$defs/count"
+        },
+        "failure": {
+          "$ref": "#/$defs/count"
+        },
+        "timeout": {
+          "$ref": "#/$defs/count"
+        },
+        "cancel": {
+          "$ref": "#/$defs/count"
+        },
+        "duration_count": {
+          "$ref": "#/$defs/count"
+        },
+        "duration_ms_sum": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8640000000000
+        },
+        "errors": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "LOGIN_REQUIRED": {
+              "$ref": "#/$defs/count"
+            },
+            "OPEN_LMS": {
+              "$ref": "#/$defs/count"
+            },
+            "RELOAD_TAB": {
+              "$ref": "#/$defs/count"
+            },
+            "FORBIDDEN": {
+              "$ref": "#/$defs/count"
+            },
+            "NETWORK": {
+              "$ref": "#/$defs/count"
+            },
+            "TIMEOUT": {
+              "$ref": "#/$defs/count"
+            },
+            "INVALID_RESPONSE": {
+              "$ref": "#/$defs/count"
+            },
+            "POLICY": {
+              "$ref": "#/$defs/count"
+            },
+            "LIMIT": {
+              "$ref": "#/$defs/count"
+            },
+            "COURSE_NOT_FOUND": {
+              "$ref": "#/$defs/count"
+            },
+            "COURSE_AMBIGUOUS": {
+              "$ref": "#/$defs/count"
+            },
+            "BUSY": {
+              "$ref": "#/$defs/count"
+            },
+            "STALE_SELECTION": {
+              "$ref": "#/$defs/count"
+            },
+            "TAB_OPEN_FAILED": {
+              "$ref": "#/$defs/count"
+            },
+            "DOWNLOAD_FAILED": {
+              "$ref": "#/$defs/count"
+            },
+            "RATE_LIMITED": {
+              "$ref": "#/$defs/count"
+            },
+            "ACTIVATE_TAB": {
+              "$ref": "#/$defs/count"
+            },
+            "NO_CAPTIONS": {
+              "$ref": "#/$defs/count"
+            },
+            "UNSAFE_CAPTION": {
+              "$ref": "#/$defs/count"
+            },
+            "PARTIAL": {
+              "$ref": "#/$defs/count"
+            },
+            "INTERRUPTED": {
+              "$ref": "#/$defs/count"
+            },
+            "MIME_MISMATCH": {
+              "$ref": "#/$defs/count"
+            },
+            "COPY_FAILED": {
+              "$ref": "#/$defs/count"
+            },
+            "PERMISSION": {
+              "$ref": "#/$defs/count"
+            },
+            "UPLOAD": {
+              "$ref": "#/$defs/count"
+            },
+            "TOO_LARGE": {
+              "$ref": "#/$defs/count"
+            },
+            "SERVER": {
+              "$ref": "#/$defs/count"
+            },
+            "AUTH": {
+              "$ref": "#/$defs/count"
+            },
+            "EXPIRED": {
+              "$ref": "#/$defs/count"
+            },
+            "PLAYBACK": {
+              "$ref": "#/$defs/count"
+            },
+            "OTHER": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        "buckets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lt1s": {
+              "$ref": "#/$defs/count"
+            },
+            "1to3s": {
+              "$ref": "#/$defs/count"
+            },
+            "3to10s": {
+              "$ref": "#/$defs/count"
+            },
+            "10to30s": {
+              "$ref": "#/$defs/count"
+            },
+            "30to60s": {
+              "$ref": "#/$defs/count"
+            },
+            "1to3m": {
+              "$ref": "#/$defs/count"
+            },
+            "3to10m": {
+              "$ref": "#/$defs/count"
+            },
+            "10to30m": {
+              "$ref": "#/$defs/count"
+            },
+            "30to120m": {
+              "$ref": "#/$defs/count"
+            },
+            "ge120m": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        }
+      }
+    }
+  }
+}
