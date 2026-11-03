@@ -8,7 +8,11 @@ function buildFlags() {
   const playback = process.env.UNIDOCK_PLAYBACK === "1";
   // AI captions: CDN media access and audio upload to the caption server.
   const aiCaptions = process.env.UNIDOCK_AI_CAPTIONS === "1";
-  const captionServer = aiCaptions ? captionServerOrigin() : "";
+  const captionServer = aiCaptions
+    ? httpsOrigin("UNIDOCK_CAPTION_SERVER", true)
+    : "";
+  // Aggregate usage statistics collector; without it the build sends nothing.
+  const statsServer = httpsOrigin("UNIDOCK_STATS_SERVER", false);
   // Optional public key that pins the extension ID, so the OAuth redirect URI
   // (https://<id>.chromiumapp.org/) the broker allows stays valid for unpacked
   // builds. The store rejects a manifest key, so `npm run release` drops it.
@@ -16,14 +20,16 @@ function buildFlags() {
     aiCaptions && process.env.UNIDOCK_RELEASE !== "1"
       ? process.env.UNIDOCK_EXTENSION_KEY
       : undefined;
-  return { playback, aiCaptions, captionServer, extensionKey };
+  return { playback, aiCaptions, captionServer, statsServer, extensionKey };
 }
-function captionServerOrigin(): string {
-  const value = process.env.UNIDOCK_CAPTION_SERVER;
-  if (!value)
+function httpsOrigin(name: string, required: boolean): string {
+  const value = process.env[name];
+  if (!value) {
+    if (!required) return "";
     throw new Error(
-      "UNIDOCK_AI_CAPTIONS=1 requires UNIDOCK_CAPTION_SERVER as an https origin",
+      `UNIDOCK_AI_CAPTIONS=1 requires ${name} as an https origin`,
     );
+  }
   const url = new URL(value);
   if (
     url.protocol !== "https:" ||
@@ -33,7 +39,7 @@ function captionServerOrigin(): string {
     url.username ||
     url.password
   )
-    throw new Error("UNIDOCK_CAPTION_SERVER must be a bare https origin");
+    throw new Error(`${name} must be a bare https origin`);
   return url.origin;
 }
 export default defineConfig({
@@ -46,7 +52,12 @@ export default defineConfig({
     },
   },
   manifest: () => {
-    const { playback, aiCaptions, captionServer, extensionKey } = buildFlags();
+    const { playback, aiCaptions, captionServer, statsServer, extensionKey } =
+      buildFlags();
+    const connect = [
+      statsServer,
+      ...(aiCaptions ? [CAPTION_CDN, captionServer] : []),
+    ].filter(Boolean);
     return {
       ...(extensionKey ? { key: extensionKey } : {}),
       name: "uniDock",
@@ -87,14 +98,15 @@ export default defineConfig({
         default_icon: { 16: "icons/16.png", 32: "icons/32.png" },
       },
       content_security_policy: {
-        extension_pages: `script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com${aiCaptions ? ` ${CAPTION_CDN} ${captionServer}` : ""}; base-uri 'none'; form-action 'none'`,
+        extension_pages: `script-src 'self'; object-src 'none'; connect-src ${connect.length ? connect.join(" ") : "'none'"}; base-uri 'none'; form-action 'none'`,
       },
     };
   },
   vite: () => {
-    const { playback, aiCaptions, captionServer } = buildFlags();
+    const { playback, aiCaptions, captionServer, statsServer } = buildFlags();
     return {
       define: {
+        __UNIDOCK_STATS_SERVER__: JSON.stringify(statsServer),
         __UNIDOCK_PLAYBACK__: JSON.stringify(playback),
         __UNIDOCK_AI_CAPTIONS__: JSON.stringify(aiCaptions),
         __UNIDOCK_CAPTION_SERVER__: JSON.stringify(captionServer),

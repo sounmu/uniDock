@@ -133,7 +133,6 @@ function CourseResults({
             <nav className="pagination" aria-label="목록 페이지">
               <button
                 className="btn-secondary"
-                data-analytics-action="page_previous"
                 {...softDisabled(page === 0, () => setPage(page - 1))}
               >
                 이전
@@ -143,7 +142,6 @@ function CourseResults({
               </span>
               <button
                 className="btn-secondary"
-                data-analytics-action="page_next"
                 {...softDisabled(end === courses.length, () =>
                   setPage(page + 1),
                 )}
@@ -160,7 +158,6 @@ function CourseResults({
               >
                 <ListRow
                   title={course.name}
-                  analyticsAction="course_select"
                   course="과제·녹화·자료"
                   onClick={() => onCourse(course, start + index)}
                 />
@@ -188,7 +185,6 @@ export function Refresh({ model }: { readonly model: PanelModel }) {
   return (
     <button
       className="btn-primary"
-      data-analytics-action="refresh"
       {...softDisabled(
         model.state.status === "loading" || !model.isQueryValid,
         () => void model.load(model.query, { refresh: true }),

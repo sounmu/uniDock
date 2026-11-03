@@ -48,7 +48,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
                 <button
                   className="btn-secondary"
                   disabled={stopPending}
-                  data-analytics-action="playback_stop"
                   onClick={() =>
                     void m.run({ version: 1, type: "PLAYBACK_STOP_ALL" })
                   }
@@ -59,7 +58,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
                 <button
                   className="btn-primary"
                   disabled={pending || !snapshot}
-                  data-analytics-action="playback_select"
                   onClick={() => {
                     open("select");
                     void m.loadCourses();
@@ -71,7 +69,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
               <button
                 className="btn-primary"
                 disabled={pending}
-                data-analytics-action="refresh"
                 onClick={() =>
                   void m.run({ version: 1, type: "PLAYBACK_REFRESH" })
                 }
@@ -92,7 +89,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
               <a
                 className="btn-secondary"
                 href="https://mylms.korea.ac.kr/"
-                data-analytics-action="lms_open"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -101,7 +97,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
               <button
                 className="btn-primary"
                 disabled={pending}
-                data-analytics-action="playback_resume"
                 onClick={() =>
                   void m.run({ version: 1, type: "PLAYBACK_RESUME" })
                 }
@@ -118,7 +113,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
             <button
               className="btn-primary"
               disabled={pending}
-              data-analytics-action="playback_resume"
               onClick={() =>
                 void m.run({ version: 1, type: "PLAYBACK_RESUME" })
               }
@@ -166,7 +160,7 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
         )}
 
         <details className="guidance">
-          <summary data-analytics-action="guidance">
+          <summary>
             안내 및 로컬 데이터
           </summary>
           <p className="hint">
@@ -178,15 +172,14 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
           <button
             className="btn-secondary"
             onClick={() => m.setDeletePrompt(true)}
-            data-analytics-action="delete_prompt"
           >
             로컬 데이터 모두 삭제
           </button>
           {m.deletePrompt && (
             <div className="notice">
               <p>
-                저장된 재생목록·상태와 통계 공유 동의·식별자를 삭제하고 통계
-                수집을 중단합니다. 이미 전송된 통계는 삭제되지 않습니다.
+                저장된 재생목록·상태와 미전송 사용 통계를 삭제합니다. 사용 통계
+                켜짐/꺼짐 선택은 유지됩니다.
               </p>
               <button
                 className="btn-primary"
@@ -204,7 +197,6 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
               <button
                 className="btn-secondary"
                 onClick={() => m.setDeletePrompt(false)}
-                data-analytics-action="delete_cancel"
               >
                 취소
               </button>

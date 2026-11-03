@@ -38,6 +38,20 @@ assert.notEqual(
   "https://captions.test",
   "Release packaging requires the real caption server, not the E2E origin",
 );
+// Aggregate usage statistics ship ON by default, so the release needs the
+// real collector origin baked in (never the E2E origin).
+const statsServer = new URL(process.env.UNIDOCK_STATS_SERVER ?? "").origin;
+assert.equal(
+  process.env.UNIDOCK_STATS_SERVER,
+  statsServer,
+  "Release packaging requires UNIDOCK_STATS_SERVER as a bare https origin",
+);
+assert(statsServer.startsWith("https://"));
+assert.notEqual(
+  statsServer,
+  "https://stats.test",
+  "Release packaging requires the real statistics collector, not the E2E origin",
+);
 const CAPTION_CDN = "https://korea-cms-object.cdn.gov-ntruss.com";
 const manifest = JSON.parse(
   fs.readFileSync(path.join(root, "manifest.json"), "utf8"),
@@ -99,7 +113,7 @@ assert.deepEqual(
 );
 assert.equal(
   manifest.content_security_policy.extension_pages,
-  `script-src 'self'; object-src 'none'; connect-src https://eu.i.posthog.com ${CAPTION_CDN} ${captionServer}; base-uri 'none'; form-action 'none'`,
+  `script-src 'self'; object-src 'none'; connect-src ${statsServer} ${CAPTION_CDN} ${captionServer}; base-uri 'none'; form-action 'none'`,
 );
 const files = [];
 function walk(dir) {
@@ -130,6 +144,18 @@ for (const file of files) {
     );
     // The E2E caption server must never be baked into a release bundle.
     assert(!code.includes("captions.test"), `Test origin leaked into ${file}`);
+    assert(!code.includes("stats.test"), `Test origin leaked into ${file}`);
+    // GA4 credentials and Google endpoints live only on the collector server;
+    // the extension must carry no analytics SDK or install identifier logic.
+    for (const forbidden of [
+      /api_secret/i,
+      /measurement_id/i,
+      /google-analytics\.com|googletagmanager|\/mp\/collect/i,
+      /\bG-[A-Z0-9]{6,12}\b/,
+      /posthog|phc_[A-Za-z0-9]/i,
+      /distinct_id|client_id/,
+    ])
+      assert(!forbidden.test(code), `Forbidden analytics pattern ${forbidden} in ${file}`);
     bundle += code;
   }
 }
@@ -140,6 +166,8 @@ for (const marker of [
   "transcription-jobs",
   "launchWebAuthFlow",
   captionServer,
+  statsServer,
+  "/v1/reports",
 ])
   assert(bundle.includes(marker), `Release bundle is missing ${marker}`);
 for (const file of [

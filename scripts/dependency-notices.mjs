@@ -7,8 +7,6 @@ export function dependencyNotices() {
     "scheduler",
     "wxt",
     "@wxt-dev/browser",
-    "@posthog/core",
-    "@posthog/types",
   ].map((name) => {
     const base = path.resolve("node_modules", name);
     const pkg = JSON.parse(

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AnalyticsStatus } from "../../src/analytics/contract";
-import { setAnalyticsConsent } from "./analytics";
+import { setAnalyticsEnabled } from "./analytics";
+
 export function AnalyticsSettings({
   status,
 }: {
@@ -11,10 +12,10 @@ export function AnalyticsSettings({
   async function change(enabled: boolean) {
     setPending(true);
     setError(false);
-    const ok = await setAnalyticsConsent(enabled);
-    setError(!ok);
+    setError(!(await setAnalyticsEnabled(enabled)));
     setPending(false);
   }
+  const busy = pending || !status.available;
   return (
     <section
       className="settings-group"
@@ -27,37 +28,47 @@ export function AnalyticsSettings({
       <div className="settings-card">
         <div className="settings-row">
           <div className="row-text">
-            <p className="row-title">사용 통계 공유 (선택)</p>
-            <p className="row-sub" role="status">
+            <p id="analytics-row-title" className="row-title">
+              사용 통계 보내기
+            </p>
+            <p id="analytics-description" className="row-sub" role="status">
               {!status.available
-                ? "이 빌드는 분석 서비스가 연결되지 않아 통계를 전송하지 않습니다."
-                : status.choice === "enabled"
-                  ? "사용 통계 공유 중"
-                  : "사용 통계 공유 안 함"}
+                ? "이 빌드는 통계를 보내지 않습니다."
+                : status.enabled
+                  ? "켜짐 · 기능별 하루 합계만 보냅니다."
+                  : "꺼짐 · 수집하거나 보내지 않습니다."}
             </p>
           </div>
-          <div className="row-actions">
-            {status.choice !== "enabled" && (
-              <button
-                className="btn-secondary"
-                disabled={pending || !status.available}
-                onClick={() => void change(true)}
-              >
-                동의하고 통계 공유
-              </button>
-            )}
-            {status.choice !== "disabled" && (
-              <button
-                className="btn-ghost"
-                disabled={pending}
-                onClick={() => void change(false)}
-              >
-                {status.choice === "enabled"
-                  ? "통계 공유 철회"
-                  : "공유하지 않음"}
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            role="switch"
+            className="switch"
+            aria-checked={status.available && status.enabled}
+            aria-disabled={busy}
+            aria-labelledby="analytics-row-title"
+            aria-describedby="analytics-description"
+            onClick={() => {
+              if (!busy) void change(!status.enabled);
+            }}
+          >
+            <span className="switch-track" aria-hidden="true">
+              <span className="switch-knob">
+                {status.available && status.enabled && (
+                  <svg
+                    className="switch-check"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m2.5 6.5 2.3 2.3 4.7-5" />
+                  </svg>
+                )}
+              </span>
+            </span>
+          </button>
         </div>
         {error && (
           <p className="settings-row row-error" role="alert">
@@ -65,44 +76,30 @@ export function AnalyticsSettings({
           </p>
         )}
         <details className="settings-row settings-more">
-          <summary>보내는 정보와 보관</summary>
+          <summary>보내는 정보</summary>
           <p>
-            기능 개선을 위해 화면 이동, 버튼 사용, 기능 성공·실패와 패널
-            표시·활성 시간을 PostHog(EU)에 전송합니다. 동의한 설치의 이용 빈도와
-            재방문을 분석합니다.
+            어떤 기능이 쓰이고, 성공하는지, 느린지 알기 위해 이 기기에서 하루
+            단위로 센 숫자만 보냅니다: 사용한 날 여부, 서비스별 진입 수, 자료
+            다운로드·자막 저장 같은 결과 수, 작업별 시작·성공·실패·시간
+            초과·취소 수, 정해진 오류 코드, 처리 시간 구간, 확장 버전.
           </p>
           <p>
-            동의하면 무작위 설치 식별자를 저장합니다. LMS
-            정보·계정·과목명·URL·입력값·자막·파일 내용은 보내지 않습니다. IP
-            주소는 통신 과정에서 수신 서버에 전달되며 IP 저장·위치 분석을
-            제한합니다.
+            학번·이름·계정, 과목·강의·과제 이름, LMS 주소, 입력 내용, 자막, 파일
+            내용과 설치 식별자는 보내지 않습니다.
           </p>
           <p>
-            동의하지 않아도 모든 학습 기능을 이용할 수 있습니다. 설정에서
-            언제든 철회할 수 있고, 철회하면 이 기기의 식별자를 삭제합니다. 이미
-            전송된 통계는 소급 삭제되지 않습니다.
+            개발자의 수집 서버가 전체 합계로 합친 뒤 Google Analytics 4로
+            보냅니다. 서버는 통신 중 IP 주소를 받지만 통계에 저장하거나 Google에
+            넘기지 않습니다.
           </p>
-          <a
-            href="privacy.html"
-            target="_blank"
-            rel="noreferrer"
-            data-analytics-action="privacy_open"
-          >
-            보관·삭제 및 개인정보 처리방침
+          <p>
+            끄면 바로 수집·전송을 멈추고 이 기기의 미전송 통계를 지웁니다. 이미
+            전체 합계에 더해진 숫자는 설치별로 구분되지 않아 지울 수 없습니다.
+          </p>
+          <a href="privacy.html" target="_blank" rel="noreferrer">
+            개인정보 처리방침
           </a>
         </details>
-        {status.consentId && (
-          <details className="settings-row settings-more">
-            <summary>통계 삭제 요청용 식별자</summary>
-            <p>
-              원격 통계 삭제는 철회 전에 아래 값을 복사해 스토어 지원 연락처로
-              요청하세요. 이벤트는 최대 90일 보관합니다.
-            </p>
-            <p>
-              <code>{status.consentId}</code>
-            </p>
-          </details>
-        )}
       </div>
     </section>
   );

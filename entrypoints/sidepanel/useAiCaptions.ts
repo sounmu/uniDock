@@ -24,6 +24,8 @@ import {
 import { isTerminal, serverPhase, type JobPhase } from "../../src/captions/job-state";
 import { projectServerSegments, type Transcript } from "../../src/captions/transcript";
 import { safeLog } from "../../src/security/logger";
+import type { ErrorCode } from "../../src/analytics/report";
+import { startOperation, type OperationHandle } from "./analytics";
 
 export interface AiCaptionResult {
   transcript: Transcript;
@@ -72,6 +74,18 @@ function errorCode(error: unknown): string {
   return typeof code === "string" ? code : "UNKNOWN";
 }
 
+/** Server and client codes are open strings; statistics take fixed codes only. */
+function statisticsCode(code: string): ErrorCode {
+  if (code === "PERMISSION" || code === "TOO_LARGE" || code === "EXPIRED")
+    return code;
+  if (code === "NETWORK") return "NETWORK";
+  if (code.startsWith("UPLOAD")) return "UPLOAD";
+  if (/AUTH|LOGIN|SESSION|TOKEN/.test(code)) return "AUTH";
+  if (code === "RESPONSE" || code === "FAILED" || code === "NO_SERVER")
+    return "SERVER";
+  return "OTHER";
+}
+
 export function useAiCaptions() {
   const [state, setState] = useState<AiCaptionState>(IDLE);
   const controller = useRef<AbortController | null>(null);
@@ -81,6 +95,8 @@ export function useAiCaptions() {
   const phase = useRef<JobPhase>("idle");
   const generation = useRef(0);
   const mounted = useRef(false);
+  // Only a Generate started in this panel has an operation; a restored job does not.
+  const operation = useRef<OperationHandle | null>(null);
 
   const stopLocal = useCallback(() => {
     generation.current++;
@@ -92,6 +108,7 @@ export function useAiCaptions() {
   const discard = useCallback(() => {
     const id = jobId.current;
     const active = !isTerminal(phase.current);
+    operation.current = null;
     jobId.current = null;
     jobTab.current = null;
     phase.current = "idle";
@@ -113,6 +130,13 @@ export function useAiCaptions() {
       if (!live()) return;
       if (patch.phase) phase.current = patch.phase;
       setState((prev) => ({ ...prev, ...patch }));
+      const op = operation.current;
+      if (!op || !patch.phase || !isTerminal(patch.phase)) return;
+      operation.current = null;
+      if (patch.phase === "succeeded") op.success();
+      else if (patch.phase === "cancelled") op.cancel();
+      else if (patch.errorCode === "TIMEOUT") op.timeout();
+      else op.failure(statisticsCode(patch.errorCode ?? "FAILED"));
     };
     try {
       await body({ signal, live, set });
@@ -249,6 +273,7 @@ export function useAiCaptions() {
   const generate = useCallback(async () => {
     const access = requestCaptionMediaAccess();
     discard();
+    operation.current = startOperation("ai_captions_generate");
     await run(async (ctx) => {
       const { signal, live, set } = ctx;
       set({ ...IDLE, phase: "identifying" });
@@ -314,5 +339,10 @@ export function useAiCaptions() {
     });
   }, [discard, poll, run]);
 
-  return { state, generate, cancel: discard };
+  const cancel = useCallback(() => {
+    operation.current?.cancel();
+    discard();
+  }, [discard]);
+
+  return { state, generate, cancel };
 }

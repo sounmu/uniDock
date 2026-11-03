@@ -1,5 +1,10 @@
 # AI 자막 생성 구현 브리프
 
+> 2026-11-03 저장소 이전: 아래의 `unidock-captions`는 현재
+> `unidock-server`의 `captions/` 영역입니다. API 원본은
+> `captions/api/public.openapi.yaml`, 자막 문서·ADR은 `captions/docs/`에 있습니다.
+> 아래 내용은 당시 구현 브리프이며, 경로 이전이 자막 동작 변경을 뜻하지는 않습니다.
+
 - 작성일: 2026-10-22
 - 대상 독자: 이 기능을 구현하는 에이전트와 리뷰어
 - 근거 문서: `documentation/FEATURE-RESEARCH-2026-10.md` 4장 (특히 4.2, 4.2.1, 4.2.2, 4.4~4.7)

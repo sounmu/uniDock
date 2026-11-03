@@ -49,7 +49,6 @@ export function Rail({
           ) : (
             <button
               key={value}
-              data-analytics-action={`nav_${value}`}
               className="btn-ghost"
               aria-current={!info && section === value ? "page" : undefined}
               onClick={() => onSelect(value)}
@@ -66,7 +65,6 @@ export function Rail({
           target="_blank"
           rel="noreferrer"
           aria-label="LMS 열기 (새 탭)"
-          data-analytics-action="lms_open"
         >
           <Icon name="external" />
           <span>LMS 열기</span>
@@ -75,7 +73,6 @@ export function Rail({
           className="btn-ghost"
           onClick={onInfo}
           aria-current={info ? "page" : undefined}
-          data-analytics-action="info"
         >
           설정
         </button>
@@ -83,7 +80,6 @@ export function Rail({
           href="privacy.html"
           target="_blank"
           rel="noreferrer"
-          data-analytics-action="privacy_open"
         >
           개인정보
         </a>

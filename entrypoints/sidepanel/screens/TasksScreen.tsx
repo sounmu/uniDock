@@ -13,7 +13,6 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
         ).map(([type, label]) => (
           <button
             key={type}
-            data-analytics-action="tasks_mode"
             className="btn-ghost"
             aria-pressed={model.view === type}
             onClick={() => {
@@ -36,7 +35,7 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
       </nav>
       {model.tasksMode === "todo" ? (
         <details className="guidance">
-          <summary data-analytics-action="guidance">표시 기준</summary>
+          <summary>표시 기준</summary>
           <p className="hint">
             현재 수강 중인 모든 과목의 미제출 과제를 표시합니다. 마감 없음·지난
             과제도 포함합니다.
@@ -44,14 +43,13 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
         </details>
       ) : (
         <details className="view-settings">
-          <summary data-analytics-action="view_options">보기 설정</summary>
+          <summary>보기 설정</summary>
           <div className="view-settings-body date-fields">
             <label className="field">
               시작일 (선택)
               <input
                 type="date"
                 value={model.start}
-                data-analytics-action="date_start"
                 onChange={(e) => {
                   model.clear();
                   model.setStart(e.target.value);
@@ -63,7 +61,6 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
               <input
                 type="date"
                 value={model.end}
-                data-analytics-action="date_end"
                 onChange={(e) => {
                   model.clear();
                   model.setEnd(e.target.value);
