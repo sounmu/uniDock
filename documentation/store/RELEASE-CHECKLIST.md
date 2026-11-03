@@ -1,5 +1,20 @@
 # 배포 절차 및 남은 입력
 
+## 0.5.1 GitHub 릴리스
+
+- 대상: 서버 계약 1.0.0 고정, 집계 통계 전환과 끄기·삭제 처리 보강, 로그인 복구 E2E 동기화.
+- 산출물: `release/uniDock-0.5.1-chrome-mv3.zip`, `release/inventory.json`.
+- 버전 원본은 `package.json`과 `package-lock.json`이며 manifest는 빌드에서 생성합니다.
+- 개인정보처리방침 기준일은 2026-11-03, 적용 버전은 0.5.1입니다.
+- `UNIDOCK_PLAYBACK=1`, `UNIDOCK_AI_CAPTIONS=1`, 실제 `UNIDOCK_CAPTION_SERVER`와
+  `UNIDOCK_STATS_SERVER`를 제공해 `npm run release`를 실행합니다.
+- 개발 도구의 minimatch는 GHSA-g3hv-75wg-m249 대응을 위해 11.0.1로 고정했습니다.
+  릴리스 감사는 기존처럼 moderate 이상을 허용하지 않습니다.
+- 이번 GitHub 릴리스는 Chrome Web Store 제출이나 운영 서버 배포를 뜻하지 않습니다.
+  아래의 실제 LMS·계정·스토어 확인 항목은 확인된 것만 별도로 완료 처리합니다.
+
+## 이전 릴리스 기록과 공통 출시 점검
+
 상태(2026-10-28): 0.4.0 배포 준비 중. 0.4.0부터 배포 ZIP에 순차 자동 재생과 AI 자막 생성을 포함합니다. Chrome Web Store에는 아직 등록·제출하지 않았으므로 첫 등록 기준으로 정리합니다. 0.3.0은 `main`에 병합됐고(PR 6), 0.2.0·0.2.1은 GitHub 릴리스로만 배포했습니다.
 
 ## 준비된 산출물
