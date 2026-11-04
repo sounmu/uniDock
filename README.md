@@ -1,5 +1,9 @@
 # uniDock
 
+다중 대학 확장 방향: [대학·LMS별 연동 경계와 준비사항](documentation/MULTI-UNIVERSITY.md).
+
+이화여대 연동 준비: [현재 기능 조사와 사용자 확인표](documentation/EWHA-DISCOVERY.md).
+
 고려대학교 LMS를 기존 로그인 세션으로 조회하는 Chrome Manifest V3 확장 프로그램. WXT + React + TypeScript, Chrome 114 이상 Side Panel UI.
 
 ## 설치 및 실행
