@@ -31,6 +31,7 @@
     "server-contract:check": "node scripts/check-server-contract.mjs",
     "release": "npm run notices && UNIDOCK_RELEASE=1 npm run check && env -u npm_config_allow_scripts npm audit --audit-level=moderate && node scripts/package-release.mjs",
     "store:assets": "node scripts/brand-assets.mjs && node scripts/store-assets.mjs",
+    "site:panels": "node scripts/site-panels.mjs",
     "notices": "node scripts/notices.mjs",
     "test:captions:live": "node scripts/test-caption-live.mjs",
     "demo": "npm run build && node scripts/demo.mjs"
