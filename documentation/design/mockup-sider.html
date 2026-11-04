@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>uniDock 목업 B — Sider 레퍼런스</title>
+<style>
+.panel{
+  --ink:#1d1b26; --muted:#6c6879; --faint:#a19cad; --line:#ebe9f0; --page:#fff; --sunk:#f6f5fa; --rail:#f8f7fc;
+  --a:#872038; --b:#6d4bd8; --wash:#f1edff; --brand-wash:#f7ecee; --red:#d03a2a;
+  --grad:linear-gradient(135deg,var(--a),var(--b));
+  --c1:#3f6ff0; --c2:#25a065; --c3:#d58a06; --c4:#7d55e8; --c5:#11a0a0;
+  --shadow:0 8px 24px rgba(40,25,80,.08),0 1px 3px rgba(40,25,80,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:#dad8e0;padding:40px;color:#1d1b26}
+h1.board{font-size:22px;font-weight:700;margin-bottom:6px}
+p.board{font-size:13px;color:#555;margin-bottom:28px}
+.row{display:flex;gap:36px;align-items:flex-start}
+.frame-label{font-size:13px;font-weight:600;color:#444;margin-bottom:10px}
+.panel{width:380px;height:760px;background:var(--page);color:var(--ink);border-radius:14px;overflow:hidden;display:flex;font-size:14px;outline:1px solid rgba(0,0,0,.08)}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.s{width:16px;height:16px}
+svg.xs{width:14px;height:14px}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.head{display:flex;align-items:center;gap:8px;padding:12px 12px 10px;border-bottom:1px solid var(--line)}
+.logo{width:26px;height:26px;border-radius:8px;background:var(--grad);color:#fff;font-weight:800;font-size:13px;display:grid;place-items:center;flex:none}
+.head b{font-size:15px}
+.model{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--muted);background:var(--sunk);border-radius:999px;padding:4px 8px 4px 10px}
+.model i{width:6px;height:6px;border-radius:50%;background:var(--c2)}
+.head .sp{flex:1}
+.hb{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
+.body{flex:1;overflow:hidden;padding:14px 12px 8px;display:flex;flex-direction:column;gap:12px}
+
+.hello h2{font-size:21px;font-weight:700;letter-spacing:-.3px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;width:max-content}
+.hello p{font-size:13px;color:var(--muted);margin-top:4px}
+.hello p b{color:var(--red)}
+
+.ctx{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--page)}
+.ctx .top{display:flex;align-items:center;gap:8px}
+.fav{width:22px;height:22px;border-radius:6px;background:#8b1d34;color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center;flex:none}
+.ctx .tt{flex:1;min-width:0}
+.ctx .tt small{display:block;font-size:11px;color:var(--faint)}
+.ctx .tt span{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live{font-size:10.5px;font-weight:700;color:var(--c2);background:color-mix(in srgb,var(--c2) 12%,transparent);padding:2px 7px;border-radius:999px}
+.acts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.act{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;background:var(--sunk);color:var(--ink)}
+.act svg{color:var(--b)}
+
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tool{border:1px solid var(--line);border-radius:13px;padding:11px;display:flex;flex-direction:column;gap:8px}
+.tool .ti{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:var(--tc);background:color-mix(in srgb,var(--tc) 12%,transparent)}
+.tool b{font-size:13.5px}
+.tool p{font-size:11.5px;color:var(--muted);margin-top:-5px}
+.tool.ai{background:linear-gradient(135deg,color-mix(in srgb,var(--a) 7%,#fff),color-mix(in srgb,var(--b) 10%,#fff));border-color:color-mix(in srgb,var(--b) 25%,transparent)}
+.tool.ai .ti{background:var(--grad);color:#fff}
+
+.input{margin:0 12px 12px;border:1.5px solid transparent;border-radius:16px;background-image:linear-gradient(#fff,#fff),var(--grad);background-origin:border-box;background-clip:padding-box,border-box;box-shadow:var(--shadow);padding:10px 10px 8px 12px}
+.input .ph{font-size:13.5px;color:var(--faint);min-height:22px}
+.input .tb{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--muted)}
+.input .tb .pill{font-size:11.5px;font-weight:600;border:1px solid var(--line);border-radius:999px;padding:3px 8px;display:flex;gap:4px;align-items:center}
+.input .tb .sp{flex:1}
+.send{width:30px;height:30px;border-radius:10px;background:var(--grad);color:#fff;display:grid;place-items:center}
+
+.rail{width:54px;flex:none;background:var(--rail);border-left:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:2px}
+.ri{width:44px;padding:7px 0 5px;border-radius:11px;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);position:relative}
+.ri small{font-size:10px;font-weight:600}
+.ri.on{background:var(--wash);color:var(--b)}
+.ri .bd{position:absolute;top:3px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--red);border:1.5px solid var(--rail)}
+.rsp{flex:1}
+.me{width:28px;height:28px;border-radius:50%;background:#e9e5f5;color:var(--b);font-size:12px;font-weight:700;display:grid;place-items:center;margin-top:6px}
+
+.ub{align-self:flex-end;max-width:80%;background:var(--sunk);border-radius:14px 14px 4px 14px;padding:8px 12px;font-size:13.5px}
+.ans{display:flex;gap:8px;align-items:flex-start}
+.ans .logo{width:22px;height:22px;font-size:11px;border-radius:7px;margin-top:2px}
+.ans .bx{flex:1;min-width:0}
+.ans .lead{font-size:13.5px;line-height:1.5}
+.ans .lead b{color:var(--red)}
+.card{border:1px solid var(--line);border-radius:13px;margin-top:8px;overflow:hidden}
+.card .ch{display:flex;align-items:center;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;color:var(--muted);background:var(--sunk)}
+.card .ch .sp{flex:1}
+.card .ch .lnk{color:var(--b);font-weight:600}
+.it{display:flex;gap:9px;align-items:center;padding:9px 10px;border-top:1px solid var(--line)}
+.it:first-of-type{border-top:0}
+.bar4{width:3px;align-self:stretch;border-radius:2px;background:var(--cc);flex:none}
+.it .b{flex:1;min-width:0}
+.it .t{font-size:13.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .m{font-size:11.5px;color:var(--muted);margin-top:1px}
+.dd{font-size:11.5px;font-weight:700;padding:3px 7px;border-radius:7px;white-space:nowrap;background:var(--sunk);color:var(--muted)}
+.dd.hot{background:color-mix(in srgb,var(--red) 11%,transparent);color:var(--red)}
+.follow{display:flex;gap:6px;flex-wrap:wrap;margin-left:30px}
+.follow span{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid color-mix(in srgb,var(--b) 30%,transparent);color:var(--b);background:#fff}
+.tools-row{display:flex;gap:10px;margin:6px 0 0 30px;color:var(--faint)}
+
+.seg{display:flex;gap:6px}
+.seg span{font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--sunk);color:var(--muted)}
+.seg span.on{background:var(--ink);color:#fff}
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cc{border:1px solid var(--line);border-radius:13px;overflow:hidden}
+.cc .stripe{height:40px;background:linear-gradient(135deg,color-mix(in srgb,var(--cc) 75%,#fff),var(--cc));position:relative}
+.cc .stripe span{position:absolute;left:10px;bottom:-12px;width:26px;height:26px;border-radius:8px;background:#fff;color:var(--cc);font-weight:800;font-size:12px;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.cc .cb{padding:16px 10px 10px}
+.cc b{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .st{display:flex;gap:8px;margin-top:6px;font-size:11px;color:var(--muted)}
+.cc .st em{font-style:normal;font-weight:700;color:var(--ink)}
+.cc .st em.hot{color:var(--red)}
+.cc .nx{margin-top:8px;font-size:11px;font-weight:600;color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent);border-radius:6px;padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc .nx.ok{color:var(--muted);background:var(--sunk)}
+
+.steps{border:1px solid var(--line);border-radius:13px;padding:4px 12px}
+.step{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.step:first-child{border-top:0}
+.sn{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;flex:none;background:var(--sunk);color:var(--muted)}
+.sn.ok{background:color-mix(in srgb,var(--c2) 15%,transparent);color:var(--c2)}
+.sn.run{background:var(--grad);color:#fff}
+.step .sp{flex:1}
+.step small{color:var(--muted);font-size:12px}
+.prog{height:5px;border-radius:5px;background:var(--sunk);overflow:hidden;margin:2px 0 6px 30px}
+.prog i{display:block;height:100%;width:64%;background:var(--grad)}
+.tr{border:1px solid var(--line);border-radius:13px;overflow:hidden}
+.tr .ch{display:flex;align-items:center;gap:6px;padding:8px 10px;font-size:12px;font-weight:700;color:var(--muted);background:var(--sunk)}
+.tr .ch .sp{flex:1}
+.ln{display:flex;gap:10px;padding:7px 10px;font-size:13px;line-height:1.5;border-top:1px solid var(--line)}
+.ln:first-of-type{border-top:0}
+.ln code{font:600 11.5px ui-monospace,Menlo,monospace;color:var(--b);padding-top:2px;flex:none}
+.ln.cur{background:var(--wash)}
+.dl{display:flex;gap:6px}
+.btn{font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:10px;display:inline-flex;gap:5px;align-items:center}
+.btn.g{background:var(--grad);color:#fff}
+.btn.o{border:1px solid var(--line);color:var(--ink)}
+
+.notes{margin-top:34px;max-width:1700px;display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.notes div{background:#fff;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.6;color:#333}
+.notes h3{font-size:14px;margin-bottom:6px}
+.notes ul{padding-left:18px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="home" viewBox="0 0 24 24"><path d="M4 11l8-6.5 8 6.5V19a1 1 0 01-1 1h-4.5v-5h-5v5H5a1 1 0 01-1-1z"/></symbol>
+  <symbol id="todo" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M5 5.5A1.5 1.5 0 016.5 4H19v14H6.5A1.5 1.5 0 005 19.5z"/><path d="M5 19.5A1.5 1.5 0 006.5 21H19"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.5 9l4.5 3-4.5 3z"/></symbol>
+  <symbol id="cc" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="3"/><path d="M10.5 10.3a2 2 0 100 3.4M16.5 10.3a2 2 0 100 3.4"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M6 18l1.4-1.4M16.6 7.4L18 6"/></symbol>
+  <symbol id="hist" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 102.2-5.3L4.5 9"/><path d="M4.5 4.5V9H9M12 8v4l3 2"/></symbol>
+  <symbol id="new" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2 2 .7-2 .8-.8 2-.7-2-2-.8 2-.7z"/></symbol>
+  <symbol id="send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></symbol>
+  <symbol id="at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M15.5 12v1.5a2.5 2.5 0 005 0V12a8.5 8.5 0 10-3.4 6.8"/></symbol>
+  <symbol id="tab" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M3.5 9h17"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V6a1 1 0 011-1h9"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 11-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M7 3.5h7l4 4V20a.5.5 0 01-.5.5h-10.5A.5.5 0 016.5 20V4a.5.5 0 01.5-.5z"/><path d="M14 3.5V8h4"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></symbol>
+</svg>
+
+<h1 class="board">목업 B — Sider 레퍼런스</h1>
+<p class="board">오른쪽 아이콘 레일 · 헤더(로고 + 상태 칩 + 기록/새로 시작) · 현재 탭 컨텍스트 카드 · 도구 카드 그리드 · 그라디언트 테두리 입력창 · 질문 → 결과 카드 흐름 / 380 × 760</p>
+
+<div class="row">
+
+<div>
+<div class="frame-label">① 홈</div>
+<div class="panel">
+  <div class="main">
+    <div class="head"><span class="logo">u</span><b>uniDock</b><span class="model"><i></i>LMS 연결됨<svg class="i xs"><use href="#chev"/></svg></span><span class="sp"></span><span class="hb"><svg class="i s"><use href="#hist"/></svg></span><span class="hb"><svg class="i s"><use href="#new"/></svg></span></div>
+    <div class="body">
+      <div class="hello"><h2>좋은 오후예요, 민준님</h2><p>오늘 마감 <b>2개</b> · 새 강의 자료 4개 · 미시청 강의 3개</p></div>
+      <div class="ctx">
+        <div class="top"><span class="fav">KU</span><div class="tt"><small>현재 탭</small><span>자료구조 · 9주차 BST 삭제 연산 (녹화 강의)</span></div><span class="live">감지됨</span></div>
+        <div class="acts"><span class="act"><svg class="i xs"><use href="#cc"/></svg>자막 추출</span><span class="act"><svg class="i xs"><use href="#down"/></svg>9주차 자료 받기</span><span class="act"><svg class="i xs"><use href="#play"/></svg>이어서 자동 재생</span></div>
+      </div>
+      <div class="tools">
+        <div class="tool" style="--tc:var(--red)"><span class="ti"><svg class="i s"><use href="#todo"/></svg></span><b>할 일</b><p>미제출 14 · 오늘 2</p></div>
+        <div class="tool" style="--tc:var(--c1)"><span class="ti"><svg class="i s"><use href="#book"/></svg></span><b>내 과목</b><p>수강 중 5과목</p></div>
+        <div class="tool" style="--tc:var(--c2)"><span class="ti"><svg class="i s"><use href="#down"/></svg></span><b>강의 자료</b><p>일괄 다운로드</p></div>
+        <div class="tool" style="--tc:var(--c3)"><span class="ti"><svg class="i s"><use href="#play"/></svg></span><b>자동 재생</b><p>고른 영상 순서대로</p></div>
+        <div class="tool ai"><span class="ti"><svg class="i s"><use href="#cc"/></svg></span><b>AI 자막</b><p>자막 없는 강의도 생성</p></div>
+        <div class="tool ai"><span class="ti"><svg class="i s"><use href="#spark"/></svg></span><b>ChatGPT 정리</b><p>자료 + 프롬프트 복사</p></div>
+      </div>
+    </div>
+    <div class="input"><div class="ph">“이번 주 마감”, “운영체제 자료” 처럼 입력</div><div class="tb"><span class="pill"><svg class="i xs"><use href="#at"/></svg>과목</span><span class="pill"><svg class="i xs"><use href="#tab"/></svg>현재 탭</span><span class="sp"></span><span class="send"><svg class="i s" style="stroke-width:2.2"><use href="#send"/></svg></span></div></div>
+  </div>
+  <nav class="rail"><div class="ri on"><svg class="i"><use href="#home"/></svg><small>홈</small></div><div class="ri"><svg class="i"><use href="#todo"/></svg><small>할 일</small><span class="bd"></span></div><div class="ri"><svg class="i"><use href="#book"/></svg><small>과목</small></div><div class="ri"><svg class="i"><use href="#cc"/></svg><small>자막</small></div><div class="ri"><svg class="i"><use href="#play"/></svg><small>재생</small></div><div class="rsp"></div><div class="ri"><svg class="i"><use href="#gear"/></svg><small>설정</small></div><div class="me">민</div></nav>
+</div>
+</div>
+
+<div>
+<div class="frame-label">② 할 일 (질문 → 결과 카드)</div>
+<div class="panel">
+  <div class="main">
+    <div class="head"><span class="logo">u</span><b>할 일</b><span class="model"><i></i>방금 새로고침</span><span class="sp"></span><span class="hb"><svg class="i s"><use href="#refresh"/></svg></span><span class="hb"><svg class="i s"><use href="#new"/></svg></span></div>
+    <div class="body">
+      <div class="ub">이번 주 마감 보여줘</div>
+      <div class="ans"><span class="logo">u</span><div class="bx">
+        <p class="lead">이번 주 마감은 <b>6개</b>예요. 그중 2개는 오늘 마감입니다.</p>
+        <div class="card">
+          <div class="ch">오늘 · 11월 3일<span class="sp"></span></div>
+          <div class="it" style="--cc:var(--c4)"><span class="bar4"></span><div class="b"><div class="t">4주차 퀴즈</div><div class="m">운영체제 · 30분</div></div><span class="dd hot">18:00</span></div>
+          <div class="it" style="--cc:var(--c1)"><span class="bar4"></span><div class="b"><div class="t">과제 3: 이진 탐색 트리 구현</div><div class="m">자료구조 · 20점</div></div><span class="dd hot">23:59</span></div>
+        </div>
+        <div class="card">
+          <div class="ch">이번 주<span class="sp"></span><span class="lnk">전체 4</span></div>
+          <div class="it" style="--cc:var(--c3)"><span class="bar4"></span><div class="b"><div class="t">5장 연습문제 1–12</div><div class="m">확률과 통계</div></div><span class="dd">내일</span></div>
+          <div class="it" style="--cc:var(--c4)"><span class="bar4"></span><div class="b"><div class="t">Lab 5 — 스케줄러 시뮬레이션</div><div class="m">운영체제</div></div><span class="dd">목 23:59</span></div>
+          <div class="it" style="--cc:var(--c2)"><span class="bar4"></span><div class="b"><div class="t">TCP 혼잡 제어 실습 결과</div><div class="m">컴퓨터네트워크</div></div><span class="dd">금 23:59</span></div>
+        </div>
+      </div></div>
+      <div class="tools-row"><svg class="i s"><use href="#copy"/></svg><svg class="i s"><use href="#cal"/></svg><svg class="i s"><use href="#refresh"/></svg></div>
+      <div class="follow"><span>마감 지난 것만</span><span>운영체제만</span><span>캘린더로 보기</span></div>
+    </div>
+    <div class="input"><div class="ph">조건을 더 붙여보세요</div><div class="tb"><span class="pill"><svg class="i xs"><use href="#at"/></svg>과목</span><span class="pill"><svg class="i xs"><use href="#cal"/></svg>기간</span><span class="sp"></span><span class="send"><svg class="i s" style="stroke-width:2.2"><use href="#send"/></svg></span></div></div>
+  </div>
+  <nav class="rail"><div class="ri"><svg class="i"><use href="#home"/></svg><small>홈</small></div><div class="ri on"><svg class="i"><use href="#todo"/></svg><small>할 일</small></div><div class="ri"><svg class="i"><use href="#book"/></svg><small>과목</small></div><div class="ri"><svg class="i"><use href="#cc"/></svg><small>자막</small></div><div class="ri"><svg class="i"><use href="#play"/></svg><small>재생</small></div><div class="rsp"></div><div class="ri"><svg class="i"><use href="#gear"/></svg><small>설정</small></div><div class="me">민</div></nav>
+</div>
+</div>
+
+<div>
+<div class="frame-label">③ 내 과목 (라이브러리 카드)</div>
+<div class="panel">
+  <div class="main">
+    <div class="head"><span class="logo">u</span><b>내 과목</b><span class="model">2026-2학기<svg class="i xs"><use href="#chev"/></svg></span><span class="sp"></span><span class="hb"><svg class="i s"><use href="#search"/></svg></span><span class="hb"><svg class="i s"><use href="#refresh"/></svg></span></div>
+    <div class="body">
+      <div class="seg"><span class="on">전체 5</span><span>마감 있음 4</span><span>새 자료 2</span></div>
+      <div class="cgrid">
+        <div class="cc" style="--cc:var(--c1)"><div class="stripe"><span>자</span></div><div class="cb"><b>자료구조</b><div class="st"><span>과제 <em class="hot">2</em></span><span>강의 <em>12</em></span><span>자료 <em>18</em></span></div><div class="nx">오늘 23:59 · 과제 3</div></div></div>
+        <div class="cc" style="--cc:var(--c4)"><div class="stripe"><span>운</span></div><div class="cb"><b>운영체제</b><div class="st"><span>과제 <em class="hot">3</em></span><span>강의 <em>10</em></span><span>자료 <em>14</em></span></div><div class="nx">오늘 18:00 · 4주차 퀴즈</div></div></div>
+        <div class="cc" style="--cc:var(--c3)"><div class="stripe"><span>확</span></div><div class="cb"><b>확률과 통계</b><div class="st"><span>과제 <em class="hot">2</em></span><span>강의 <em>9</em></span><span>자료 <em>11</em></span></div><div class="nx">마감 지남 · 오답 노트</div></div></div>
+        <div class="cc" style="--cc:var(--c2)"><div class="stripe"><span>컴</span></div><div class="cb"><b>컴퓨터네트워크</b><div class="st"><span>과제 <em>1</em></span><span>강의 <em>11</em></span><span>자료 <em>16</em></span></div><div class="nx ok">금 23:59 · 실습 결과</div></div></div>
+        <div class="cc" style="--cc:var(--c5)"><div class="stripe"><span>글</span></div><div class="cb"><b>대학 글쓰기: 학술적 글쓰기</b><div class="st"><span>과제 <em>1</em></span><span>강의 <em>6</em></span><span>자료 <em>8</em></span></div><div class="nx ok">토 12:00 · 동료 피드백</div></div></div>
+      </div>
+    </div>
+    <div class="input"><div class="ph">@과목 으로 바로 이동</div><div class="tb"><span class="pill"><svg class="i xs"><use href="#at"/></svg>과목</span><span class="sp"></span><span class="send"><svg class="i s" style="stroke-width:2.2"><use href="#send"/></svg></span></div></div>
+  </div>
+  <nav class="rail"><div class="ri"><svg class="i"><use href="#home"/></svg><small>홈</small></div><div class="ri"><svg class="i"><use href="#todo"/></svg><small>할 일</small><span class="bd"></span></div><div class="ri on"><svg class="i"><use href="#book"/></svg><small>과목</small></div><div class="ri"><svg class="i"><use href="#cc"/></svg><small>자막</small></div><div class="ri"><svg class="i"><use href="#play"/></svg><small>재생</small></div><div class="rsp"></div><div class="ri"><svg class="i"><use href="#gear"/></svg><small>설정</small></div><div class="me">민</div></nav>
+</div>
+</div>
+
+<div>
+<div class="frame-label">④ 자막 추출 (현재 탭)</div>
+<div class="panel">
+  <div class="main">
+    <div class="head"><span class="logo">u</span><b>자막 추출</b><span class="sp"></span><span class="hb"><svg class="i s"><use href="#hist"/></svg></span></div>
+    <div class="body">
+      <div class="ctx"><div class="top"><span class="fav">KU</span><div class="tt"><small>현재 탭</small><span>자료구조 · 9주차 BST 삭제 연산</span></div><span class="live">52:14</span></div></div>
+      <div class="steps">
+        <div class="step"><span class="sn ok">✓</span>강의 영상 감지<span class="sp"></span><small>KU 플레이어</small></div>
+        <div class="step"><span class="sn ok">✓</span>제공 자막 확인<span class="sp"></span><small>없음</small></div>
+        <div class="step"><span class="sn run">3</span>AI 자막 생성 중<span class="sp"></span><small>64%</small></div>
+      </div>
+      <div class="prog"><i></i></div>
+      <div class="tr">
+        <div class="ch"><svg class="i xs"><use href="#file"/></svg>미리보기<span class="sp"></span>한국어 · 시간 포함</div>
+        <div class="ln"><code>00:12</code>지난 시간에 삽입까지 봤고요, 오늘은 삭제 연산을 다룹니다.</div>
+        <div class="ln"><code>00:31</code>삭제는 노드의 자식 수에 따라 세 가지 경우로 나눠서 생각해요.</div>
+        <div class="ln cur"><code>01:05</code>자식이 둘인 경우엔 오른쪽 서브트리의 최솟값, 즉 successor를 찾아서…</div>
+        <div class="ln"><code>01:48</code>이렇게 바꿔 넣으면 BST 성질이 그대로 유지되죠.</div>
+      </div>
+      <div class="dl"><span class="btn g"><svg class="i s"><use href="#down"/></svg>TXT 받기</span><span class="btn o">JSON</span><span class="btn o">취소</span></div>
+    </div>
+  </div>
+  <nav class="rail"><div class="ri"><svg class="i"><use href="#home"/></svg><small>홈</small></div><div class="ri"><svg class="i"><use href="#todo"/></svg><small>할 일</small><span class="bd"></span></div><div class="ri"><svg class="i"><use href="#book"/></svg><small>과목</small></div><div class="ri on"><svg class="i"><use href="#cc"/></svg><small>자막</small></div><div class="ri"><svg class="i"><use href="#play"/></svg><small>재생</small></div><div class="rsp"></div><div class="ri"><svg class="i"><use href="#gear"/></svg><small>설정</small></div><div class="me">민</div></nav>
+</div>
+</div>
+
+</div>
+
+<div class="notes">
+  <div><h3>Sider에서 가져온 패턴</h3><ul>
+    <li>오른쪽 세로 아이콘 레일 + 홈 화면(인사말, 도구 카드 그리드)</li>
+    <li>‘현재 탭’ 컨텍스트 카드: 지금 열린 LMS 페이지를 감지해 맞는 작업을 바로 제안</li>
+    <li>그라디언트 테두리 입력창 + @과목, 현재 탭 같은 컨텍스트 칩</li>
+    <li>질문 → 결과 카드 → 후속 제안 칩 흐름(②), 단계 카드 + 진행 바(④)</li></ul></div>
+  <div><h3>uniDock에 맞춘 부분 / 확인할 점</h3><ul>
+    <li>Sider 보라에 브랜드 크림슨을 섞은 그라디언트 — AI 기능 카드에만 사용</li>
+    <li>입력창은 LLM이 아니라 키워드 검색/필터로 동작하게 설계 가능 (“이번 주”, “운영체제” 파싱)</li>
+    <li>현재 탭 감지는 기존 content script로 가능하지만 ‘홈’ 화면은 새로 만드는 화면</li>
+    <li>상단 탭 → 오른쪽 레일, 그림자·그라디언트 사용 — 기존 DESIGN.md와 다름</li></ul></div>
+</div>
+</body>
+</html>

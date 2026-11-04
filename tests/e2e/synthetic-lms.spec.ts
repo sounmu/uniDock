@@ -58,12 +58,13 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       expect(menu).not.toBeNull();
       expect(main!.x).toBe(0);
       expect(main!.width).toBe(width);
-      expect(menu!.y + menu!.height).toBeLessThanOrEqual(main!.y);
+      expect(menu!.y).toBeGreaterThan(700);
+      expect(menu!.y + menu!.height).toBeLessThanOrEqual(800);
       const buttons = await navigation.getByRole("button").all();
       const boxes = await Promise.all(
         buttons.map((button) => button.boundingBox()),
       );
-      expect(boxes).toHaveLength(4);
+      expect(boxes).toHaveLength(5);
       for (const box of boxes) {
         expect(box).not.toBeNull();
         expect(box!.y).toBe(boxes[0]!.y);
@@ -125,7 +126,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       panel
         .getByRole("navigation", { name: "주 메뉴", exact: true })
         .getByRole("button"),
-    ).toHaveCount(4);
+    ).toHaveCount(5);
     const initialCourseRequests = server.coursesCount();
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();

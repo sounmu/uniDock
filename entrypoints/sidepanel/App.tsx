@@ -194,6 +194,17 @@ export function App() {
               <div className="settings-card">
                 <a
                   className="settings-row settings-link"
+                  href="https://mylms.korea.ac.kr/"
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="LMS 열기 (새 탭)"
+                  data-analytics-action="lms_open"
+                >
+                  <span className="row-title">LMS 열기</span>
+                  <Icon name="external" />
+                </a>
+                <a
+                  className="settings-row settings-link"
                   href="updates.html"
                   target="_blank"
                   rel="noreferrer"
