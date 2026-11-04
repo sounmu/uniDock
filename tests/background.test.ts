@@ -24,7 +24,14 @@ it("rejects analytics messages from content scripts and accepts only the exact e
       onMessage: { addListener },
     },
     action: actionMocks(),
-    storage: { local: { get: vi.fn().mockResolvedValue({}) } },
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+    },
   });
   background.main();
   const listener = addListener.mock.calls[0]![0];
@@ -37,14 +44,14 @@ it("rejects analytics messages from content scripts and accepts only the exact e
   ]) {
     expect(
       listener(
-        { version: 1, type: "ANALYTICS_CONSENT", enabled: true },
+        { version: 1, type: "ANALYTICS_SET", enabled: false },
         { id: "test", url },
         respond,
       ),
     ).toBe(false);
     expect(respond).toHaveBeenLastCalledWith({ ok: false });
   }
-  expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  expect(chrome.storage.local.set).not.toHaveBeenCalled();
   const result = await new Promise((resolve) => {
     expect(
       listener(
@@ -54,7 +61,8 @@ it("rejects analytics messages from content scripts and accepts only the exact e
       ),
     ).toBe(true);
   });
-  expect(result).toEqual({ available: false, choice: "undecided" });
+  // Development builds never report; the setting itself still materializes.
+  expect(result).toEqual({ available: false, enabled: true, notice: "changed" });
 });
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -94,7 +102,8 @@ it("registers Chrome install events to badge upgrades and reconnect open LMS tab
     action,
   });
   background.main();
-  expect(installed).toHaveBeenCalledOnce();
+  // The update badge/reinjection listener, then the statistics migration.
+  expect(installed).toHaveBeenCalledTimes(2);
   const listener = installed.mock.calls[0]![0];
   listener({ reason: "update", previousVersion: "0.1.1" });
   await vi.waitFor(() =>
@@ -565,7 +574,7 @@ it("does not broadcast rejected playback messages", () => {
   expect(f.sendMessage).not.toHaveBeenCalled();
 });
 
-it("erases analytics consent and the popup opt-in before the existing clear-data command and does not capture deletion", async () => {
+it("discards unsent statistics and the popup opt-in before the existing clear-data command and restores the on/off choice", async () => {
   const f = commandBroadcastFixture();
   f.command.mockResolvedValue({ status: "error", code: "STORAGE" });
   const order: string[] = [];
@@ -587,11 +596,8 @@ it("erases analytics consent and the popup opt-in before the existing clear-data
       ),
     ).toBe(true);
   });
-  expect(chrome.storage.local.remove).toHaveBeenCalledWith(
-    "unidock.analytics.v1",
-  );
   expect(order).toEqual([
-    "erase:unidock.analytics.v1",
+    "erase:unidock.analytics.v2,unidock.analytics-counters.v1,unidock.analytics.v1",
     "erase:unidock.popup-auto-close.v1",
     "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1",
     "playback",

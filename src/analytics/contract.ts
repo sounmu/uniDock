@@ -1,199 +1,163 @@
-// This contract deliberately cannot carry LMS labels, identifiers, URLs or errors.
-export const ANALYTICS_KEY = "unidock.analytics.v1";
-export const ANALYTICS_HOST = "https://eu.i.posthog.com";
-export const screens = [
-  "COURSES_LIST",
-  "ASSIGNMENTS_LIST",
-  "TODO_LIST",
-  "UPCOMING_LIST",
-  "RECORDINGS_LIST",
-  "DOCUMENTS_LIST",
-  "PLAYBACK",
-  "CAPTIONS",
-  "INFO",
-] as const;
-export type AnalyticsScreen = (typeof screens)[number];
-export const actions = [
-  "nav_courses",
-  "nav_tasks",
-  "nav_playback",
-  "nav_captions",
-  "info",
-  "lms_open",
-  "privacy_open",
-  "back",
-  "refresh",
-  "course_select",
-  "tab_assignments",
-  "tab_recordings",
-  "tab_materials",
-  "tasks_mode",
-  "item_detail",
-  "recording_launch",
-  "recording_module",
-  "document_open",
-  "download_batch",
-  "download_one",
-  "download_cancel",
-  "download_folder",
-  "ai_handoff",
-  "select_all",
-  "select_item",
-  "page_previous",
-  "page_next",
-  "filter_remaining",
-  "filter_period",
-  "filter_kind",
-  "sort",
-  "date_start",
-  "date_end",
-  "view_options",
-  "toggle_overdue",
-  "guidance",
-  "captions_detect",
-  "captions_export",
-  "playback_select",
-  "playback_course",
-  "playback_load",
-  "playback_start",
-  "playback_stop",
-  "playback_resume",
-  "playback_cancel",
-  "delete_prompt",
-  "delete_cancel",
-  // AI caption names exist only in the flag build so release ships no trace.
-  ...(__UNIDOCK_AI_CAPTIONS__
-    ? ([
-        "captions_ai_generate",
-        "captions_ai_confirm",
-        "captions_ai_cancel",
-        "caption_server_login",
-        "caption_server_logout",
-        "caption_server_logout_all",
-      ] as const)
-    : []),
-] as const;
-export type AnalyticsAction = (typeof actions)[number];
-export const features = [
-  "courses",
-  "assignments",
-  "tasks",
-  "recordings",
-  "documents",
-  "recording_open",
-  "document_open",
-  "download",
-  "captions_detect",
-  "captions_export",
-  ...(__UNIDOCK_AI_CAPTIONS__ ? (["captions_ai"] as const) : []),
-  "ai_handoff",
-  "playback_start",
-  "playback_stop",
-  "playback_resume",
-  "playback_refresh",
-] as const;
-export type AnalyticsFeature = (typeof features)[number];
-export type AnalyticsEvent =
-  | { event: "panel_opened"; screen: AnalyticsScreen }
-  | { event: "screen_viewed"; screen: AnalyticsScreen }
+// Closed panel -> background messages for aggregate usage statistics.
+// A signal carries only fixed codes and one bounded duration; operation IDs,
+// LMS data, URLs, labels and raw errors never cross this boundary.
+import {
+  CORE_RESULTS,
+  ERROR_CODES,
+  MAX_DURATION_MS,
+  OPERATIONS,
+  SERVICES,
+  TRIGGERS,
+  type CoreResult,
+  type ErrorCode,
+  type Operation,
+  type Service,
+  type Trigger,
+} from "./report";
+
+export const ANALYTICS_SETTINGS_KEY = "unidock.analytics.v2";
+export const ANALYTICS_STATE_KEY = "unidock.analytics-counters.v1";
+/** PostHog-era consent with a random install UUID; removed on migration. */
+export const LEGACY_ANALYTICS_KEY = "unidock.analytics.v1";
+export const ANALYTICS_ALARM = "unidock.analytics.flush";
+
+export type AnalyticsNotice = "first_run" | "changed";
+export interface AnalyticsSettings {
+  version: 2;
+  enabled: boolean;
+  /** Pending notice; collection starts only after the panel has shown it. */
+  notice: AnalyticsNotice | null;
+}
+export interface AnalyticsStatus {
+  available: boolean;
+  enabled: boolean;
+  notice: AnalyticsNotice | null;
+}
+
+export const SCREEN_SERVICES = {
+  COURSES_LIST: "courses",
+  ASSIGNMENTS_LIST: "courses",
+  RECORDINGS_LIST: "courses",
+  DOCUMENTS_LIST: "courses",
+  TODO_LIST: "tasks",
+  UPCOMING_LIST: "tasks",
+  PLAYBACK: "playback",
+  CAPTIONS: "captions",
+  INFO: "settings",
+} as const satisfies Record<string, Service>;
+export type AnalyticsScreen = keyof typeof SCREEN_SERVICES;
+
+export type AnalyticsSignal =
+  | { kind: "service"; service: Service }
+  | { kind: "core"; result: CoreResult }
+  | { kind: "op_start"; operation: Operation; trigger: Trigger }
   | {
-      event: "action_clicked";
-      screen: AnalyticsScreen;
-      action: AnalyticsAction;
+      kind: "op_end";
+      operation: Operation;
+      trigger: Trigger;
+      outcome: "success";
+      duration_ms: number;
     }
   | {
-      event: "panel_engagement";
-      screen: AnalyticsScreen;
-      visible_seconds: number;
-      active_seconds: number;
+      kind: "op_end";
+      operation: Operation;
+      trigger: Trigger;
+      outcome: "failure";
+      error: ErrorCode;
     }
   | {
-      event: "feature_result";
-      feature: AnalyticsFeature;
-      outcome: "success" | "failure";
+      kind: "op_end";
+      operation: Operation;
+      trigger: Trigger;
+      outcome: "timeout" | "cancel";
     };
 
 export function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-export function isInstallId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
-      value,
-    )
-  );
-}
 function member(values: readonly string[], value: unknown): boolean {
   return typeof value === "string" && values.includes(value);
 }
-export function isAnalyticsEvent(value: unknown): value is AnalyticsEvent {
+export function isAnalyticsSignal(value: unknown): value is AnalyticsSignal {
   if (!record(value)) return false;
-  const count = Object.keys(value).length;
-  if (value.event === "feature_result")
-    return (
-      count === 3 &&
-      member(features, value.feature) &&
-      member(["success", "failure"], value.outcome)
-    );
-  if (!member(screens, value.screen)) return false;
-  switch (value.event) {
-    case "panel_opened":
-    case "screen_viewed":
-      return count === 2;
-    case "action_clicked":
-      return count === 3 && member(actions, value.action);
-    case "panel_engagement":
+  const size = Object.keys(value).length;
+  switch (value.kind) {
+    case "service":
+      return size === 2 && member(SERVICES, value.service);
+    case "core":
+      return size === 2 && member(CORE_RESULTS, value.result);
+    case "op_start":
       return (
-        count === 4 &&
-        Number.isInteger(value.visible_seconds) &&
-        Number.isInteger(value.active_seconds) &&
-        (value.visible_seconds as number) >= 0 &&
-        (value.visible_seconds as number) <= 60 &&
-        (value.active_seconds as number) >= 0 &&
-        (value.active_seconds as number) <= (value.visible_seconds as number)
+        size === 3 &&
+        member(OPERATIONS, value.operation) &&
+        member(TRIGGERS, value.trigger)
       );
+    case "op_end": {
+      if (
+        !member(OPERATIONS, value.operation) ||
+        !member(TRIGGERS, value.trigger)
+      )
+        return false;
+      if (value.outcome === "success")
+        return (
+          size === 5 &&
+          Number.isInteger(value.duration_ms) &&
+          (value.duration_ms as number) >= 0 &&
+          (value.duration_ms as number) <= MAX_DURATION_MS
+        );
+      if (value.outcome === "failure")
+        return size === 5 && member(ERROR_CODES, value.error);
+      return size === 4 && member(["timeout", "cancel"], value.outcome);
+    }
     default:
       return false;
   }
 }
+
 export type AnalyticsCommand =
   | { version: 1; type: "ANALYTICS_STATUS" }
-  | { version: 1; type: "ANALYTICS_CONSENT"; enabled: boolean }
-  | {
-      version: 1;
-      type: "ANALYTICS_CAPTURE";
-      consentId: string;
-      data: AnalyticsEvent;
-    };
+  | { version: 1; type: "ANALYTICS_SET"; enabled: boolean }
+  | { version: 1; type: "ANALYTICS_NOTICE_SHOWN" }
+  | { version: 1; type: "ANALYTICS_SIGNAL"; signal: AnalyticsSignal };
 export function isAnalyticsCommand(value: unknown): value is AnalyticsCommand {
   if (!record(value) || value.version !== 1) return false;
-  const count = Object.keys(value).length;
-  return (
-    (value.type === "ANALYTICS_STATUS" && count === 2) ||
-    (value.type === "ANALYTICS_CONSENT" &&
-      count === 3 &&
-      typeof value.enabled === "boolean") ||
-    (value.type === "ANALYTICS_CAPTURE" &&
-      count === 4 &&
-      isInstallId(value.consentId) &&
-      isAnalyticsEvent(value.data))
-  );
+  const size = Object.keys(value).length;
+  switch (value.type) {
+    case "ANALYTICS_STATUS":
+    case "ANALYTICS_NOTICE_SHOWN":
+      return size === 2;
+    case "ANALYTICS_SET":
+      return size === 3 && typeof value.enabled === "boolean";
+    case "ANALYTICS_SIGNAL":
+      return size === 3 && isAnalyticsSignal(value.signal);
+    default:
+      return false;
+  }
 }
-export interface AnalyticsStatus {
-  available: boolean;
-  choice: "undecided" | "enabled" | "disabled";
-  consentId?: string;
+export function isAnalyticsSettings(
+  value: unknown,
+): value is AnalyticsSettings {
+  return (
+    record(value) &&
+    Object.keys(value).length === 3 &&
+    value.version === 2 &&
+    typeof value.enabled === "boolean" &&
+    (value.notice === null ||
+      value.notice === "first_run" ||
+      value.notice === "changed")
+  );
 }
 export function isAnalyticsStatus(value: unknown): value is AnalyticsStatus {
   return (
     record(value) &&
+    Object.keys(value).length === 3 &&
     typeof value.available === "boolean" &&
-    (value.choice === "enabled"
-      ? Object.keys(value).length === 3 &&
-        value.available &&
-        isInstallId(value.consentId)
-      : Object.keys(value).length === 2 &&
-        (value.choice === "undecided" || value.choice === "disabled"))
+    typeof value.enabled === "boolean" &&
+    (value.notice === null ||
+      value.notice === "first_run" ||
+      value.notice === "changed")
   );
+}
+export function collecting(status: AnalyticsStatus): boolean {
+  return status.available && status.enabled && status.notice === null;
 }

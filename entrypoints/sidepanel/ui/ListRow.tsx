@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import type { AnalyticsAction } from "../../../src/analytics/contract";
 import { Icon } from "./icons";
 export type RowStatus = "open" | "done" | "overdue" | "locked";
 export function ListRow({
@@ -8,7 +7,6 @@ export function ListRow({
   chip,
   onClick,
   disabled = false,
-  analyticsAction = "item_detail",
   status,
 }: {
   readonly title: string;
@@ -16,7 +14,6 @@ export function ListRow({
   readonly chip?: ReactNode;
   readonly onClick: () => void;
   readonly disabled?: boolean;
-  readonly analyticsAction?: AnalyticsAction;
   readonly status?: RowStatus;
 }) {
   return (
@@ -24,7 +21,6 @@ export function ListRow({
       className={status ? "list-row has-status" : "list-row"}
       onClick={onClick}
       disabled={disabled}
-      data-analytics-action={analyticsAction}
     >
       {status && (
         <span className="row-status" data-status={status}>

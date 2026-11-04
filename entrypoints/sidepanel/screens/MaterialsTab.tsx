@@ -11,7 +11,7 @@ import { StatusChip } from "../ui/StatusChip";
 import { Notice } from "../ui/Notice";
 import { newTab } from "../ui/a11y";
 import { Skeleton, type PanelModel } from "./QueryResults";
-import { featureResult } from "../analytics";
+import { startOperation } from "../analytics";
 export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const { state, course, downloads, recordingAction } = model;
   const items =
@@ -64,7 +64,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
               <button
                 className="btn-secondary"
                 onClick={downloads.cancel}
-                data-analytics-action="download_cancel"
               >
                 취소
               </button>
@@ -73,7 +72,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 className="btn-primary"
                 disabled={!available.length || recordingAction.pending}
                 onClick={() => download(selected.length ? selected : available)}
-                data-analytics-action="download_batch"
               >
                 {selected.length
                   ? `선택 다운로드 (${selected.length})`
@@ -86,12 +84,11 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
           className="btn-ghost"
           disabled={downloads.progress.running || state.status === "loading"}
           onClick={() => void model.load(model.query, { refresh: true })}
-          data-analytics-action="refresh"
         >
           목록 새로고침
         </button>
         <details className="guidance">
-          <summary data-analytics-action="guidance">자료 다운로드 안내</summary>
+          <summary>자료 다운로드 안내</summary>
           <p className="hint">
             주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다.
             LearningX 게시판(과목 메뉴의 Board) 자료는 LMS에서 게시판을 연 뒤 약
@@ -122,7 +119,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                       selected.length > 0 && selected.length < available.length;
                 }}
                 aria-label="전체 선택"
-                data-analytics-action="select_all"
                 disabled={!available.length || downloads.progress.running}
                 checked={
                   available.length > 0 && selected.length === available.length
@@ -150,7 +146,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                     <label className="check-hit">
                       <input
                         type="checkbox"
-                        data-analytics-action="select_item"
                         aria-label={`${item.title} 선택`}
                         disabled={
                           !available.includes(item) ||
@@ -208,11 +203,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   !downloads.progress.running &&
                   (!available.includes(detail) || recordingAction.pending)
                 }
-                data-analytics-action={
-                  downloads.progress.running
-                    ? "download_cancel"
-                    : "download_one"
-                }
                 onClick={() =>
                   downloads.progress.running
                     ? downloads.cancel()
@@ -230,7 +220,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 recordingAction.used.has(detail.lmsHandle)
               }
               onClick={() => void model.openDocument(detail.lmsHandle)}
-              data-analytics-action="document_open"
               {...newTab("LMS에서 열기")}
             />
           </div>
@@ -256,7 +245,6 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   onClick={() => {
                     chrome.downloads.showDefaultFolder();
                   }}
-                  data-analytics-action="download_folder"
                 >
                   다운로드 폴더 열기
                 </button>
@@ -264,10 +252,9 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                   className="btn-secondary"
                   disabled={handoffPending}
                   aria-label="ChatGPT에서 질문하기 (새 탭)"
-                  data-analytics-action="ai_handoff"
                   onClick={() => {
                     if (handoffInFlight.current) return;
-                    const report = featureResult("ai_handoff");
+                    const op = startOperation("ai_handoff");
                     handoffInFlight.current = true;
                     const current = ++handoffGeneration.current;
                     const isCurrent = () =>
@@ -277,7 +264,8 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                       .then(
                         (copied) => {
                           if (!isCurrent()) return;
-                          report(copied);
+                          if (copied) op.success();
+                          else op.failure("COPY_FAILED");
                           setNotice(
                             copied
                               ? "질문을 복사했습니다. 자료를 직접 첨부하고 붙여넣으세요."
@@ -286,7 +274,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                         },
                         () => {
                           if (!isCurrent()) return;
-                          report(false);
+                          op.failure("TAB_OPEN_FAILED");
                           setNotice(
                             "ChatGPT 탭을 열지 못했습니다. 직접 chatgpt.com을 열어주세요.",
                           );

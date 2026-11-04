@@ -90,11 +90,11 @@ Upcoming은 `/planner/items`의 응답을 표시합니다. 날짜를 비우면 C
 
 각 페이지는 동일 출처·동일 경로만 허용합니다. 다음 과목/다른 API로 이동하는 링크, 알 수 없는 쿼리, 토큰 쿼리, 리다이렉트는 차단합니다. `page`는 양의 정수, `per_page`는 1–100으로 제한합니다. 알려지지 않은 opaque 페이지 파라미터가 오면 안전하게 중단합니다. 전체 20초/100페이지 예산에 과목명 해석도 포함하며, 각 목록 10,000건 제한입니다. 페이지 오류 때 부분 결과를 성공으로 표시하지 않습니다(예외: 강의 자료의 게시판·공지 보조 출처가 첫 페이지부터 거부되는 경우, 아래 참고). 메시지는 23초 제한이고, content script는 같은 요청을 합치며 다른 동시 요청은 BUSY로 종료합니다. 패널에서 조회 중 메뉴를 바꾸면 진행 중 요청이 끝난 뒤 마지막으로 선택한 조회만 실행합니다.
 
-Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 선택적 통계 공유 동의·설치 식별자와 팝업 자동 닫기 설정에 사용합니다. 0.4.0 배포 빌드는 자동 재생용 `alarms`, AI 자막용 `declarativeNetRequestWithHostAccess`·`identity`를 추가로 사용하고, 자막용 미디어 CDN은 선택 호스트 권한으로 사용할 때만 요청합니다. 상시 호스트 권한은 조회용 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 공지 자동 닫기 전용 포털(`lms.korea.ac.kr`)은 `optional_host_permissions`로, 사용자가 기능을 켤 때만 Chrome이 허용을 묻고 끄거나 로컬 데이터를 삭제하면 반납합니다. 설치·업데이트 때 권한 재승인을 요구하지 않습니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
+Chrome 기능 권한은 `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`입니다. `storage`는 사용 통계 켜짐/꺼짐·미전송 집계와 팝업 자동 닫기 설정에 사용합니다. 0.4.0 배포 빌드는 자동 재생용 `alarms`, AI 자막용 `declarativeNetRequestWithHostAccess`·`identity`를 추가로 사용하고, 자막용 미디어 CDN은 선택 호스트 권한으로 사용할 때만 요청합니다. 상시 호스트 권한은 조회용 두 LMS 호스트와 KU 플레이어(`kucom.korea.ac.kr`)입니다. 공지 자동 닫기 전용 포털(`lms.korea.ac.kr`)은 `optional_host_permissions`로, 사용자가 기능을 켤 때만 Chrome이 허용을 묻고 끄거나 로컬 데이터를 삭제하면 반납합니다. 설치·업데이트 때 권한 재승인을 요구하지 않습니다. 자막 감지에는 도구 모음 클릭의 임시 `activeTab` 접근과 제한된 `scripting` 읽기를 사용합니다. `cookies`, `tabs`(광범위), `debugger`, 모든 사이트 접근 권한 및 상시 SSO 호스트 권한은 없습니다.
 
 원본 응답은 처리 중 메모리에만 존재합니다. 메시지에는 필요한 공개 필드만 보내고 ID·URL·본문·첨부·토큰 등 나머지는 제거합니다. 텍스트 내 알려진 ID·URL·이메일·secret 패턴은 치환합니다. 범용 문자열 필터가 모든 임의 비밀을 판별할 수는 없으므로 로거는 정적 이벤트 코드만 받습니다. 오류 객체나 원본 응답은 출력하지 않습니다.
 
-사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF·PPTX·PPT 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 통계 공유 설정, 동의 후 생성한 설치 식별자와 팝업 자동 닫기 boolean 설정을 로컬에 저장합니다. 자동 재생을 쓰면 최소 재생 상태와 전용 탭 소유권도 저장하고, AI 자막을 쓰면 자막 서버 로그인 세션·설치 salt·진행 중 작업 정보를 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **설정 → 로컬 데이터 모두 삭제**로 설정을 삭제하고 팝업 자동 닫기도 기본 비활성으로 되돌립니다. IndexedDB는 사용하지 않으며 telemetry는 선택적 PostHog만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
+사용자가 명시적으로 다운로드한 자막 TXT·JSON과 수업 자료 PDF·PPTX·PPT 외에는 파일에 LMS 데이터를 저장하지 않습니다. 배포 빌드는 사용 통계 설정·미전송 집계와 팝업 자동 닫기 boolean 설정을 로컬에 저장합니다. 자동 재생을 쓰면 최소 재생 상태와 전용 탭 소유권도 저장하고, AI 자막을 쓰면 자막 서버 로그인 세션·설치 salt·진행 중 작업 정보를 저장합니다. 쿠키, 토큰, 원본 응답, 서명된 LTI URL은 저장하지 않습니다. **설정 → 로컬 데이터 모두 삭제**로 설정을 삭제하고 팝업 자동 닫기도 기본 비활성으로 되돌립니다. IndexedDB는 사용하지 않으며 telemetry는 끌 수 있는 집계 사용 통계만 허용합니다. Fetch는 `cache: no-store`입니다. 과목 캐시는 2분, 과제·마감·할 일·일정 캐시는 30초이며 계정 변경·로그인 만료 시 폐기합니다. 사용자 새로고침은 캐시를 우회하며, 일회용 키가 포함된 녹화·자료 목록과 원본 응답은 캐시하지 않습니다.
 
 과제 제출, 업로드, 글쓰기, 댓글, 수정, 삭제, 수강 변경, keepalive, 출석 위조는 구현하지 않습니다. 자동 재생은 사용자가 시작한 경우에만 보이는 탭에서 정상 속도로 재생합니다([자동 재생](#자동-재생)). 모듈에 없는 Files 탭 자료와 feed는 현재 범위 밖입니다.
 
@@ -270,7 +270,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 
 - `npm run check`: lint, typecheck, `npm test`, production build 통과.
 - `npm run contract:check`: 현재 읽기 전용 Python 참조의 계산 결과 및 소스 해시와 일치.
-- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`와 조회용 두 LMS·KU 플레이어 호스트 권한, 공지 전용 포털의 선택 호스트 권한(`optional_host_permissions`), Chrome 114 minimum 유지. 콘텐츠 스크립트 선언은 `lms.js` 하나이며 `lms-popup.js`는 런타임 등록 파일로만 포함됩니다. 자동 재생과 `alarms`는 제외합니다. PostHog EU ingestion만 CSP `connect-src`로 허용합니다.
+- production manifest: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`와 조회용 두 LMS·KU 플레이어 호스트 권한, 공지 전용 포털의 선택 호스트 권한(`optional_host_permissions`), Chrome 114 minimum 유지. 콘텐츠 스크립트 선언은 `lms.js` 하나이며 `lms-popup.js`는 런타임 등록 파일로만 포함됩니다. 자동 재생과 `alarms`는 제외합니다. (당시 기록) 분석 수신 호스트만 CSP `connect-src`로 허용했습니다. 현재는 통계 수집 서버 origin을 허용합니다.
 - 참조 저장소 `git status --porcelain`: 변경 없음.
 - 합성 LMS를 사용한 production 확장 브라우저 UI 검증은 통과했습니다. 실제 LMS 세션에서의 UI와 플레이어 검증은 미실시이며 위 수동 절차로 확인이 필요합니다.
 
@@ -295,33 +295,22 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - `npm run check`: 13개 파일의 231개 테스트, lint, 타입 검사, production build 통과. `npm run contract:check`, `npm run format:check` 통과.
 - UI 상호작용은 Chrome API mock 기반 jsdom 테스트로 검증했습니다. 실제 로그인 세션과 확장 권한을 포함한 Chrome 통합 검증은 별도로 필요합니다.
 
-## 선택적 사용 통계 (PostHog)
+## 사용 통계 (GA4 집계)
 
-- **기본 비활성**. 패널의 **설정 → 사용 통계 공유 → 동의하고 통계 공유**를 누른 이후만 수집합니다. 기존 설치도 자동 동의 처리하지 않습니다. 거절·철회해도 학습 기능은 같습니다.
-- 정적 화면/버튼 종류, 기능 성공·실패, 표시·활성 시간, 확장 버전, 무작위 설치 ID 및 이벤트 시각/중복 구분 ID만 보냅니다. LMS 데이터·URL·페이지 제목·입력값·자막·파일·원본 오류는 제외합니다. 자동 DOM 수집·리플레이·히트맵·원격 설정은 사용하지 않습니다.
-- `@posthog/core`의 DOM 없는 stateless SDK를 번들하고 백그라운드 어댑터에서 EU `/batch/`로만 전송합니다. 콘텐츠 스크립트는 수집/설정 메시지를 보낼 수 없습니다. 디스크 이벤트 큐·재시도는 없으며 오프라인·종료·분당 한도 초과 시 이벤트를 버립니다.
-- 동의 철회 시 진행 중인 분석 요청을 취소하고 로컬 ID를 삭제합니다. **설정 → 로컬 데이터 모두 삭제**는 동의도 삭제합니다. 이미 서버에 도착한 이벤트는 소급 삭제되지 않습니다. 원격 삭제는 철회 전 설정 화면의 요청용 ID로 지원 연락처에 요청합니다.
-- 활성 시간은 패널이 표시되고 포커스가 있으며 최근 60초 이내 조작한 시간입니다. 5초 간격으로 확인하고 30초마다 초 단위로 전송합니다. 10초 초과 타이머 공백은 절전/스로틀링으로 간주해 제외합니다. 패널 표시 시간과 영상 재생 시간은 다릅니다.
-- 지표는 **동의한 브라우저 설치의 표본**입니다. 여러 기기는 여러 설치이며 재동의/재설치 후 ID는 달라집니다. 설치 총량은 Chrome Web Store 대시보드와 별도로 봅니다.
+- **새 설치는 기본 켜짐**. 패널을 처음 열 때 보내는 것·보내지 않는 것과 끄는 방법을 안내하고, 안내를 표시한 뒤에만 수집합니다. **설정 → 사용 통계 → 사용 통계 보내기** 또는 안내의 **통계 끄기**로 끌 수 있으며, 꺼도 학습 기능은 같습니다. 이 설정은 법적 동의 절차가 아닙니다.
+- 업데이트 사용자: 이전에 거절(`enabled:false`)한 설치는 계속 꺼져 있습니다. 이전 동의자와 미선택 설치는 "사용 통계 방식이 바뀌었습니다" 안내를 표시한 뒤에만 수집합니다. 이전 PostHog 설치 UUID와 미전송 데이터는 업데이트 때 삭제하며 옮기지 않습니다.
+- 서울 기준 하루 단위 증분 보고만 보냅니다. 고정 코드, 범위가 제한된 정수, 날짜, 확장 버전, 중복 방지용 1회용 `report_id`뿐이며 설치·사용자 식별자, LMS 데이터, URL, 페이지 제목, 입력값, 자막, 파일, 원본 오류는 보내지 않습니다. 지표 정의는 [분석 운영 안내](documentation/ANALYTICS.md)에 있습니다.
+- 백그라운드가 유일한 기록자로, `unidock.analytics.v2`(켜짐/꺼짐, 안내 대기)와 `unidock.analytics-counters.v1`(오늘 표시, 미전송 증분, 최대 30개 보고·7일·12회 시도)에 모읍니다. 활동 중 약 10분마다 `alarms`로 개발자 수집 서버(Cloudflare Tunnel 뒤의 Go 서비스·전용 PostgreSQL)에 HTTPS POST합니다. 서버는 닫힌 스키마 검증, `report_id` 중복 제거 후 날짜별 전체 합계에 더하고, 한 시간마다 새 증분을 전용 GA4 속성에 Measurement Protocol로 보냅니다. `api_secret`은 서버에만 있습니다.
+- 끄면 수집·전송이 즉시 멈추고 진행 중 요청을 취소하며 기기의 미전송 통계를 지웁니다. 꺼진 동안의 활동은 나중에 보내지 않습니다. 이미 합계에 더해진 숫자는 설치별로 분리할 수 없어 삭제되지 않습니다. **설정 → 로컬 데이터 모두 삭제**는 미전송 통계와 그 표시를 지우되 켜짐/꺼짐 선택과 오늘의 수신 확인·수신 여부 불명 표시를 유지합니다. 삭제한 활성 보고서의 수신 여부가 불명인 날은 새 도달 설치수 집계를 보류해 중복과 분모 누락을 피합니다.
 
-운영 프로젝트 없이도 모든 기능을 실행할 수 있습니다. 키가 없으면 동의 버튼은 비활성화되고 분석 요청·ID 생성이 없습니다. 개발/HMR 빌드도 수집을 비활성화합니다.
-
-```sh
-# EU 리전 PostHog 프로젝트의 공개 수집 토큰만 사용 (개인/관리 API 키 금지)
-VITE_POSTHOG_KEY=phc_your_project_token npm run build
-```
-
-매번 토큰을 지정하지 않으려면 프로젝트 루트의 `.env.local`에 한 번 저장합니다(버전 관리 제외).
+수집 서버 origin은 빌드 시 `UNIDOCK_STATS_SERVER`에서 읽어 CSP `connect-src`에 넣습니다. 새 Chrome 권한은 없습니다. 값이 없는 빌드와 개발/HMR 빌드는 아무것도 보내지 않으며 설정에 "이 빌드는 통계를 보내지 않습니다"가 표시됩니다.
 
 ```dotenv
-VITE_POSTHOG_KEY=phc_your_project_token
+# .env.local (버전 관리 제외). 셸의 같은 이름 환경변수가 우선합니다.
+UNIDOCK_STATS_SERVER=https://stats.example.com
 ```
 
-이후에는 `npm run build`만 실행하면 됩니다. 셸의 같은 이름 환경변수가 파일보다 우선합니다. 빌드 후 `chrome://extensions`에서 확장을 새로고침하고 패널을 다시 열어야 반영됩니다. 처음 사용하는 설치는 **설정 → 동의하고 통계 공유**도 필요합니다. 토큰 설정 전에 만든 배포 ZIP은 바뀌지 않으므로 배포할 때는 `npm run release`를 다시 실행합니다.
-
-토큰은 빌드 산출물에 포함되는 공개 수집용 값으로 비밀키가 아닙니다. US 프로젝트나 임의 호스트는 사용하지 않습니다. 실제 전송 활성화 전 IP 폐기, 이벤트 최대 90일 보관, 삭제 절차 및 공개 정책/스토어 고지를 적용해야 합니다. 서버 보관/삭제는 확장이 자동 설정하지 않습니다.
-
-PostHog에서 **Dashboards → New dashboard → Blank dashboard**로 그래프를 모을 수 있습니다. 현재 맞춤 이벤트를 사용하므로 웹사이트용 기본 Web Analytics 대신 직접 Insight를 구성합니다. 클릭은 `action_clicked`를 `action`별로, 활성 시간은 `panel_engagement.active_seconds`의 **합계**로 봅니다. 상세 설정·실패율/리텐션 정의·문제 해결·최신 확인 상태는 [분석 운영 안내](documentation/ANALYTICS.md)를 참고하세요.
+`npm run release`는 실제 수집 서버 값(`https://stats.test` 불가)을 요구하고 번들에 GA 비밀값·엔드포인트·PostHog·`client_id`가 없는지 검사합니다. 이 저장소는 확장만 담당합니다. 수집 서버·GA4 도구·배포 안내는 [unidock-server의 stats](https://github.com/sounmu/unidock-server/tree/main/stats), 확장 계측과 분모 정의는 [분석 안내](documentation/ANALYTICS.md)를 참고하세요.
 
 ## 개인정보처리방침 GitHub Pages 배포
 

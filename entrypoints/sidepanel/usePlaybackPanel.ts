@@ -8,17 +8,18 @@ import type { Recording } from "../../src/recordings";
 import type { Course } from "../../src/domain";
 import { queryActive, type QueryTarget } from "../../src/transport";
 import { QueryGate } from "./query-gate";
-import { featureResult } from "./analytics";
-import type { AnalyticsFeature } from "../../src/analytics/contract";
+import { coreResult, startOperation } from "./analytics";
+import {
+  ERROR_CODES,
+  type Operation,
+  type Trigger,
+} from "../../src/analytics/report";
 
-const playbackFeatures: Partial<
-  Record<PlaybackCommand["type"], AnalyticsFeature>
-> = {
-  PLAYBACK_START: "playback_start",
-  PLAYBACK_STOP_ALL: "playback_stop",
-  PLAYBACK_RESUME: "playback_resume",
-  PLAYBACK_REFRESH: "playback_refresh",
-};
+const playbackOperations: Partial<Record<PlaybackCommand["type"], Operation>> =
+  {
+    PLAYBACK_START: "playback_start",
+    PLAYBACK_REFRESH: "playback_refresh",
+  };
 
 type RecordingDraft = Recording & { order: number | null };
 type RecordingSelection = {
@@ -55,9 +56,13 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const mounted = useRef(true);
   const pending = foregroundCommands > 0 || recordingLoad;
 
-  async function run(command: PlaybackCommand, background = false) {
-    const feature = playbackFeatures[command.type];
-    const report = feature ? featureResult(feature) : undefined;
+  async function run(
+    command: PlaybackCommand,
+    background = false,
+    trigger: Trigger = "user",
+  ) {
+    const operation = playbackOperations[command.type];
+    const op = operation ? startOperation(operation, trigger) : undefined;
     if (background && command.type === "PLAYBACK_STATUS") {
       return requestStatus();
     }
@@ -76,7 +81,16 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
       setForegroundCommands(foregroundCount.current);
     }
     const result = await playbackCommand(command);
-    report?.(result.status === "success");
+    if (result.status === "success") {
+      op?.success();
+      if (command.type === "PLAYBACK_START") coreResult("playback_started");
+    } else if (result.code === "TIMEOUT") op?.timeout();
+    else
+      op?.failure(
+        (ERROR_CODES as readonly string[]).includes(result.code)
+          ? result.code
+          : "PLAYBACK",
+      );
     if (!mounted.current) return false;
     if (stopping) {
       stopCount.current--;
@@ -140,7 +154,7 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
       const initialGeneration = commandGeneration.current;
       await run({ version: 1, type: "PLAYBACK_STATUS" }, true);
       if (mounted.current && initialGeneration === commandGeneration.current)
-        await run({ version: 1, type: "PLAYBACK_REFRESH" });
+        await run({ version: 1, type: "PLAYBACK_REFRESH" }, false, "auto");
     })();
     if (typeof chrome === "undefined" || !chrome.runtime?.onMessage)
       return () => {

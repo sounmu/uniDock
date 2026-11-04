@@ -1,0 +1,5292 @@
+{
+  "schema": 1,
+  "sourceCommit": "a0bf362",
+  "reports": [
+    {
+      "name": "valid",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "input": {
+        "active_installs": 0,
+        "core_installs": 0,
+        "core_results": {},
+        "service_entries": {},
+        "service_installs": {},
+        "operations": {},
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":0,\"core_installs\":0,\"core_results\":{},\"service_entries\":{},\"service_installs\":{},\"operations\":{},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": []
+    },
+    {
+      "name": "invalid_schema",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 2,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":2,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_report_id",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "install-123",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"install-123\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_date",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-02-30",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-02-30\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_extension_version",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "https://example.test"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"https://example.test\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_active_installs",
+      "input": {
+        "active_installs": 2,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":2,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_core_installs",
+      "input": {
+        "active_installs": 1,
+        "core_installs": null,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":null,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_core_results",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "bogus": 1
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"bogus\":1},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_service_entries",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 100001
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":100001},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_service_installs",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 2
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":2},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "invalid_operations",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "bogus": {}
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"bogus\":{}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_active_installs",
+      "input": {
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_core_installs",
+      "input": {
+        "active_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_core_results",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_service_entries",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_service_installs",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_operations",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_schema",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_report_id",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_date",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "missing_extension_version",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "extra",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0",
+        "extra": 1
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\",\"extra\":1}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "array",
+      "input": [],
+      "wire": "[]",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "null",
+      "input": null,
+      "wire": "null",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "bad_json",
+      "input": null,
+      "wire": "{not json",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "trailing_json",
+      "input": null,
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}{}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "integer_decimal",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1e0,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1.0,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "duplicate_key_last_wins",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":2,\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "operation_started",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": -1,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":-1,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_success",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": "2",
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":\"2\",\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_failure",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1.5,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1.5,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_timeout",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 2,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":2,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_cancel",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": null,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":null,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_errors",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 2
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":2},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_duration_ms_sum",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 172800001,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":172800001,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_duration_count",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 3,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":3,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_buckets",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_extra",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              },
+              "extra": 0
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1},\"extra\":0}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_started",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_success",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_failure",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_timeout",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_cancel",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_errors",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_duration_ms_sum",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_duration_count",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "operation_missing_buckets",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": false,
+      "rows": []
+    },
+    {
+      "name": "courses_load_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "courses_load_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "courses_load": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"courses_load\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=courses_load|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "course_items_load_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "course_items_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"course_items_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=course_items_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "course_items_load_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "course_items_load": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"course_items_load\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=course_items_load|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "tasks_load_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "tasks_load": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"tasks_load\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=tasks_load|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "tasks_load_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "tasks_load": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"tasks_load\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=tasks_load|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "recording_open_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "recording_open": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"recording_open\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=recording_open|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "recording_open_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "recording_open": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"recording_open\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=recording_open|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "document_open_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "document_open": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"document_open\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=document_open|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=document_open|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=document_open|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=document_open|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=document_open|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=document_open|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_open|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_open|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "document_open_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "document_open": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"document_open\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_open|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "document_download_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "document_download": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"document_download\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=document_download|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=document_download|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=document_download|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=document_download|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=document_download|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=document_download|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_download|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_download|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "document_download_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "document_download": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"document_download\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=document_download|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "captions_detect_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "captions_detect": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"captions_detect\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_detect|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "captions_detect_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "captions_detect": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"captions_detect\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_detect|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "captions_export_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "captions_export": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"captions_export\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_export|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "captions_export_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "captions_export": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"captions_export\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=captions_export|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_captions_generate_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_captions_generate": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_captions_generate\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_generate|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_captions_generate_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_captions_generate": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_captions_generate\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_generate|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_captions_export_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_captions_export": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_captions_export\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_export|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_captions_export_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_captions_export": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_captions_export\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_captions_export|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_handoff_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_handoff": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_handoff\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_handoff|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "ai_handoff_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "ai_handoff": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"ai_handoff\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=ai_handoff|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "playback_start_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "playback_start": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"playback_start\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_start|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "playback_start_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "playback_start": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"playback_start\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_start|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "playback_refresh_user",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "playback_refresh": {
+            "user": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"playback_refresh\":{\"user\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_refresh|trigger=user|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "playback_refresh_auto",
+      "input": {
+        "active_installs": 1,
+        "core_installs": 1,
+        "core_results": {
+          "tasks_shown": 4
+        },
+        "service_entries": {
+          "courses": 200,
+          "tasks": 3
+        },
+        "service_installs": {
+          "courses": 1,
+          "tasks": 1
+        },
+        "operations": {
+          "playback_refresh": {
+            "auto": {
+              "started": 3,
+              "success": 2,
+              "failure": 1,
+              "timeout": 0,
+              "cancel": 0,
+              "errors": {
+                "NETWORK": 1
+              },
+              "duration_ms_sum": 2000,
+              "duration_count": 2,
+              "buckets": {
+                "lt1s": 1,
+                "1to3s": 1
+              }
+            }
+          }
+        },
+        "schema": 1,
+        "report_id": "12345678-1234-4234-8234-123456789abc",
+        "date": "2026-11-01",
+        "extension_version": "0.5.0"
+      },
+      "wire": "{\"active_installs\":1,\"core_installs\":1,\"core_results\":{\"tasks_shown\":4},\"service_entries\":{\"courses\":200,\"tasks\":3},\"service_installs\":{\"courses\":1,\"tasks\":1},\"operations\":{\"playback_refresh\":{\"auto\":{\"started\":3,\"success\":2,\"failure\":1,\"timeout\":0,\"cancel\":0,\"errors\":{\"NETWORK\":1},\"duration_ms_sum\":2000,\"duration_count\":2,\"buckets\":{\"lt1s\":1,\"1to3s\":1}}}},\"schema\":1,\"report_id\":\"12345678-1234-4234-8234-123456789abc\",\"date\":\"2026-11-01\",\"extension_version\":\"0.5.0\"}",
+      "valid": true,
+      "rows": [
+        {
+          "metric": "active_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_installs",
+          "dims": "",
+          "value": 1
+        },
+        {
+          "metric": "core_results",
+          "dims": "core_result=tasks_shown",
+          "value": 4
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=courses",
+          "value": 200
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=courses",
+          "value": 1
+        },
+        {
+          "metric": "service_entries",
+          "dims": "service=tasks",
+          "value": 3
+        },
+        {
+          "metric": "service_installs",
+          "dims": "service=tasks",
+          "value": 1
+        },
+        {
+          "metric": "op_started",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0",
+          "value": 3
+        },
+        {
+          "metric": "op_success",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_failure",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0",
+          "value": 1
+        },
+        {
+          "metric": "op_duration_ms_sum",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0",
+          "value": 2000
+        },
+        {
+          "metric": "op_duration_count",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0",
+          "value": 2
+        },
+        {
+          "metric": "op_errors",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0|error_code=NETWORK",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0|bucket=lt1s",
+          "value": 1
+        },
+        {
+          "metric": "op_latency",
+          "dims": "operation=playback_refresh|trigger=auto|version=0.5.0|bucket=1to3s",
+          "value": 1
+        }
+      ]
+    }
+  ]
+}

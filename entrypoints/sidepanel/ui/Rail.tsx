@@ -49,7 +49,6 @@ export function Rail({
           ) : (
             <button
               key={value}
-              data-analytics-action={`nav_${value}`}
               className="btn-ghost"
               aria-current={!info && section === value ? "page" : undefined}
               onClick={() => onSelect(value)}
@@ -61,7 +60,6 @@ export function Rail({
         )}
         <button
           className="btn-ghost"
-          data-analytics-action="info"
           aria-current={info ? "page" : undefined}
           onClick={onInfo}
         >

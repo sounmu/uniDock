@@ -14,5 +14,10 @@ declare global {
    * `UNIDOCK_CAPTION_SERVER`. Empty string in release builds.
    */
   const __UNIDOCK_CAPTION_SERVER__: string;
+  /**
+   * The aggregate statistics collector origin baked in at build time from
+   * `UNIDOCK_STATS_SERVER`. Empty string when statistics are not configured.
+   */
+  const __UNIDOCK_STATS_SERVER__: string;
 }
 export {};

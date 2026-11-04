@@ -1573,35 +1573,32 @@ test("production extension plays a click-ordered playlist and explicitly recover
       .toBe(true);
 
     loggedIn = false;
-    await panel.getByRole("button", { name: "새로고침" }).click();
-    await expect(panel.locator(".playback-panel h1")).toContainText(
-      "로그인 필요",
-    );
-    await expect(panel.locator(".playback-queue")).toContainText(
-      "첫 번째 합성 영상",
-    );
-    await expect
-      .poll(
-        () =>
-          context!
-            .pages()
-            .filter((page) =>
-              /\/courses\/101\/modules\/items\//.test(page.url()),
-            ).length,
-      )
-      .toBe(0);
-
-    await panel.getByRole("button", { name: "새로고침" }).click();
-    await expect
-      .poll(
-        () =>
-          context!
-            .pages()
-            .filter((page) =>
-              /\/courses\/101\/modules\/items\//.test(page.url()),
-            ).length,
-      )
-      .toBe(0);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const unauthorized = context.waitForEvent("response", {
+        predicate: (response) =>
+          response.url() === `${origin}/api/v1/users/self` && response.status() === 401,
+        timeout: 10_000,
+      });
+      await panel.getByRole("button", { name: "새로고침" }).click();
+      await unauthorized;
+      await expect(panel.getByRole("button", { name: "새로고침" })).toBeEnabled();
+      await expect(panel.locator(".playback-panel h1")).toContainText(
+        "로그인 필요",
+      );
+      await expect(panel.locator(".playback-queue")).toContainText(
+        "첫 번째 합성 영상",
+      );
+      await expect
+        .poll(
+          () =>
+            context!
+              .pages()
+              .filter((page) =>
+                /\/courses\/101\/modules\/items\//.test(page.url()),
+              ).length,
+        )
+        .toBe(0);
+    }
 
     loggedIn = true;
     await panel.getByRole("button", { name: "로그인 확인 후 재개" }).click();
@@ -1672,9 +1669,10 @@ test("production extension plays a click-ordered playlist and explicitly recover
         entry.startsWith("PAGE_ERROR:") ||
         entry.startsWith("WORKER_CONSOLE_ERROR:"),
     );
-    // The deliberate synthetic 401 used to exercise login recovery is the
-    // only expected browser-console error.
+    // Each completed logged-out refresh produces one deliberate synthetic 401.
+    // Keep exact cardinality so extra requests and unrelated errors still fail.
     expect(consoleErrors).toEqual([
+      "CONSOLE_ERROR:Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "CONSOLE_ERROR:Failed to load resource: the server responded with a status of 401 (Unauthorized)",
     ]);
   } finally {

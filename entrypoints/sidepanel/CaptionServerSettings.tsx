@@ -107,7 +107,6 @@ export function CaptionServerSettings() {
               <button
                 className="btn-secondary"
                 disabled={busy}
-                data-analytics-action="caption_server_login"
                 onClick={() => void login()}
               >
                 Google 계정으로 로그인
@@ -126,7 +125,6 @@ export function CaptionServerSettings() {
                 <button
                   className="btn-ghost"
                   disabled={busy}
-                  data-analytics-action="caption_server_logout"
                   onClick={() => void logout()}
                 >
                   로그아웃
@@ -134,7 +132,6 @@ export function CaptionServerSettings() {
                 <button
                   className="btn-ghost"
                   disabled={busy}
-                  data-analytics-action="caption_server_logout_all"
                   onClick={() => void logoutEverywhere()}
                 >
                   모든 기기에서 로그아웃

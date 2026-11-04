@@ -28,7 +28,6 @@ export function PagedList<T>({
         <nav className="pagination" aria-label="목록 페이지">
           <button
             className="btn-secondary"
-            data-analytics-action="page_previous"
             {...softDisabled(page === 0, () =>
               setSelection({ resetKey, page: page - 1 }),
             )}
@@ -40,7 +39,6 @@ export function PagedList<T>({
           </span>
           <button
             className="btn-secondary"
-            data-analytics-action="page_next"
             {...softDisabled(end === items.length, () =>
               setSelection({ resetKey, page: page + 1 }),
             )}

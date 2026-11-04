@@ -221,14 +221,13 @@ export function ItemResults({
       <div hidden={detail !== null}>
         {(deadlines || todo) && (
           <details className="view-settings">
-            <summary data-analytics-action="view_options">보기 설정</summary>
+            <summary>보기 설정</summary>
             <div className="view-settings-body">
               {deadlines && (
                 <label className="remaining-toggle">
                   <input
                     type="checkbox"
                     checked={remainingOnly}
-                    data-analytics-action="filter_remaining"
                     onChange={(e) => setRemainingOnly(e.target.checked)}
                   />
                   남은 과제만
@@ -240,7 +239,6 @@ export function ItemResults({
                     마감 기간
                     <select
                       value={period}
-                      data-analytics-action="filter_period"
                       onChange={(e) => {
                         const value = e.target.value;
                         if (
@@ -261,7 +259,6 @@ export function ItemResults({
                   정렬
                   <select
                     value={sort}
-                    data-analytics-action="sort"
                     onChange={(e) => {
                       const value = e.target.value;
                       if (
@@ -308,7 +305,6 @@ export function ItemResults({
                   key={value}
                   className="btn-ghost"
                   aria-pressed={kind === value}
-                  data-analytics-action="filter_kind"
                   onClick={() => setKind(value)}
                 >
                   {label}
@@ -340,7 +336,7 @@ export function ItemResults({
         )}
         {overdue.length > 0 && (
           <details className="overdue-group">
-            <summary data-analytics-action="toggle_overdue">
+            <summary>
               마감 지남
               <span className="overdue-count">{overdue.length}개</span>
             </summary>

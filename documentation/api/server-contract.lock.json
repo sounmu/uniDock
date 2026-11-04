@@ -1,0 +1,7 @@
+{
+  "formatVersion": 1,
+  "repository": "sounmu/unidock-server",
+  "contractVersion": "1.0.0",
+  "manifestPath": "contracts/releases/1.0.0/manifest.json",
+  "manifestSha256": "8a5ff54a0af8bc8c499ebd81bf9279652b76d48532f3485afc13b073a756550a"
+}

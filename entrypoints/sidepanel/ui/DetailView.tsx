@@ -43,7 +43,6 @@ export function DetailView({
       <button
         className="btn-ghost"
         onClick={onBack}
-        data-analytics-action="back"
       >
         ← {backLabel}
       </button>

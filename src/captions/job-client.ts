@@ -224,6 +224,7 @@ export async function getTranscript(
     signal,
   );
   const body = await readJson(await ok(response));
+  if (body.schema_version !== 1) throw new CaptionServerError("RESPONSE");
   const rawSegments = body.segments;
   if (!Array.isArray(rawSegments) || rawSegments.length > MAX_SEGMENTS)
     throw new CaptionServerError("RESPONSE");
@@ -239,7 +240,7 @@ export async function getTranscript(
     segments.push({ start_ms: start, end_ms: end, text });
   }
   return {
-    schemaVersion: num(body.schema_version) ?? 0,
+    schemaVersion: body.schema_version,
     language: str(body.language),
     engine: str(body.engine),
     modelRevision: str(body.model_revision),

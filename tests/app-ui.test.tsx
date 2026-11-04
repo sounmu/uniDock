@@ -377,11 +377,18 @@ it("links task and schedule details to their LMS posts", async () => {
     if (title === "할 일 게시글") await click("일정");
   }
 });
-it("hides the undecided analytics reminder for this panel when 나중에 is chosen", async () => {
-  // Given: analytics is configured but the user has not decided yet.
-  const sendMessage = vi
-    .fn()
-    .mockResolvedValue({ available: true, choice: "undecided" });
+function noticeMessages(notice: "first_run" | "changed") {
+  return vi.fn(async (message: { type: string; enabled?: boolean }) =>
+    message.type === "ANALYTICS_STATUS"
+      ? { available: true, enabled: true, notice }
+      : message.type === "ANALYTICS_SET"
+        ? { available: true, enabled: message.enabled, notice: null }
+        : { available: true, enabled: true, notice: null },
+  );
+}
+it("shows the first-run statistics notice, marks it shown, and dismisses it without changing the setting", async () => {
+  // Given: a fresh install whose statistics are on by default.
+  const sendMessage = noticeMessages("first_run");
   vi.stubGlobal("chrome", {
     runtime: { sendMessage },
     storage: {
@@ -394,32 +401,54 @@ it("hides the undecided analytics reminder for this panel when 나중에 is chos
   });
   ui = await mount(<App />);
   await act(async () => {});
-  const reminder = () =>
-    document.querySelector('[aria-label="사용 통계 공유 안내"]');
-  expect(reminder()).not.toBeNull();
+  const notice = () =>
+    document.querySelector('[aria-label="사용 통계 안내"]');
+  expect(notice()?.textContent).toContain("기본 켜짐");
+  expect(notice()?.textContent).toContain("설정 → 사용");
+  expect(sendMessage).toHaveBeenCalledWith({
+    version: 1,
+    type: "ANALYTICS_NOTICE_SHOWN",
+  });
+  // The notice stays after the background marks it shown.
+  await act(async () => {});
+  expect(notice()).not.toBeNull();
   // When
-  await click("나중에");
-  // Then: hidden without recording a choice.
-  expect(reminder()).toBeNull();
+  await click("확인");
+  // Then
+  expect(notice()).toBeNull();
   expect(sendMessage).not.toHaveBeenCalledWith(
-    expect.objectContaining({ type: "ANALYTICS_CONSENT" }),
+    expect.objectContaining({ type: "ANALYTICS_SET" }),
   );
+});
+it("turns statistics off from the change notice", async () => {
+  const sendMessage = noticeMessages("changed");
+  vi.stubGlobal("chrome", { ...chrome, runtime: { sendMessage } });
+  ui = await mount(<App />);
+  await act(async () => {});
+  expect(
+    document.querySelector('[aria-label="사용 통계 안내"]')?.textContent,
+  ).toContain("방식이 바뀌었습니다");
+  await click("통계 끄기");
+  expect(sendMessage).toHaveBeenCalledWith({
+    version: 1,
+    type: "ANALYTICS_SET",
+    enabled: false,
+  });
 });
 it("focuses the analytics group and returns to its contextual trigger", async () => {
   // Given
   vi.stubGlobal("chrome", {
     ...chrome,
-    runtime: {
-      sendMessage: vi.fn().mockResolvedValue({ available: true, choice: "undecided" }),
-    },
+    runtime: { sendMessage: noticeMessages("first_run") },
   });
   ui = await mount(<App />);
+  await act(async () => {});
   const trigger = [...ui.host.querySelectorAll("button")].find(
-    (button) => button.textContent === "통계 공유 설정 보기",
+    (button) => button.textContent === "자세히",
   );
   trigger?.focus();
   // When
-  await click("통계 공유 설정 보기");
+  await click("자세히");
   // Then
   expect(document.activeElement).toBe(ui.host.querySelector("#analytics-title"));
   await click("← 돌아가기");

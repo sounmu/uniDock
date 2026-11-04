@@ -5,17 +5,19 @@ import { usePanelNavigation } from "./usePanelNavigation";
 import { useDocumentDownloads } from "./useDocumentDownloads";
 import { messages } from "./query-messages";
 import { QueryGate } from "./query-gate";
-import { featureResult } from "./analytics";
-import type { AnalyticsFeature } from "../../src/analytics/contract";
+import { coreResult, startOperation } from "./analytics";
+import type { CoreResult, Operation } from "../../src/analytics/report";
 
-const queryFeatures: Partial<Record<Request["type"], AnalyticsFeature>> = {
-  COURSES_LIST: "courses",
-  ASSIGNMENTS_LIST: "assignments",
-  DEADLINES_LIST: "assignments",
-  TODO_LIST: "tasks",
-  UPCOMING_LIST: "tasks",
-  RECORDINGS_LIST: "recordings",
-  DOCUMENTS_LIST: "documents",
+const queryOperations: Partial<
+  Record<Request["type"], [Operation, CoreResult | null]>
+> = {
+  COURSES_LIST: ["courses_load", null],
+  ASSIGNMENTS_LIST: ["course_items_load", "course_items_shown"],
+  DEADLINES_LIST: ["course_items_load", "course_items_shown"],
+  RECORDINGS_LIST: ["course_items_load", "course_items_shown"],
+  DOCUMENTS_LIST: ["course_items_load", "course_items_shown"],
+  TODO_LIST: ["tasks_load", "tasks_shown"],
+  UPCOMING_LIST: ["tasks_load", "tasks_shown"],
 };
 
 export function useSidepanelQuery(sharedGate?: QueryGate) {
@@ -90,8 +92,8 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       clear();
       return;
     }
-    const feature = queryFeatures[query.type];
-    const report = feature ? featureResult(feature) : undefined;
+    const [operation, shown] = queryOperations[query.type] ?? [null, null];
+    const op = operation ? startOperation(operation) : undefined;
     if (
       "courseSelector" in query &&
       query.courseSelector &&
@@ -99,6 +101,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     ) {
       generation.current++;
       setState({ status: "error", code: "STALE_SELECTION" });
+      op?.failure("STALE_SELECTION");
       return;
     }
     const current = ++generation.current;
@@ -160,19 +163,22 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
         setCourse(null);
       }
       setState(result);
-      report?.(result.status === "success");
+      // A superseded load has no final outcome: it was abandoned, not failed.
+      op?.result(result);
+      if (shown && result.status === "success") coreResult(shown);
     }
   }
   async function openSelection(
     type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
     handle: string,
   ) {
-    const report = featureResult(
+    if (opening.current || recordingAction.used.has(handle)) return;
+    const op = startOperation(
       type === "RECORDING_OPEN" ? "recording_open" : "document_open",
     );
-    if (opening.current || recordingAction.used.has(handle)) return;
     const target = recordingTarget.current;
     if (!target) {
+      op.failure("RELOAD_TAB");
       setRecordingAction((previous) => ({
         ...previous,
         notice: messages.RELOAD_TAB,
@@ -198,7 +204,11 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     if (inFlight.current === work) inFlight.current = null;
     opening.current = false;
     if (current !== generation.current) return;
-    report(result.status === "success");
+    op.result(result);
+    if (result.status === "success")
+      coreResult(
+        type === "RECORDING_OPEN" ? "recording_opened" : "document_opened",
+      );
     setRecordingAction((previous) => ({
       pending: false,
       used:

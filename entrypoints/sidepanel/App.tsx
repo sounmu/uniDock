@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PlaybackPanel } from "./PlaybackPanel";
 import { CaptionsPanel } from "./CaptionsPanel";
 import { useSidepanelQuery } from "./useSidepanelQuery";
@@ -9,6 +9,8 @@ import { TasksScreen } from "./screens/TasksScreen";
 import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
+import { markNoticeShown, setAnalyticsEnabled } from "./analytics";
+import type { AnalyticsNotice } from "../../src/analytics/contract";
 import { LocalDataSettings } from "./LocalDataSettings";
 import { CaptionServerSettings } from "./CaptionServerSettings";
 import { PopupSettings } from "./PopupSettings";
@@ -28,9 +30,19 @@ export function App() {
   const model = useSidepanelQuery(gate);
   const [info, setInfo] = useState(false);
   const [captionsOpened, setCaptionsOpened] = useState(false);
-  // "나중에" hides the consent reminder for this panel only; nothing is stored.
-  const [consentDeferred, setConsentDeferred] = useState(false);
   const analytics = useAnalytics(info ? "INFO" : model.view);
+  // The notice stays until dismissed in this panel even after it is marked shown.
+  const [notice, setNotice] = useState<AnalyticsNotice | null>(null);
+  const noticeOpen =
+    notice ??
+    (analytics.available && analytics.enabled ? analytics.notice : null);
+  useEffect(() => {
+    if (notice || !analytics.available || !analytics.enabled || !analytics.notice)
+      return;
+    setNotice(analytics.notice);
+    void markNoticeShown();
+  }, [notice, analytics.available, analytics.enabled, analytics.notice]);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const infoTrigger = useRef<Element | null>(null);
   const infoScroll = useRef(0);
   const [infoTarget, setInfoTarget] = useState<"analytics-title" | "caption-server-title" | null>(null);
@@ -105,24 +117,40 @@ export function App() {
       />
       <main>
         <UpdateNotice />
-        {!consentDeferred &&
-          analytics.available &&
-          analytics.choice === "undecided" && (
-            <aside hidden={info} className="notice" aria-label="사용 통계 공유 안내">
-              <p>사용 통계 공유는 선택 사항입니다. 현재는 수집하지 않습니다.</p>
-              <div className="tools">
-                <button className="btn-secondary" onClick={() => showInfo("analytics-title")}>
-                  통계 공유 설정 보기
-                </button>
-                <button
-                  className="btn-ghost"
-                  onClick={() => setConsentDeferred(true)}
-                >
-                  나중에
-                </button>
-              </div>
-            </aside>
-          )}
+        {noticeOpen && !noticeDismissed && (
+          <aside hidden={info} className="notice" aria-label="사용 통계 안내">
+            <p>
+              {noticeOpen === "changed"
+                ? "사용 통계 방식이 바뀌었습니다. 개별 이벤트와 설치 식별자 대신 기능별 하루 합계만 보내며 기본으로 켜집니다."
+                : "기능 개선을 위해 기능별 사용 횟수와 성공·실패를 하루 합계로 보냅니다(기본 켜짐)."}{" "}
+              학번·이름·과목명·LMS 주소·자막·파일 내용은 보내지 않습니다. 설정 → 사용
+              통계에서 언제든 끌 수 있습니다.
+            </p>
+            <div className="tools">
+              <button
+                className="btn-secondary"
+                onClick={() => setNoticeDismissed(true)}
+              >
+                확인
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => {
+                  setNoticeDismissed(true);
+                  void setAnalyticsEnabled(false);
+                }}
+              >
+                통계 끄기
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => showInfo("analytics-title")}
+              >
+                자세히
+              </button>
+            </div>
+          </aside>
+        )}
         <div hidden={info}>
           {model.section === "courses" && <CoursesScreen model={model} />}
           {model.section === "tasks" && <TasksScreen model={model} />}
@@ -168,7 +196,6 @@ export function App() {
                   href="privacy.html"
                   target="_blank"
                   rel="noreferrer"
-                  data-analytics-action="privacy_open"
                 >
                   <span className="row-title">개인정보 처리방침</span>
                   <Icon name="external" />
@@ -217,7 +244,6 @@ export function App() {
                   href="privacy.html"
                   target="_blank"
                   rel="noreferrer"
-                  data-analytics-action="privacy_open"
                 >
                   <span className="row-title">개인정보 처리방침</span>
                   <Icon name="external" />
