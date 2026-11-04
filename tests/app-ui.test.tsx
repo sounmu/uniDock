@@ -86,7 +86,9 @@ it("returns keyboard focus to the information trigger when closing it", async ()
   trigger?.focus();
   await click("설정");
   expect(trigger?.getAttribute("aria-current")).toBe("page");
-  expect(ui.host.querySelector('nav [aria-current="page"]')).toBeNull();
+  expect([...ui.host.querySelectorAll('nav [aria-current="page"]')]).toEqual([
+    trigger,
+  ]);
   await click("← 돌아가기");
   expect(document.activeElement).toBe(trigger);
   expect(trigger?.hasAttribute("aria-current")).toBe(false);
@@ -191,7 +193,7 @@ it("does not publish an old course list after a newer view is selected", async (
   expect(document.body.textContent).not.toContain("오래된 과목");
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
 });
-it("opens the selected course materials view through the four-item rail", async () => {
+it("opens the selected course materials view through the five-item rail", async () => {
   // Given
   query
     .mockImplementationOnce(courseQuery)
@@ -209,7 +211,7 @@ it("opens the selected course materials view through the four-item rail", async 
   );
   expect(
     ui.host.querySelectorAll('nav[aria-label="주 메뉴"] button'),
-  ).toHaveLength(4);
+  ).toHaveLength(5);
   expect(document.body.textContent).toContain(
     "주차학습·게시판에서 확인 가능한 강의 자료가 없습니다.",
   );

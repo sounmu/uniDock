@@ -209,6 +209,136 @@ it("collapses unsubmitted overdue Todo rows into a trailing group", async () => 
   await act(async () => vi.advanceTimersByTime(3 * 86400000));
   expect(titles(group)).toEqual(["남은 과제", "방금 지남", "오래 지남"]);
 });
+interface StatusRow {
+  row: HTMLElement;
+  icon: HTMLElement | null;
+}
+function rowsByTitle(): Record<string, StatusRow> {
+  const rows: Record<string, StatusRow> = {};
+  for (const row of document.querySelectorAll<HTMLElement>(".list-row"))
+    rows[row.querySelector("strong")?.textContent ?? ""] = {
+      row,
+      icon: row.querySelector<HTMLElement>(".row-status"),
+    };
+  return rows;
+}
+function expectIconIsDecoration(row: HTMLElement, icon: HTMLElement) {
+  expect(row.className).toBe("list-row has-status");
+  expect(row.firstElementChild).toBe(icon);
+  expect(icon.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  expect(row.textContent).toBe(
+    (row.querySelector("strong")?.textContent ?? "") +
+      (row.querySelector(".row-meta")?.textContent ?? ""),
+  );
+}
+it("marks Todo rows with a read-only status icon that adds no text", async () => {
+  vi.useFakeTimers();
+  const now = Date.parse("2026-10-12T00:00:00Z");
+  vi.setSystemTime(now);
+  const todo = (title: string, offset: number, type = "unsubmitted") => ({
+    title,
+    due_at: new Date(now + offset).toISOString(),
+    type,
+    course: "A",
+    ignore: false,
+  });
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        todo: [
+          todo("남은 과제", 3 * 86400000),
+          todo("지난 과제", -60000),
+          todo("제출 완료 과제", -86400000, "submitted"),
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const byTitle = rowsByTitle();
+  expect(
+    Object.fromEntries(
+      Object.entries(byTitle).map(([title, { icon }]) => [
+        title,
+        icon?.getAttribute("data-status"),
+      ]),
+    ),
+  ).toEqual({
+    "남은 과제": "open",
+    "지난 과제": "overdue",
+    "제출 완료 과제": "done",
+  });
+  for (const { row, icon } of Object.values(byTitle))
+    expectIconIsDecoration(row, icon!);
+  expect(byTitle["지난 과제"]!.row.textContent).toBe("지난 과제A마감 지남");
+});
+it("marks locked and submitted assignments and leaves notices without an icon", async () => {
+  vi.useFakeTimers();
+  const now = Date.parse("2026-10-12T00:00:00Z");
+  vi.setSystemTime(now);
+  const assignment = (title: string, state: string, locked: boolean) => ({
+    title,
+    due_at: new Date(now + 3 * 86400000).toISOString(),
+    remaining_candidate: true,
+    unlock_at: "",
+    lock_at: "",
+    points_possible: null,
+    published: true,
+    locked_for_user: locked,
+    submission_workflow_state: state,
+    submitted_at: "",
+    missing: false,
+    late: false,
+    submission_types: [],
+  });
+  ui = await mount(
+    <ResultList
+      result={{
+        status: "success",
+        deadlines: [
+          assignment("잠긴 과제", "unsubmitted", true),
+          assignment("채점된 과제", "graded", false),
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const rows = rowsByTitle();
+  expect(rows["잠긴 과제"]!.icon?.getAttribute("data-status")).toBe("locked");
+  expect(rows["채점된 과제"]!.icon?.getAttribute("data-status")).toBe("done");
+  for (const { row, icon } of Object.values(rows))
+    expectIconIsDecoration(row, icon!);
+  await ui.render(
+    <ResultList
+      result={{
+        status: "success",
+        upcoming: [
+          {
+            title: "휴강 안내",
+            date: new Date(now - 86400000).toISOString(),
+            type: "announcement",
+            course: "A",
+            submitted: false,
+            new_activity: false,
+          },
+          {
+            title: "지난 일정",
+            date: new Date(now - 86400000).toISOString(),
+            type: "assignment",
+            course: "A",
+            submitted: false,
+            new_activity: false,
+          },
+        ],
+      }}
+      onCourse={() => {}}
+    />,
+  );
+  const schedule = rowsByTitle();
+  expect(schedule["휴강 안내"]!.icon).toBeNull();
+  expect(schedule["휴강 안내"]!.row.className).toBe("list-row");
+  expect(schedule["지난 일정"]!.icon?.getAttribute("data-status")).toBe("overdue");
+});
 it("separates schedule rows into tasks and notices with counts and type labels", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-21T03:00:00Z"));
