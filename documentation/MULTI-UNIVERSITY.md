@@ -66,7 +66,8 @@ Canvas 응답을 그대로 공통 모델로 삼지 않고 두 학교의 의미�
 학교별 강의·영상 식별과 접근, 플레이어 연결은 확장 연동 영역에서 해결한다.
 자막 백엔드에 학교별 로그인이나 화면 해석을 넘기지 않는다.
 미디어 및 결과 계약, 식별자와 캐시 경계는
-`unidock-captions/docs/MULTI-UNIVERSITY.md`의 원칙과 함께 변경한다.
+`unidock-server/captions/docs/MULTI-UNIVERSITY.md`의 원칙과 함께 변경한다
+(로컬 저장소 이름은 `unidock-captions`일 수 있다).
 
 ## 도입과 검증
 
