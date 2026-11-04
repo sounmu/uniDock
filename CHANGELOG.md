@@ -2,6 +2,10 @@
 
 ## 0.5.1 - 2026-11-03
 
+- Refresh the side panel with five bottom tabs, translucent cards, and assignment
+  status icons; move the LMS link into settings.
+- Document multi-university integration boundaries and the Ewha discovery checklist.
+
 - Replace installation-level analytics with bounded aggregate usage reports and
   preserve explicit opt-out choices.
 - Keep daily reach accounting consistent after disabling statistics or clearing
