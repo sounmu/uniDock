@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>uniDock 전체 화면 — TickTick 글래스</title>
+<style>
+.panel{
+  --ink:#1c1b1f; --muted:#5c5c62; --faint:#808087; --line:rgba(0,0,0,.09); --page:#f1f1f3;
+  --brand:#872038; --on-brand:#fff; --brand-wash:rgba(135,32,56,.09); --red:#b8281c; --ok:#2e6b3c;
+  --glass:rgba(255,255,255,.62); --glass-strong:rgba(255,255,255,.82); --glass-brd:rgba(255,255,255,.9);
+  --glass-shadow:0 6px 20px rgba(0,0,0,.06),inset 0 1px 0 rgba(255,255,255,.9);
+  --blur:blur(18px) saturate(160%);
+  --r-xs:4px; --r-sm:8px; --r-md:12px; --r-lg:16px; --r-full:999px;
+  --c1:#3d6be0; --c2:#22915a; --c3:#c47d06; --c4:#7a50e0; --c5:#0f9494;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:#d9d9db;padding:40px;color:#1c1b1f;width:max-content}
+h1.board{font-size:22px;font-weight:700;margin-bottom:6px}
+p.board{font-size:13px;color:#555;margin-bottom:24px}
+h2.rowt{font-size:15px;font-weight:700;color:#333;margin:8px 0 12px}
+.row{display:flex;gap:30px;align-items:flex-start;margin-bottom:30px}
+.frame-label{font-size:13px;font-weight:600;color:#444;margin-bottom:10px}
+.panel{width:380px;height:760px;background:var(--page);color:var(--ink);border-radius:var(--r-lg);overflow:hidden;display:flex;flex-direction:column;position:relative;font-size:14px;outline:1px solid rgba(0,0,0,.08)}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.s{width:16px;height:16px} svg.xs{width:14px;height:14px}
+
+.glass{background:var(--glass);border:1px solid var(--glass-brd);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:var(--glass-shadow)}
+.bar{display:flex;align-items:center;gap:10px;padding:14px 14px 4px}
+.bar h2{font-size:20px;font-weight:700}
+.bar .sp{flex:1}
+.bar .ic{color:var(--muted)}
+.subt{font-size:12px;color:var(--muted);padding:0 14px 8px}
+.back{display:flex;align-items:center;gap:2px;font-size:13px;font-weight:600;color:var(--muted);padding:14px 12px 2px}
+.scroll{flex:1;overflow:hidden;padding:0 12px}
+
+.seg{display:flex;margin:4px 12px 8px;border-radius:var(--r-full);padding:3px;gap:2px}
+.seg span{flex:1;text-align:center;font-size:13px;font-weight:600;padding:6px 0;border-radius:var(--r-full);color:var(--muted)}
+.seg span.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.chips{display:flex;gap:6px;padding:0 12px 8px;flex-wrap:wrap}
+.chip{font-size:12px;font-weight:600;padding:5px 10px;border-radius:var(--r-full);color:var(--muted);display:flex;align-items:center;gap:4px}
+.chip.on{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+
+.sec{display:flex;align-items:center;gap:4px;padding:12px 4px 2px;font-size:13px;font-weight:700}
+.sec .n{color:var(--faint);font-weight:500;margin-left:4px}
+.sec svg{width:14px;height:14px;color:var(--faint)}
+.sec.red{color:var(--red)}
+.sec .sp{flex:1}
+.sec .act{font-size:12px;font-weight:600;color:var(--brand)}
+
+.task{display:flex;align-items:center;gap:12px;border-radius:var(--r-lg);padding:10px 12px;margin:6px 0}
+.ck{width:18px;height:18px;border-radius:var(--r-xs);border:2px solid #a6a6ac;flex:none}
+.ck.on{background:#3a3a3f;border-color:#3a3a3f;display:grid;place-items:center;color:#fff}
+.ck.done{background:#b0b0b5;border-color:#b0b0b5;display:grid;place-items:center;color:#fff}
+.ck.off{border-style:dashed;opacity:.6}
+.tb{flex:1;min-width:0}
+.tt{font-size:15px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tt.done{color:var(--faint);text-decoration:line-through}
+.tm{display:flex;gap:6px;align-items:center;margin-top:3px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.tag{font-size:11px;padding:0 6px;border-radius:var(--r-xs);font-weight:600;line-height:18px;background:color-mix(in srgb,var(--cc) 14%,rgba(255,255,255,.5));color:var(--cc);border:1px solid color-mix(in srgb,var(--cc) 22%,transparent)}
+.tag.n{--cc:#66666c}
+.when{font-size:12.5px;color:var(--muted);white-space:nowrap;text-align:right}
+.when.red{color:var(--red);font-weight:600}
+.when small{display:block;font-size:11px;color:var(--faint);font-weight:500}
+.mini{font-size:12px;font-weight:700;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap;color:var(--ink)}
+.mini.done{color:var(--faint);background:transparent;border-color:transparent;box-shadow:none}
+
+.card{border-radius:var(--r-lg);margin:6px 0;overflow:hidden}
+.card .hd{display:flex;align-items:center;gap:6px;padding:10px 12px 6px;font-size:12px;font-weight:700;color:var(--muted)}
+.card .hd .sp{flex:1}
+.card .hd .act{color:var(--brand);font-weight:600}
+.r{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--line);font-size:14px}
+.card .hd + .r{border-top:0}
+.r .k{color:var(--muted);width:76px;flex:none;font-size:13px}
+.r .v{flex:1;min-width:0}
+.r .sp{flex:1}
+.r small{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.r .st{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.r .st.ok{color:var(--ok)} .r .st.br{color:var(--brand)}
+.ext{font-size:10px;font-weight:800;width:30px;height:30px;border-radius:var(--r-sm);display:grid;place-items:center;flex:none;background:rgba(255,255,255,.7);color:#66666c;border:1px solid var(--line)}
+.sq{width:34px;height:34px;border-radius:var(--r-md);display:grid;place-items:center;font-weight:700;font-size:14px;color:var(--cc);background:color-mix(in srgb,var(--cc) 13%,#fff);flex:none}
+.guide{display:flex;align-items:center;gap:8px;border-radius:var(--r-md);padding:9px 12px;font-size:13px;font-weight:600;color:var(--muted);margin:2px 0 4px}
+.guide .sp{flex:1}
+
+.tabbar{display:flex;margin:6px 12px 12px;border-radius:var(--r-full);padding:8px 4px}
+.tabbar div{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--faint);font-size:10.5px;font-weight:600;position:relative}
+.tabbar div.on{color:var(--brand)}
+.tabbar div.on::before{content:"";position:absolute;inset:-4px 4px;border-radius:var(--r-full);background:var(--brand-wash);z-index:-1}
+.tabbar svg{width:21px;height:21px}
+
+.foot{margin:6px 12px 12px;border-radius:var(--r-lg);padding:4px 4px 4px 14px;display:flex;align-items:center;gap:8px}
+.foot .t{flex:1;font-size:12.5px;color:var(--muted)}
+.foot .t b{color:var(--ink)}
+.btn{font-size:13px;font-weight:700;padding:9px 14px;border-radius:var(--r-md);display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.btn.p{background:var(--brand);color:var(--on-brand);box-shadow:0 6px 16px rgba(135,32,56,.25)}
+.btn.s{color:var(--ink)}
+.btn.w{flex:1;justify-content:center}
+.prog{height:4px;border-radius:var(--r-xs);background:rgba(0,0,0,.07);overflow:hidden;margin-top:6px}
+.prog i{display:block;height:100%;background:var(--brand)}
+
+.dd{display:flex;align-items:center;gap:8px;border-radius:var(--r-md);padding:9px 12px;font-size:14px}
+.dd span.l{font-size:11.5px;color:var(--muted);display:block}
+.dd .sp{flex:1}
+.pillst{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:var(--r-full);background:var(--brand-wash);color:var(--brand)}
+.pillst.ok{background:rgba(46,107,60,.1);color:var(--ok)}
+.pillst.n{background:rgba(0,0,0,.05);color:var(--muted)}
+.ln{display:flex;gap:10px;padding:8px 12px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.ln code{font:600 11.5px ui-monospace,Menlo,monospace;color:var(--muted);padding-top:2px;flex:none}
+ul.cons{padding:2px 12px 10px 30px;font-size:13px;line-height:1.7}
+.tg{width:40px;height:24px;border-radius:var(--r-full);background:var(--brand);position:relative;flex:none}
+.tg::after{content:"";position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:var(--r-full);background:#fff}
+.tg.off{background:rgba(255,255,255,.8);border:1.5px solid #86868c}
+.tg.off::after{left:2px;right:auto;top:2px;background:#86868c}
+.app{display:flex;align-items:center;gap:12px;border-radius:var(--r-lg);padding:12px;margin:6px 0}
+.appic{width:40px;height:40px;border-radius:var(--r-md);background:var(--brand);color:#fff;font-weight:800;display:grid;place-items:center;font-size:18px}
+.grp{font-size:12px;font-weight:700;color:var(--muted);padding:12px 4px 2px}
+.danger{color:var(--red);font-weight:600}
+
+.notes{margin-top:6px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;width:2430px}
+.notes div{background:#fff;border-radius:var(--r-md);padding:16px 18px;font-size:13px;line-height:1.6;color:#333}
+.notes h3{font-size:14px;margin-bottom:6px}
+.notes ul{padding-left:18px}
+.sti{width:20px;height:20px;color:var(--faint);flex:none}
+.sti.done{color:#a3a3a9}
+.sti.alert{color:var(--muted)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 11-2.2-5.3"/><path d="M19.5 4.5v4h-4"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
+  <symbol id="chevr" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></symbol>
+  <symbol id="left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="book" viewBox="0 0 24 24"><path d="M5 5.5A1.5 1.5 0 016.5 4H19v14H6.5A1.5 1.5 0 005 19.5z"/><path d="M5 19.5A1.5 1.5 0 006.5 21H19"/></symbol>
+  <symbol id="todo" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M10.5 9l4.5 3-4.5 3z"/></symbol>
+  <symbol id="cc" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="3"/><path d="M10.5 10.3a2 2 0 100 3.4M16.5 10.3a2 2 0 100 3.4"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M6 18l1.4-1.4M16.6 7.4L18 6"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></symbol>
+  <symbol id="ext" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4a1 1 0 01-1 1H6a1 1 0 01-1-1V8a1 1 0 011-1h4"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3.5 7.5A1.5 1.5 0 015 6h4.5l2 2H19a1.5 1.5 0 011.5 1.5v8A1.5 1.5 0 0119 19H5a1.5 1.5 0 01-1.5-1.5z"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.01"/></symbol>
+  <symbol id="sort" viewBox="0 0 24 24"><path d="M7 4v16M3.5 16.5L7 20l3.5-3.5M17 20V4M13.5 7.5L17 4l3.5 3.5"/></symbol>
+  <symbol id="video" viewBox="0 0 24 24"><rect x="3.5" y="6" width="12" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3"/></symbol>
+  <symbol id="cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></symbol>
+  <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/></symbol>
+  <symbol id="tab" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M3.5 9h17"/></symbol>
+  <symbol id="pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+  <symbol id="st-open" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.2l2.6 1.6"/></symbol>
+  <symbol id="st-done" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="currentColor" stroke="none"/><path d="M8.3 12.3l2.5 2.5 4.9-5.2" stroke="#fff" stroke-width="2.2"/></symbol>
+  <symbol id="st-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.5M12 15.8v.01"/></symbol>
+  <symbol id="st-lock" viewBox="0 0 24 24"><rect x="6" y="10.5" width="12" height="9" rx="2"/><path d="M8.8 10.5V8.2a3.2 3.2 0 016.4 0v2.3"/></symbol>
+  <symbol id="st-spin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-opacity=".25"/><path d="M12 4a8 8 0 018 8"/></symbol>
+</svg>
+
+<h1 class="board">uniDock 전체 화면 — TickTick 글래스 (라이트)</h1>
+<p class="board">현재 기능 기준 · 하단 유리 탭 바(내 과목 · 할 일·일정 · 자동 재생 · 자막 추출 · 설정) · 무채색 체크박스 · R값 5단계(4/8/12/16/캡슐) · 실제 화면 문구 사용 / 380 × 760</p>
+
+<h2 class="rowt">조회 — 내 과목 · 할 일·일정</h2>
+<div class="row">
+
+<div><div class="frame-label">① 내 과목</div>
+<div class="panel">
+  <div class="bar"><h2>내 과목</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="subt">조회 완료 · 오후 2:32 · 5과목</div>
+  <div class="scroll">
+    <div class="guide glass"><svg class="i s"><use href="#info"/></svg>표시 기준<span class="sp"></span><svg class="i s"><use href="#chev"/></svg></div>
+    <div class="task glass" style="--cc:var(--c1)"><span class="sq">자</span><div class="tb"><div class="tt" style="font-weight:600">자료구조</div><div class="tm">과제 · 녹화 강의 · 강의 자료</div></div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div>
+    <div class="task glass" style="--cc:var(--c4)"><span class="sq">운</span><div class="tb"><div class="tt" style="font-weight:600">운영체제</div><div class="tm">과제 · 녹화 강의 · 강의 자료</div></div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div>
+    <div class="task glass" style="--cc:var(--c3)"><span class="sq">확</span><div class="tb"><div class="tt" style="font-weight:600">확률과 통계</div><div class="tm">과제 · 녹화 강의 · 강의 자료</div></div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div>
+    <div class="task glass" style="--cc:var(--c2)"><span class="sq">컴</span><div class="tb"><div class="tt" style="font-weight:600">컴퓨터네트워크</div><div class="tm">과제 · 녹화 강의 · 강의 자료</div></div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div>
+    <div class="task glass" style="--cc:var(--c5)"><span class="sq">글</span><div class="tb"><div class="tt" style="font-weight:600">대학 글쓰기: 학술적 글쓰기와 비판적 사고</div><div class="tm">과제 · 녹화 강의 · 강의 자료</div></div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div>
+  </div>
+  <nav class="tabbar glass"><div class="on"><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">② 과목 · 과제</div>
+<div class="panel">
+  <div class="back"><svg class="i s"><use href="#left"/></svg>내 과목</div>
+  <div class="bar" style="padding-top:6px"><h2>자료구조</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="seg glass"><span class="on">과제</span><span>녹화 강의</span><span>강의 자료</span></div>
+  <div class="scroll">
+    <div class="card glass">
+      <div class="hd">보기 설정<span class="sp"></span><svg class="i xs"><use href="#chev"/></svg></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span>남은 과제만<span class="sp"></span><span class="st">마감 빠른 순 ▾</span></div>
+      <div class="r" style="gap:6px"><span class="chip on">전체 기간</span><span class="chip glass">이번 주</span><span class="chip glass">24시간 이내</span></div>
+    </div>
+    <div class="sec">남은 과제<span class="n">2 / 전체 6</span></div>
+    <div class="task glass"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">과제 3: 이진 탐색 트리 구현 및 시간 복잡도 분석 보고서</div><div class="tm">미제출 · 20점</div></div><span class="when red">오늘 23:59<small>7시간 남음</small></span></div>
+    <div class="task glass"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">과제 4: AVL 트리 회전</div><div class="tm">미제출 · 20점</div></div><span class="when">11/12 (목)<small>D-9</small></span></div>
+    <div class="sec" style="color:var(--muted)">‘남은 과제만’ 해제 시</div>
+    <div class="task glass"><svg class="i sti done"><use href="#st-done"/></svg><div class="tb"><div class="tt done">과제 2: 연결 리스트</div><div class="tm">제출 완료 · 18 / 20</div></div><span class="when">10/22</span></div>
+    <div class="task glass"><svg class="i sti "><use href="#st-lock"/></svg><div class="tb"><div class="tt">기말 프로젝트 제안서</div><div class="tm">잠김</div></div><span class="when">12/4</span></div>
+  </div>
+  <nav class="tabbar glass"><div class="on"><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">③ 과목 · 녹화 강의</div>
+<div class="panel">
+  <div class="back"><svg class="i s"><use href="#left"/></svg>내 과목</div>
+  <div class="bar" style="padding-top:6px"><h2>자료구조</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="seg glass"><span>과제</span><span class="on">녹화 강의</span><span>강의 자료</span></div>
+  <div class="scroll">
+    <div class="guide glass"><svg class="i s"><use href="#info"/></svg>강의 열기 안내<span class="sp"></span><svg class="i s"><use href="#chev"/></svg></div>
+    <div class="sec"><svg class="i"><use href="#chev"/></svg>9주차<span class="n">3</span></div>
+    <div class="task glass"><svg class="i s" style="color:var(--faint)"><use href="#video"/></svg><div class="tb"><div class="tt">9-1 BST 삭제 연산</div><div class="tm">주차학습 · KU 플레이어</div></div><span class="mini glass">강의 열기</span></div>
+    <div class="task glass"><svg class="i s" style="color:var(--faint)"><use href="#video"/></svg><div class="tb"><div class="tt">9-2 BST 성능 분석</div><div class="tm">주차학습 · KU 플레이어</div></div><span class="mini done">열었음</span></div>
+    <div class="task glass"><svg class="i s" style="color:var(--faint)"><use href="#video"/></svg><div class="tb"><div class="tt">보충: 레드-블랙 트리 개요</div><div class="tm"><span class="tag n">게시판 영상</span>LearningX 게시판</div></div><span class="mini glass">강의 열기</span></div>
+    <div class="sec"><svg class="i"><use href="#chev"/></svg>8주차<span class="n">2</span></div>
+    <div class="task glass"><svg class="i s" style="color:var(--faint)"><use href="#video"/></svg><div class="tb"><div class="tt">8-1 이진 탐색 트리 소개</div><div class="tm">주차학습 · KU 플레이어</div></div><span class="mini done">새로고침 필요</span></div>
+    <div class="guide glass" style="margin-top:10px;color:var(--brand)">LMS 모듈에서 보기<span class="sp"></span><svg class="i s"><use href="#ext"/></svg></div>
+  </div>
+  <nav class="tabbar glass"><div class="on"><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">④ 과목 · 강의 자료 (다운로드 중)</div>
+<div class="panel">
+  <div class="back"><svg class="i s"><use href="#left"/></svg>내 과목</div>
+  <div class="bar" style="padding-top:6px"><h2>자료구조</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="seg glass"><span>과제</span><span>녹화 강의</span><span class="on">강의 자료</span></div>
+  <div class="scroll">
+    <div class="card glass">
+      <div class="hd">주차학습 · 9주차<span class="sp"></span><span class="act">전체 선택</span></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><span class="ext">PDF</span><div class="v">09_BST_삽입과삭제.pdf</div><span class="st ok">완료</span></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><span class="ext">PPT</span><div class="v">09_AVL트리.pptx</div><span class="st br">다운로드 중</span></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><span class="ext">PDF</span><div class="v">09_실습자료.pdf</div><span class="st">대기</span></div>
+    </div>
+    <div class="card glass">
+      <div class="hd">게시판 · 공지<span class="sp"></span><span class="act">전체 선택</span></div>
+      <div class="r"><span class="ck"></span><span class="ext">PDF</span><div class="v">중간고사 해설.pdf</div><span class="st"></span></div>
+      <div class="r"><span style="width:18px"></span><span class="ext">PDF</span><div class="v">과제 3 명세서.pdf</div><span class="st" style="color:var(--brand)">LMS에서 확인</span></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px"><span class="btn s glass w"><svg class="i s"><use href="#folder"/></svg>폴더 열기</span><span class="btn s glass w">ChatGPT에서 질문하기<svg class="i xs"><use href="#ext"/></svg></span></div>
+  </div>
+  <div class="foot glass"><div class="t"><b>1 / 3</b> 다운로드 중<div class="prog"><i style="width:40%"></i></div></div><span class="btn s glass">취소</span></div>
+</div></div>
+
+<div><div class="frame-label">⑤ 할 일·일정 · 할 일</div>
+<div class="panel">
+  <div class="bar"><h2>할 일·일정</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="seg glass"><span class="on">할 일</span><span>일정</span></div>
+  <div class="chips"><span class="chip glass"><svg class="i xs"><use href="#sort"/></svg>마감 빠른 순</span><span class="chip glass"><svg class="i xs"><use href="#info"/></svg>표시 기준</span></div>
+  <div class="scroll">
+    <div class="sec red"><svg class="i"><use href="#chev"/></svg>마감 지남<span class="n">1</span></div>
+    <div class="task glass" style="--cc:var(--c3)"><svg class="i sti alert"><use href="#st-alert"/></svg><div class="tb"><div class="tt">중간고사 오답 노트 제출</div><div class="tm"><span class="tag">확률과 통계</span>지각 제출</div></div><span class="when red">11/1</span></div>
+    <div class="sec"><svg class="i"><use href="#chev"/></svg>오늘<span class="n">2</span></div>
+    <div class="task glass" style="--cc:var(--c4)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">4주차 퀴즈</div><div class="tm"><span class="tag">운영체제</span></div></div><span class="when red">18:00</span></div>
+    <div class="task glass" style="--cc:var(--c1)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">과제 3: 이진 탐색 트리 구현</div><div class="tm"><span class="tag">자료구조</span></div></div><span class="when red">23:59</span></div>
+    <div class="sec"><svg class="i"><use href="#chev"/></svg>이번 주<span class="n">2</span></div>
+    <div class="task glass" style="--cc:var(--c4)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">Lab 5 — 스케줄러 시뮬레이션</div><div class="tm"><span class="tag">운영체제</span></div></div><span class="when">목 23:59</span></div>
+    <div class="task glass" style="--cc:var(--c2)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">TCP 혼잡 제어 실습 결과</div><div class="tm"><span class="tag">컴퓨터네트워크</span></div></div><span class="when">금 23:59</span></div>
+    <div class="sec"><svg class="i"><use href="#chev"/></svg>마감 없음<span class="n">1</span></div>
+  </div>
+  <nav class="tabbar glass"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div class="on"><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">⑥ 할 일·일정 · 일정</div>
+<div class="panel">
+  <div class="bar"><h2>할 일·일정</h2><span class="sp"></span><svg class="i ic"><use href="#refresh"/></svg></div>
+  <div class="seg glass"><span>할 일</span><span class="on">일정</span></div>
+  <div class="scroll">
+    <div style="display:flex;gap:6px"><div class="dd glass" style="flex:1"><div><span class="l">시작일 (선택)</span>11월 2일</div><span class="sp"></span><svg class="i s" style="color:var(--faint)"><use href="#cal"/></svg></div><div class="dd glass" style="flex:1"><div><span class="l">종료일 (선택)</span>11월 8일</div><span class="sp"></span><svg class="i s" style="color:var(--faint)"><use href="#cal"/></svg></div></div>
+    <div style="display:flex;gap:6px;margin-top:8px"><span class="chip on">전체</span><span class="chip glass">과제</span><span class="chip glass">공지</span><span class="chip glass">기타</span></div>
+    <div class="sec">11월 3일 (화)<span class="n">3</span></div>
+    <div class="task glass" style="--cc:var(--c2)"><svg class="i sti done"><use href="#st-done"/></svg><div class="tb"><div class="tt done">소켓 프로그래밍 예비 보고서</div><div class="tm"><span class="tag">컴퓨터네트워크</span>과제 · 제출됨</div></div><span class="when">12:00</span></div>
+    <div class="task glass" style="--cc:var(--c4)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">4주차 퀴즈</div><div class="tm"><span class="tag">운영체제</span>과제</div></div><span class="when red">오늘 18:00</span></div>
+    <div class="task glass" style="--cc:var(--c5)"><svg class="i s" style="color:var(--faint);margin:0 1px"><use href="#info"/></svg><div class="tb"><div class="tt">[공지] 기말 에세이 주제 안내</div><div class="tm"><span class="tag">대학 글쓰기</span>공지</div></div><span class="when">09:00</span></div>
+    <div class="sec">11월 5일 (목)<span class="n">1</span></div>
+    <div class="task glass" style="--cc:var(--c4)"><svg class="i sti "><use href="#st-open"/></svg><div class="tb"><div class="tt">Lab 5 — 스케줄러 시뮬레이션</div><div class="tm"><span class="tag">운영체제</span>과제</div></div><span class="when">23:59</span></div>
+  </div>
+  <nav class="tabbar glass"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div class="on"><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+</div>
+
+<h2 class="rowt">상세 · 도구 · 설정</h2>
+<div class="row">
+
+<div><div class="frame-label">⑦ 항목 상세</div>
+<div class="panel">
+  <div class="back"><svg class="i s"><use href="#left"/></svg>목록</div>
+  <div class="scroll" style="padding-top:8px">
+    <div class="card glass" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--red)"><svg class="i s"><use href="#cal"/></svg>오늘 23:59 · 7시간 남음</div>
+      <h2 style="font-size:19px;font-weight:700;line-height:1.4;margin-top:8px">과제 3: 이진 탐색 트리 구현 및 시간 복잡도 분석 보고서</h2>
+      <div style="margin-top:8px;--cc:var(--c1)"><span class="tag">자료구조</span></div>
+    </div>
+    <div class="card glass">
+      <div class="r"><span class="k">유형</span><span class="v">과제</span></div>
+      <div class="r"><span class="k">제출 상태</span><span class="v">미제출</span></div>
+      <div class="r"><span class="k">제출 기록</span><span class="v">제출 기록 없음</span></div>
+      <div class="r"><span class="k">제출 유형</span><span class="v">파일 업로드</span></div>
+      <div class="r"><span class="k">점수</span><span class="v">정보 없음 · 배점 20</span></div>
+      <div class="r"><span class="k">제출 시각</span><span class="v">정보 없음</span></div>
+      <div class="r"><span class="k">공개·잠금</span><span class="v">공개 · 잠금 해제</span></div>
+      <div class="r"><span class="k">새 활동</span><span class="v">없음</span></div>
+    </div>
+  </div>
+  <div class="foot glass" style="padding:4px"><span class="btn p w">LMS에서 열기<svg class="i xs"><use href="#ext"/></svg></span></div>
+</div></div>
+
+<div><div class="frame-label">⑧ 자동 재생</div>
+<div class="panel">
+  <div class="bar"><h2>자동 재생</h2><span class="pillst">재생 중</span><span class="sp"></span><svg class="i ic"><use href="#more"/></svg></div>
+  <div class="subt">고른 영상만 전용 탭에서 정상 속도로 순서대로 재생합니다.</div>
+  <div class="scroll">
+    <div class="card glass" style="padding:12px 14px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted)">현재 재생</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px"><span class="sq" style="--cc:var(--c1)"><svg class="i s"><use href="#play"/></svg></span><div class="tb"><div class="tt" style="font-weight:600">9-1 BST 삭제 연산</div><div class="tm">자료구조 · 9주차</div></div></div>
+      <div style="display:flex;gap:6px;margin-top:12px"><span class="btn s glass w">상태 확인</span><span class="btn s glass w"><svg class="i s"><use href="#tab"/></svg>재생 탭 보기</span></div>
+    </div>
+    <div class="sec">다음 영상<span class="n">3</span></div>
+    <div class="task glass"><span style="font-size:12px;font-weight:700;color:var(--faint);width:14px;text-align:center">1</span><div class="tb"><div class="tt">9-2 BST 성능 분석</div><div class="tm">자료구조 · 9주차</div></div><span class="when">대기</span></div>
+    <div class="task glass"><span style="font-size:12px;font-weight:700;color:var(--faint);width:14px;text-align:center">2</span><div class="tb"><div class="tt">보충: 레드-블랙 트리 개요</div><div class="tm">자료구조 · 게시판 영상</div></div><span class="when">대기</span></div>
+    <div class="task glass"><span style="font-size:12px;font-weight:700;color:var(--faint);width:14px;text-align:center">3</span><div class="tb"><div class="tt">10-1 힙과 우선순위 큐</div><div class="tm">자료구조 · 10주차</div></div><span class="when">대기</span></div>
+    <div class="guide glass" style="margin-top:8px">재생 설정<span class="sp"></span><svg class="i s"><use href="#chevr"/></svg></div>
+  </div>
+  <div class="foot glass" style="padding:4px"><span class="btn s glass w">영상 선택</span><span class="btn p w"><svg class="i s"><use href="#pause"/></svg>자동 재생 끄기</span></div>
+  <nav class="tabbar glass" style="margin-top:0"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div class="on"><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">⑨ 자동 재생 · 영상 선택</div>
+<div class="panel">
+  <div class="back"><svg class="i s"><use href="#left"/></svg>자동 재생</div>
+  <div class="bar" style="padding-top:6px"><h2>영상 선택</h2></div>
+  <div class="scroll">
+    <div class="dd glass"><div><span class="l">과목 선택</span>자료구조</div><span class="sp"></span><svg class="i s" style="color:var(--faint)"><use href="#chev"/></svg></div>
+    <div class="card glass" style="margin-top:8px">
+      <div class="hd">9주차<span class="sp"></span><span class="act">전체 선택</span></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><div class="v">9-1 BST 삭제 연산</div></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><div class="v">9-2 BST 성능 분석</div></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><div class="v">보충: 레드-블랙 트리 개요<small>게시판 영상</small></div></div>
+    </div>
+    <div class="card glass">
+      <div class="hd">10주차<span class="sp"></span><span class="act">전체 선택</span></div>
+      <div class="r"><span class="ck on"><svg class="i" style="width:11px;height:11px;stroke-width:3.2"><use href="#check"/></svg></span><div class="v">10-1 힙과 우선순위 큐</div></div>
+      <div class="r"><span class="ck"></span><div class="v">10-2 힙 정렬</div></div>
+      <div class="r"><span class="ck off"></span><div class="v" style="color:var(--faint)">10-3 실습 안내<small>영상 항목을 확인할 수 없어 자동 재생할 수 없습니다.</small></div></div>
+    </div>
+  </div>
+  <div class="foot glass"><div class="t"><b>선택한 4개</b> 영상</div><span class="btn p">자동 재생 켜기</span></div>
+</div></div>
+
+<div><div class="frame-label">⑩ 자막 추출 · 감지 완료</div>
+<div class="panel">
+  <div class="bar"><h2>자막 추출</h2><span class="sp"></span><svg class="i ic"><use href="#more"/></svg></div>
+  <div class="scroll">
+    <div class="dd glass"><svg class="i s" style="color:var(--faint)"><use href="#tab"/></svg><div><span class="l">현재 탭</span>9-1 BST 삭제 연산 · KU 플레이어</div></div>
+    <div class="guide glass" style="margin-top:8px"><svg class="i s"><use href="#info"/></svg>자막 찾는 방법<span class="sp"></span><svg class="i s"><use href="#chev"/></svg></div>
+    <div class="card glass">
+      <div class="r"><span class="k">출처</span><span class="v">공식 자막 트랙</span><span class="pillst ok">공식 자막</span></div>
+      <div class="r"><span class="k">문장 수</span><span class="v">412</span></div>
+    </div>
+    <div class="card glass">
+      <div class="hd">미리보기</div>
+      <div class="ln"><code>00:12</code>지난 시간에 삽입까지 봤고요, 오늘은 삭제 연산을 다룹니다.</div>
+      <div class="ln"><code>00:31</code>삭제는 노드의 자식 수에 따라 세 가지 경우로 나눠요.</div>
+      <div class="ln"><code>01:05</code>자식이 둘이면 오른쪽 서브트리의 최솟값을 찾아서…</div>
+    </div>
+  </div>
+  <div class="foot glass" style="padding:4px"><span class="btn s glass">다시 감지</span><span class="btn p w"><svg class="i s"><use href="#down"/></svg>TXT·JSON 다운로드</span></div>
+  <nav class="tabbar glass" style="margin-top:0"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div class="on"><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">⑪ 자막 추출 · AI 자막 생성</div>
+<div class="panel">
+  <div class="bar"><h2>자막 추출</h2><span class="sp"></span><svg class="i ic"><use href="#more"/></svg></div>
+  <div class="scroll">
+    <div class="dd glass"><svg class="i s" style="color:var(--faint)"><use href="#tab"/></svg><div><span class="l">현재 탭</span>8-1 이진 탐색 트리 소개 · KU 플레이어</div></div>
+    <div class="card glass" style="margin-top:8px">
+      <div class="r"><div class="v" style="font-weight:600">제공된 자막이 없습니다<small>자막이 없으면 AI로 만들 수 있습니다.</small></div><span class="mini glass">AI 자막 설정</span></div>
+      <div class="r"><span class="k">계정</span><span class="v">Google 로그인됨</span></div>
+      <div class="r"><span class="k">이번 주 사용</span><span class="v">3 / 7회</span></div>
+    </div>
+    <div class="card glass">
+      <div class="hd"><svg class="i xs"><use href="#spark"/></svg>보내기 전에 확인하세요</div>
+      <ul class="cons"><li>강의 음성만 보내고, 처리 후 삭제합니다.</li><li>자막은 최대 6개월 보관합니다.</li><li>이번 주 사용 횟수 1회가 차감됩니다.</li></ul>
+    </div>
+    <div class="card glass">
+      <div class="hd">진행 단계 (생성 시작 후)</div>
+      <div class="r"><svg class="i sti done"><use href="#st-done"/></svg><div class="v">음성 트랙을 분리하고 있습니다…</div></div>
+      <div class="r"><svg class="i sti" style="color:var(--brand)"><use href="#st-spin"/></svg><div class="v">자막을 생성하고 있습니다…<div class="prog"><i style="width:55%"></i></div></div></div>
+    </div>
+  </div>
+  <div class="foot glass" style="padding:4px"><span class="btn s glass">자막 감지</span><span class="btn p w"><svg class="i s"><use href="#spark"/></svg>AI 자막 생성</span></div>
+  <nav class="tabbar glass" style="margin-top:0"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div class="on"><svg class="i"><use href="#cc"/></svg>자막 추출</div><div><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+<div><div class="frame-label">⑫ 설정</div>
+<div class="panel">
+  <div class="bar"><h2>설정</h2></div>
+  <div class="scroll">
+    <div class="app glass"><span class="appic">u</span><div><b style="font-size:15px">uniDock</b><div style="font-size:12px;color:var(--muted);margin-top:2px">버전 0.4.1 · 비공식 도구</div></div><span style="flex:1"></span><span class="mini glass">LMS 열기</span></div>
+    <div class="grp">AI 자막</div>
+    <div class="card glass" style="margin-top:4px">
+      <div class="r"><div class="v">계정<small>Google 계정으로 로그인됨</small></div><span class="mini glass">로그아웃</span></div>
+      <div class="r"><div class="v">이번 주 사용</div><span class="st">3 / 7회</span></div>
+      <div class="r"><div class="v">처리 서버</div><span class="st ok">켜져 있음</span></div>
+    </div>
+    <div class="grp">LMS 동작</div>
+    <div class="card glass" style="margin-top:4px">
+      <div class="r"><div class="v">팝업 자동 닫기<small>LMS 공지 팝업과 설문 안내를 자동으로 닫습니다.</small></div><span class="tg"></span></div>
+    </div>
+    <div class="grp">개인정보</div>
+    <div class="card glass" style="margin-top:4px">
+      <div class="r"><div class="v">사용 통계 공유 (선택)<small>사용 통계 공유 안 함</small></div><span class="tg off"></span></div>
+      <div class="r"><div class="v">개인정보 처리방침</div><svg class="i s" style="color:var(--faint)"><use href="#ext"/></svg></div>
+      <div class="r"><div class="v danger">저장된 설정 삭제</div></div>
+    </div>
+    <div class="card glass"><div class="r"><div class="v">현재 버전 변경 사항</div><svg class="i s" style="color:var(--faint)"><use href="#chevr"/></svg></div></div>
+  </div>
+  <nav class="tabbar glass"><div><svg class="i"><use href="#book"/></svg>내 과목</div><div><svg class="i"><use href="#todo"/></svg>할 일·일정</div><div><svg class="i"><use href="#play"/></svg>자동 재생</div><div><svg class="i"><use href="#cc"/></svg>자막 추출</div><div class="on"><svg class="i"><use href="#gear"/></svg>설정</div></nav>
+</div></div>
+
+</div>
+
+<div class="notes">
+  <div><h3>현재 기능과의 대응</h3><ul>
+    <li>① 내 과목 → ②③④ 과제 / 녹화 강의 / 강의 자료 세그먼트 (기존 CoursesScreen)</li>
+    <li>⑤⑥ 할 일·일정 세그먼트, 일정의 시작·종료일과 종류 필터(전체·과제·공지·기타)</li>
+    <li>⑦ 기존 ItemDetail 필드 그대로, 유일한 주 버튼은 LMS에서 열기</li>
+    <li>⑧⑨ 자동 재생 상태·다음 영상·영상 선택, ⑩⑪ 자막 감지와 AI 자막 동의 카드, ⑫ 정보·설정 화면</li></ul></div>
+  <div><h3>기존 DESIGN.md에서 바뀌는 점</h3><ul>
+    <li>상단 4칸 탭 → 하단 떠 있는 유리 탭 바, ‘정보’가 탭 바의 ‘설정’으로</li>
+    <li>구분선 행 → 행마다 유리 카드, 설정·메타는 유리 카드 안의 구분선 행</li>
+    <li>새로고침은 제목 옆 아이콘, 화면별 주 동작은 하단 유리 바로 이동</li>
+    <li>과목 색 태그 추가 · 읽기 전용 상태는 원형 아이콘, 네모 체크박스는 실제 선택에만</li></ul></div>
+  <div><h3>확인할 점</h3><ul>
+    <li>상태 아이콘: 시계=미제출, 채운 체크=제출됨, 느낌표=마감 지남, 자물쇠=잠김 — 행 전체가 상세로 가는 버튼이고 아이콘은 따로 누르지 않음</li>
+    <li>배포 빌드에서 자동 재생 탭은 ‘검토 중’ 비활성 상태로 표시</li>
+    <li>과목 색은 LMS 데이터가 아니라 이름 기반으로 로컬 배정</li>
+    <li>행마다 backdrop-filter는 100행 목록에서 무거움 — 실제로는 카드 배경만 반투명, blur는 탭 바·하단 바에만 권장</li></ul></div>
+</div>
+</body>
+</html>

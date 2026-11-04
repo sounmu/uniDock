@@ -16,7 +16,7 @@ import {
   type Upcoming,
   type Todo,
 } from "../../src/domain-items";
-import { ListRow } from "./ui/ListRow";
+import { ListRow, type RowStatus } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { useDetail } from "./ui/DetailView";
 import { rowKey } from "./ui/a11y";
@@ -68,6 +68,23 @@ function chip(item: Item, now: number): string {
     return "제출 완료";
   const delta = isoTime(item.due_at) - now;
   return delta <= 0 ? "마감 지남" : delta <= 86400000 ? "D-1" : "미제출";
+}
+// Same facts as chip(): the icon only reinforces the chip text.
+function rowStatus(item: Item, now: number): RowStatus | undefined {
+  if ("date" in item) {
+    if (item.submitted) return "done";
+    if (scheduleKind(item.type) !== "task") return undefined;
+    return isoTime(item.date) <= now ? "overdue" : "open";
+  }
+  if (isAssignment(item)) {
+    if (item.locked_for_user) return "locked";
+    if (["submitted", "graded"].includes(item.submission_workflow_state))
+      return "done";
+    return isoTime(item.due_at) <= now ? "overdue" : "open";
+  }
+  if ("type" in item && ["submitted", "graded"].includes(item.type))
+    return "done";
+  return isoTime(item.due_at) <= now ? "overdue" : "open";
 }
 function isOverdueTodo(item: Todo, now: number): boolean {
   return (
@@ -194,6 +211,7 @@ export function ItemResults({
               : course
         }
         chip={<ItemChip item={item} now={now} />}
+        status={rowStatus(item, now)}
         onClick={() => open(item)}
       />
     </li>

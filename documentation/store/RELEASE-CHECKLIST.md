@@ -1,5 +1,14 @@
 # 배포 절차 및 남은 입력
 
+## 0.5.2 GitHub 릴리스
+
+- 대상: 0.5.1 배포 ZIP(`main`의 `37af29c`)에 빠진 사이드 패널 UI 개편과 다중 대학 연동 문서.
+- 산출물: `release/uniDock-0.5.2-chrome-mv3.zip`, `release/inventory.json`.
+- 개인정보처리방침 본문은 바뀌지 않았습니다. 기준일은 2026-11-03 그대로 두고 적용 버전만 0.5.2로 올렸습니다.
+- 0.5.1과 같은 구성으로 `npm run release`를 실행합니다. `.env.local`에 `UNIDOCK_PLAYBACK=1`,
+  `UNIDOCK_AI_CAPTIONS=1`, `UNIDOCK_CAPTION_SERVER`, `UNIDOCK_STATS_SERVER`가 모두 있어야 합니다.
+- 태그는 UI 개편이 들어간 `main` 머지 커밋에 겁니다. 이미 게시된 `v0.5.1` 태그와 첨부물은 바꾸지 않습니다.
+
 ## 0.5.1 GitHub 릴리스
 
 - 대상: 서버 계약 1.0.0 고정, 집계 통계 전환과 끄기·삭제 처리 보강, 로그인 복구 E2E 동기화.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 - 2026-11-04
+
+- Ship the side panel refresh that the 0.5.1 release assets did not include:
+  five bottom tabs, translucent cards, and assignment status icons; the LMS link
+  moves into settings.
+- Document multi-university integration boundaries and the Ewha discovery checklist.
+- Update the privacy-policy version.
+
 ## 0.5.1 - 2026-11-03
 
 - Replace installation-level analytics with bounded aggregate usage reports and

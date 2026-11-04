@@ -58,32 +58,15 @@ export function Rail({
             </button>
           ),
         )}
-      </nav>
-      <div className="rail-footer">
-        <a
-          href="https://mylms.korea.ac.kr/"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="LMS 열기 (새 탭)"
-        >
-          <Icon name="external" />
-          <span>LMS 열기</span>
-        </a>
         <button
           className="btn-ghost"
-          onClick={onInfo}
           aria-current={info ? "page" : undefined}
+          onClick={onInfo}
         >
-          설정
+          <Icon name="settings" />
+          <span>설정</span>
         </button>
-        <a
-          href="privacy.html"
-          target="_blank"
-          rel="noreferrer"
-        >
-          개인정보
-        </a>
-      </div>
+      </nav>
     </header>
   );
 }
