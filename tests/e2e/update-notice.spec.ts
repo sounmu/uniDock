@@ -56,8 +56,15 @@ test("renders bundled update notes from the information screen and closes the no
     }
     expect(errors).toEqual([]);
     const closed = notice.waitForEvent("close");
-    await notice.getByRole("button", { name: "확인 · 창 닫기" }).click();
-    await closed;
+    // window.close() can tear the page down before Playwright finishes the
+    // click handshake; that rejection is expected only once the page closed.
+    const click = notice
+      .getByRole("button", { name: "확인 · 창 닫기" })
+      .click()
+      .catch((error: unknown) => {
+        if (!notice.isClosed()) throw error;
+      });
+    await Promise.all([closed, click]);
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });
