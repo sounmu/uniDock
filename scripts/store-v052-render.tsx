@@ -288,7 +288,9 @@ const copy = [
   ],
 ];
 for (const [i, scene] of scenes.entries()) {
-  const [num, label, title, desc, tag1, tag2] = copy[i];
+  const row = copy[i];
+  if (!row) throw new Error(`missing copy for scene ${i}`);
+  const [num, label, title, desc, tag1, tag2] = row;
   const panel = renderToStaticMarkup(
     <>
       <Rail
