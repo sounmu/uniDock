@@ -1,0 +1,1128 @@
+<!doctype html><html lang="ko"><meta charset="utf-8"><style>/* uniDock side panel: TickTick-style glass UI on a neutral gray page.
+   Every color, radius and spacing value comes from the token blocks below;
+   component rules never carry raw values. Cards are translucent without blur;
+   backdrop-filter is reserved for the floating tab bar and sticky toolbars. */
+:root {
+  --font:
+    system-ui, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  --fs-tab: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-meta: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --lh-tight: 1.35;
+  --lh-body: 1.55;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-full: 999px;
+  --ink: #1c1b1f;
+  --muted: #5c5c62;
+  --faint: #a3a3a9;
+  --line: rgba(0, 0, 0, 0.09);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --line-input: #86868c;
+  --page: #f1f1f3;
+  --surface: #fff;
+  --raised: #fff;
+  --neutral-wash: rgba(0, 0, 0, 0.05);
+  --brand: #872038;
+  --on-brand: #fff;
+  --brand-wash: #f4eaec;
+  --brand-shadow: 0 6px 16px rgba(135, 32, 56, 0.25);
+  --success: #2e6b3c;
+  --success-wash: #e7f0e9;
+  --danger-line: #dcb7bf;
+  --danger: #b42318;
+  --check: #3a3a3f;
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-brd: rgba(255, 255, 255, 0.9);
+  --glass-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 #fff;
+  --seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --blur: blur(18px) saturate(160%);
+  --control-h: 32px;
+  --control-h-lg: 36px;
+  --row-h: 48px;
+  --row-pad-y: 10px;
+  --icon-size: 20px;
+  --tabbar-h: 54px;
+  --tabbar-gap: 12px;
+  --tabbar-space: calc(
+    var(--tabbar-h) + var(--tabbar-gap) + var(--space-5) +
+      env(safe-area-inset-bottom, 0px)
+  );
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --motion-fast: 150ms;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--page);
+  font-synthesis: none;
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  color-scheme: light dark;
+  scroll-padding-bottom: var(--tabbar-space);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2f2f4;
+    --muted: #a9a9b0;
+    --faint: #7c7c84;
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.18);
+    --line-input: #8d8d94;
+    --page: #161618;
+    --surface: #222225;
+    --raised: rgba(255, 255, 255, 0.11);
+    --neutral-wash: rgba(255, 255, 255, 0.08);
+    --brand: #f0a6b6;
+    --on-brand: #4a1220;
+    --brand-wash: #3b2329;
+    --brand-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+    --success: #93d3a2;
+    --success-wash: #1f3327;
+    --danger-line: #6b3a40;
+    --danger: #ff9a8f;
+    --check: #d9d9de;
+    --glass: rgba(255, 255, 255, 0.07);
+    --glass-strong: rgba(255, 255, 255, 0.11);
+    --glass-brd: rgba(255, 255, 255, 0.14);
+    --glass-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --seg-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--page);
+}
+#root {
+  min-height: 100vh;
+}
+[hidden] {
+  display: none !important;
+}
+/* The floating tab bar covers the bottom of the document; main and the
+   root scroll-padding reserve the same space so nothing hides under it. */
+main {
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--tabbar-space);
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+a,
+summary,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+}
+button:disabled,
+button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+a {
+  color: var(--brand);
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: var(--focus-width) solid var(--brand);
+  outline-offset: var(--focus-offset);
+}
+h1,
+h2,
+h3,
+p {
+  overflow-wrap: anywhere;
+}
+h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+}
+h2 {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  margin: var(--space-4) 0;
+}
+h3 {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  margin: var(--space-4) var(--space-1) var(--space-2);
+}
+p {
+  font-size: var(--fs-sm);
+  margin: var(--space-2) 0;
+}
+/* Surfaces: a glass card is translucent white over the page, with a 1px white
+   highlight border and a soft shadow. Rows, notices, grouped settings and the
+   skeleton share it; nested rows inside a card keep 1px line separators. */
+.glass-card,
+.list-row,
+.selectable-row,
+.action-row,
+.skeleton-row,
+.notice,
+.guidance,
+.view-settings,
+.settings-card,
+.about-app,
+.playback-current,
+.playback-queue > li,
+.playback-selection > li,
+.detail-view dl {
+  background: var(--glass);
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow);
+}
+.btn-primary,
+.btn-secondary,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: var(--space-1) var(--space-3);
+  min-height: var(--control-h);
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.btn-primary {
+  background: var(--brand);
+  color: var(--on-brand);
+  min-height: var(--control-h-lg);
+  box-shadow: var(--brand-shadow);
+}
+.btn-secondary {
+  background: var(--glass-strong);
+  border-color: var(--glass-brd);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+}
+.btn-secondary:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--raised);
+}
+.btn-ghost:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--brand-wash);
+}
+.list-row:hover:not(:disabled),
+.selectable-row:hover,
+.action-row:hover {
+  background: var(--glass-strong);
+}
+.btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
+  opacity: 0.9;
+}
+.playback-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+.playback-choice input {
+  margin-top: 2px;
+}
+.playback-choice > span:last-child {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.playback-choice small,
+.field small {
+  color: var(--muted);
+}
+.playback-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-full);
+  background: var(--brand-wash);
+  color: var(--brand);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.playback-choice input:not(:checked) + .playback-order {
+  background: var(--neutral-wash);
+  color: transparent;
+}
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 68%;
+}
+.header-actions .btn-primary,
+.header-actions .btn-secondary {
+  min-height: var(--control-h-lg);
+  white-space: nowrap;
+}
+.playback-selection,
+.playback-queue {
+  list-style: none;
+  margin: var(--space-3) 0;
+  padding: 0;
+}
+.playback-selection > li {
+  padding: 0 var(--space-3);
+}
+.playback-selection > li > p {
+  margin-top: 0;
+  color: var(--muted);
+}
+.playback-queue > li,
+.playback-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-h);
+  padding: var(--row-pad-y) var(--space-3);
+}
+.playback-queue > li > div,
+.playback-current > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.playback-queue strong,
+.playback-current strong {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+}
+.playback-queue small,
+.playback-current small {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+/* Floating bottom tab bar: a glass capsule with five equal columns. Only this
+   bar and sticky toolbars blur what scrolls beneath them. */
+.rail {
+  position: fixed;
+  left: var(--tabbar-gap);
+  right: var(--tabbar-gap);
+  bottom: calc(var(--tabbar-gap) + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  padding: var(--space-1);
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--r-full);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--glass-shadow);
+}
+.rail nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+}
+.rail nav button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-1) 0;
+  border-radius: var(--r-full);
+  color: var(--muted);
+  font-size: var(--fs-tab);
+  font-weight: 600;
+  line-height: 1.2;
+  word-break: keep-all;
+  white-space: nowrap;
+}
+.rail nav button > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail nav button[aria-current="page"] {
+  color: var(--brand);
+  background: var(--brand-wash);
+}
+.rail-pending {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.rail-pending > button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.rail-pending > button[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.rail-tooltip {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 50%;
+  z-index: 10;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 12rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-sm);
+  color: var(--surface);
+  background: var(--ink);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  word-break: keep-all;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.rail-pending:hover > .rail-tooltip,
+.rail-pending > button:focus-visible + .rail-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-tooltip {
+    transition: none;
+  }
+}
+.icon {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  flex: 0 0 auto;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.toolbar > h1 {
+  min-width: 0;
+}
+.toolbar > button {
+  flex: 0 0 auto;
+  max-width: 62%;
+  word-break: keep-all;
+}
+.screen-header {
+  margin-bottom: var(--space-3);
+}
+.playback-panel > div > .screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-inline: calc(-1 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--page) 82%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+main:has(.detail-view) .screen-header,
+main:has(.detail-view) .guidance,
+main:has(.detail-view) > div > .view-settings {
+  display: none;
+}
+/* Segmented controls: a glass capsule whose pressed item is a raised capsule
+   (white in light, stronger glass in dark), 3px inside the container. */
+.subviews {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--r-full);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+}
+.subviews button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-full);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subviews [aria-pressed="true"],
+.subviews [aria-pressed="true"]:hover {
+  color: var(--ink);
+  background: var(--raised);
+  box-shadow: var(--seg-shadow);
+}
+.kind-filter {
+  margin-bottom: var(--space-3);
+}
+.kind-filter .kind-count {
+  margin-left: var(--space-1);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.kind-filter [aria-pressed="true"] .kind-count {
+  color: inherit;
+}
+.course-context h2 {
+  margin-top: var(--space-2);
+}
+.hint,
+.count {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.count {
+  margin: var(--space-3) var(--space-1) var(--space-2);
+}
+.guidance,
+.view-settings {
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-sm);
+}
+summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  color: var(--muted);
+  cursor: pointer;
+  min-height: var(--control-h);
+  padding: var(--space-1) 0;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-inline: 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+details[open] > summary::before {
+  transform: rotate(45deg);
+}
+/* Guidance is a single glass line (radius md); view settings is a card. */
+.guidance {
+  border-radius: var(--r-md);
+}
+.guidance > summary {
+  padding: var(--space-2) var(--space-3);
+  font-weight: 600;
+}
+.guidance > .hint {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+}
+.view-settings > summary {
+  padding: var(--space-2) var(--space-3);
+  color: var(--ink);
+  font-weight: 600;
+}
+.view-settings[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.view-settings-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.view-settings > .view-settings-body > *,
+.view-settings-body .field {
+  margin: 0;
+}
+/* Lists: each row is its own card; rows are separated by space, not lines. */
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+li {
+  min-width: 0;
+}
+li + li {
+  margin-top: var(--space-2);
+}
+.list-row {
+  width: 100%;
+  min-height: var(--row-h);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  color: var(--ink);
+  text-align: left;
+  padding: var(--row-pad-y) var(--space-3);
+}
+.list-row strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+}
+/* Read-only status rows lead with a round status icon beside title and meta.
+   The icon only reinforces the chip text, so it stays decorative and muted. */
+.list-row.has-status {
+  display: grid;
+  grid-template-columns: var(--icon-size) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  align-items: center;
+}
+.row-status {
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--muted);
+}
+.row-status[data-status="done"] {
+  color: var(--faint);
+}
+.row-status[data-status="done"] + strong {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.list-row.has-status > strong,
+.list-row.has-status > .row-meta {
+  grid-column: 2;
+}
+.row-meta {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.row-course {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.status-chip {
+  flex: 0 1 auto;
+  max-width: 65%;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  padding: 2px var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--neutral-wash);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.status-chip.urgent {
+  background: var(--brand-wash);
+  color: var(--brand);
+}
+.status-chip.done {
+  background: var(--success-wash);
+  color: var(--success);
+}
+.overdue-group {
+  margin-top: var(--space-4);
+}
+.overdue-group > summary {
+  padding: var(--space-2) var(--space-1);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.overdue-count {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  padding: 2px var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--neutral-wash);
+  color: var(--muted);
+}
+.overdue-group > .hint {
+  margin: 0 var(--space-1) var(--space-2);
+}
+.detail-view {
+  min-width: 0;
+}
+.detail-view h2:focus {
+  outline: none;
+}
+.detail-view > .btn-primary {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+dl {
+  margin: var(--space-4) 0;
+}
+dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--space-3);
+  padding: var(--row-pad-y) var(--space-3);
+}
+dl > div + div {
+  border-top: 1px solid var(--line);
+}
+dt {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+dd {
+  margin: 0;
+  font-size: var(--fs-meta);
+  overflow-wrap: anywhere;
+}
+.tools,
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.pagination {
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.notice {
+  padding: var(--space-3);
+  font-size: var(--fs-sm);
+  margin: var(--space-3) 0;
+  overflow-wrap: anywhere;
+}
+.notice.error {
+  border-color: var(--danger-line);
+}
+.notice > :first-child {
+  margin-top: 0;
+}
+.notice > :last-child {
+  margin-bottom: 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--fs-sm);
+  margin: var(--space-2) 0;
+}
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line-input);
+  border-radius: var(--r-md);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.date-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: var(--space-2);
+}
+.remaining-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  font-size: var(--fs-sm);
+  margin: var(--space-3) var(--space-1);
+}
+/* Square checkboxes mark real selection; they stay native and neutral so a
+   checked box is never confused with a round status icon or a brand state. */
+input[type="checkbox"] {
+  accent-color: var(--check);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: var(--r-xs);
+}
+.check-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  min-width: 40px;
+  padding-left: var(--space-1);
+  cursor: pointer;
+}
+.skeleton-row {
+  display: grid;
+  align-content: center;
+  gap: var(--space-2);
+  min-height: var(--row-h);
+  padding: var(--row-pad-y) var(--space-3);
+}
+.skeleton-row span {
+  display: block;
+  height: 10px;
+  border-radius: var(--r-full);
+  background: var(--line);
+}
+.skeleton-row span:last-child {
+  width: 40%;
+}
+.skeleton-row span:first-child {
+  width: 75%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton-row span {
+    animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
+  }
+}
+@keyframes skeleton-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.6;
+  }
+}
+/* Composite rows: the container is the card; the inner row button is flat and
+   keeps the card's outer radius on its open side (inner = outer - 0 gap). */
+.selectable-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.selectable-row .list-row,
+.action-row .list-row {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.selectable-row .list-row:hover:not(:disabled),
+.action-row .list-row:hover:not(:disabled) {
+  background: transparent;
+}
+.selectable-row .list-row {
+  border-radius: 0 var(--r-lg) var(--r-lg) 0;
+}
+.selectable-row .list-row:focus-visible,
+.action-row .list-row:focus-visible {
+  outline-offset: calc(-1 * var(--focus-width));
+}
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-right: var(--space-2);
+}
+.action-row .list-row {
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+  padding-right: 0;
+}
+.row-action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.row-action .icon {
+  width: 16px;
+  height: 16px;
+}
+.row-action:hover:not(:disabled) {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+.row-action:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  opacity: 1;
+}
+.row-action.opened {
+  background: var(--success-wash);
+  border-color: transparent;
+  color: var(--success);
+}
+.module-heading {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  margin: var(--space-3) var(--space-1) var(--space-2);
+}
+.download-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  margin: var(--space-3) 0;
+}
+progress {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--brand);
+}
+/* Information screen: grouped settings rows inside glass cards. */
+.about-app {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-3);
+}
+.about-app img {
+  flex: 0 0 auto;
+  border-radius: var(--r-md);
+}
+.about-app p {
+  margin: 0;
+}
+.about-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.about-meta {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.settings-group {
+  margin: 0 0 var(--space-5);
+}
+.settings-card + .settings-group {
+  margin-top: var(--space-4);
+}
+.settings-label {
+  margin: 0 0 var(--space-2);
+  padding-inline: var(--space-1);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.settings-card {
+  overflow: hidden;
+}
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  min-height: var(--row-h);
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--fs-sm);
+}
+.settings-row + .settings-row {
+  border-top: 1px solid var(--line);
+}
+.row-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.row-text p {
+  margin: 0;
+}
+.row-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink);
+}
+.row-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+}
+.row-text .row-sub {
+  margin-top: 2px;
+}
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.row-error {
+  color: var(--danger);
+}
+/* Captions without a provided track continue into AI generation in one card. */
+.ai-offer {
+  margin: var(--space-3) 0;
+}
+.ai-offer h3 {
+  margin: 0;
+}
+.ai-offer .settings-row {
+  border-top: 1px solid var(--line);
+}
+.ai-offer > .settings-row:first-child {
+  border-top: 0;
+}
+.settings-row.row-actions {
+  justify-content: flex-start;
+}
+.confirm-list {
+  list-style: disc;
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+}
+.confirm-list li + li {
+  margin-top: 2px;
+}
+.switch {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+}
+.switch-track {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 40px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--r-full);
+  background: var(--surface);
+}
+.switch-knob {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  background: var(--line-input);
+}
+.switch[aria-checked="true"] .switch-track {
+  justify-content: flex-end;
+  border-color: var(--brand);
+  background: var(--brand);
+}
+.switch[aria-checked="true"] .switch-knob {
+  background: var(--on-brand);
+  color: var(--brand);
+}
+.switch-check {
+  width: 12px;
+  height: 12px;
+}
+.settings-link {
+  color: inherit;
+  text-decoration: none;
+  flex-wrap: nowrap;
+}
+.settings-link .icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.settings-link:hover {
+  background: var(--brand-wash);
+}
+.settings-link:focus-visible {
+  outline-offset: calc(-1 * var(--focus-width));
+}
+.settings-more {
+  display: block;
+  min-height: 0;
+  padding-block: var(--space-1);
+}
+.settings-more[open] {
+  padding-bottom: var(--space-3);
+}
+.settings-more p {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.settings-more code {
+  overflow-wrap: anywhere;
+}
+.btn-danger {
+  color: var(--danger);
+}
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  a {
+    transition: opacity var(--motion-fast);
+  }
+}
+html,body{margin:0;width:100%;min-height:100%;}body{overflow:hidden}</style><header class="rail"><nav aria-label="주 메뉴"><button class="btn-ghost" aria-current="page"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4z M20 4h-4a3 3 0 0 0-3 3m0 14a4 4 0 0 1 4-2h3V4"></path></svg><span>내 과목</span></button><button class="btn-ghost"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 2 2 4-4 M12 6h9 M3 13h3m6 0h9 M3 20h3m6 0h9"></path></svg><span>할 일·일정</span></button><div class="rail-pending"><button class="btn-ghost" aria-disabled="true" aria-describedby="rail-pending-playback"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 10 6-10 6z M4 5v14"></path></svg><span>자동 재생</span></button><span id="rail-pending-playback" role="tooltip" class="rail-tooltip">현재 검토 중인 기능입니다.</span></div><button class="btn-ghost"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v14H9l-5 3z M7 8h10 M7 12h7"></path></svg><span>자막 추출</span></button><button class="btn-ghost"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M12 3v2.5 M12 18.5V21 M3 12h2.5 M18.5 12H21 M5.6 5.6l1.8 1.8 M16.6 16.6l1.8 1.8 M5.6 18.4l1.8-1.8 M16.6 7.4l1.8-1.8"></path></svg><span>설정</span></button></nav></header><main><section class="course-context"><button class="btn-ghost">← 과목 선택</button><h2 tabindex="-1">자료구조</h2><nav class="subviews" aria-label="과목 메뉴"><button class="btn-ghost" aria-pressed="true">과제</button><button class="btn-ghost" aria-pressed="false">녹화 강의</button><button class="btn-ghost" aria-pressed="false">강의 자료</button></nav></section><header class="screen-header"><div class="toolbar"><h1>과제</h1><button class="btn-primary">새로고침</button></div></header><details class="guidance"><summary>표시 기준</summary><p class="hint">기본으로 미제출·잠금 해제·마감 전인 과제만 표시합니다. 실제 제출 가능 여부는 LMS에서 확인하세요.</p></details><section aria-live="polite" aria-busy="false"><div><details class="view-settings"><summary>보기 설정</summary><div class="view-settings-body"><label class="remaining-toggle"><input type="checkbox" checked=""/>남은 과제만</label><div class="date-fields"><label class="field">마감 기간<select><option value="all" selected="">전체 기간</option><option value="week">이번 주</option><option value="day">24시간 이내</option></select></label><label class="field">정렬<select><option value="original">LMS 순서</option><option value="due" selected="">마감 빠른 순</option></select></label></div><p class="hint">이번 주는 한국 시간 월요일부터 일요일까지입니다. 제출 상태는 마지막 조회 시점 기준입니다. 새로고침하면 갱신됩니다.</p></div></details><p class="count">조회 완료 · 5개 항목 중 4개 표시 · 한국 시간</p><ul><li><button class="list-row has-status"><span class="row-status" data-status="open"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4.2l2.6 1.6"></path></svg></span><strong>과제 4 · 해시 테이블 구현</strong><span class="row-meta"><span class="row-course">자료구조</span><span class="status-chip urgent">4시간 남음</span></span></button></li><li><button class="list-row has-status"><span class="row-status" data-status="open"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4.2l2.6 1.6"></path></svg></span><strong>실습 보고서 6</strong><span class="row-meta"><span class="row-course">자료구조</span><span class="status-chip">남은 과제</span></span></button></li><li><button class="list-row has-status"><span class="row-status" data-status="open"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4.2l2.6 1.6"></path></svg></span><strong>과제 5 · 그래프 탐색</strong><span class="row-meta"><span class="row-course">자료구조</span><span class="status-chip">남은 과제</span></span></button></li><li><button class="list-row has-status"><span class="row-status" data-status="open"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z M12 8v4.2l2.6 1.6"></path></svg></span><strong>기말 프로젝트 제안서</strong><span class="row-meta"><span class="row-course">자료구조</span><span class="status-chip">남은 과제</span></span></button></li></ul></div></section></main></html>
