@@ -281,6 +281,7 @@ LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합�
 - [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
 - [개인정보처리방침](public/privacy.html): 확장 내에서도 열 수 있으며 출시 전 공개 HTTPS 주소에 게시해야 합니다.
+- `npm run site:panels -- <출력 폴더>`: unidock.co.kr에 넣을 패널 샘플 HTML 4개(`tasks`·`recordings`·`materials`·`captions.html`)를 만듭니다. 할 일·녹화 강의·강의 자료는 실제 패널 구성요소와 `style.css`를 가상 데이터로 렌더링합니다(`scripts/site-panels-render.tsx`). 자막은 AI 자막 빌드의 실제 패널을 로컬 Chrome에서 실행하고, 서버 응답을 가상 데이터로 대신해 완료 화면을 저장합니다(`scripts/site-captions.mjs`). 오디오 업로드나 실제 변환은 하지 않으며, 확인용 스크린샷은 `output/site-captions/`에 남습니다. 사이트 저장소는 `npm run site:panels -- ../unidock.co.kr/public/panels`로 갱신합니다.
 - `store/assets/`: 실제 패널 구성요소(상단 메뉴, 과목·할 일 화면, 결과 목록)와 가상 데이터로 만든 샘플 이미지 3개(과제·녹화 강의·일정, 1280×800), 작은 홍보 이미지(440×280). `npm run store:assets`로 아이콘까지 재생성하며(`scripts/store-assets.mjs`만 실행하면 샘플·홍보 이미지만) 로컬 Chrome이 필요합니다. 일정·마감 날짜는 생성 시각 기준으로 정해집니다. 앱 아이콘과 홍보 이미지는 편집 가능한 `store/assets/logo-concepts/unidock-glass.svg`를 공통 원본으로 사용합니다. 작은 홍보 이미지는 아이보리 배경에 은은한 로즈빛을 더하고 중앙에 로고를 배치합니다.
 
 2026-09-11 배포 후보 검증: 전체 검사 통과, Python 계약 2종 일치, npm audit 알려진 취약점 0개, ZIP 허용 파일 12개 확인. 실제 계정 로그인·Chrome 114 및 최신 Chrome 통합 검증은 미실시입니다. 배포자 이름·지원 연락처·공개 정책 URL과 심사용 접근 방법을 확정한 후 체크리스트를 완료해야 합니다.
