@@ -336,7 +336,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     // AI caption builds continue a missing caption into the AI caption card.
     await expect(
       aiCaptionsBuild()
-        ? panel.getByRole("region", { name: "제공된 자막이 없습니다" })
+        ? panel.getByRole("region", { name: "제공된 자막이 없어요" })
         : panel.getByRole("alert"),
     ).toBeVisible();
     await expect(

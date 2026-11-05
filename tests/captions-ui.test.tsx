@@ -8,7 +8,12 @@ const downloadCaption = vi.hoisted(() => vi.fn());
 vi.mock("../src/captions/service", () => ({ detectCaptions: detect }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
 vi.mock("../entrypoints/sidepanel/AiCaptionsSection", () => ({
-  AiCaptionsSection: () => "AI 자막 섹션",
+  AiCaptionsSection: ({ onSettings, restoreOnly }: { onSettings?: () => void; restoreOnly?: boolean }) => restoreOnly ? null : (
+    <section className="ai-offer">
+      AI 자막 섹션
+      {onSettings && <button onClick={onSettings}>AI 자막 설정</button>}
+    </section>
+  ),
 }));
 import { CaptionsPanel } from "../entrypoints/sidepanel/CaptionsPanel";
 import { App } from "../entrypoints/sidepanel/App";

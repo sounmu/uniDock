@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.3 - 2026-11-05
+
+- Redesign AI caption confirmation, progress, completion, and error cards with
+  larger text, clearer steps, separate TXT/JSON downloads, and full-text copying.
+- Display every caption line and restore locally cached captions in a dedicated
+  reading screen with compact export controls.
+- Bound the local AI transcript cache to 20 lectures and 4 MiB, honor server
+  expiration, and remove cached transcripts when clearing local data.
+- Update the privacy policy and bundled release notes for local caption storage.
+
 ## 0.5.2 - 2026-11-04
 
 - Ship the side panel refresh that the 0.5.1 release assets did not include:

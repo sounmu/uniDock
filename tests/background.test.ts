@@ -599,9 +599,74 @@ it("discards unsent statistics and the popup opt-in before the existing clear-da
   expect(order).toEqual([
     "erase:unidock.analytics.v2,unidock.analytics-counters.v1,unidock.analytics.v1",
     "erase:unidock.popup-auto-close.v1",
-    "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1",
+    "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1,unidock.caption-transcripts.v1",
     "playback",
   ]);
+});
+
+it("does not publish a new caption epoch until pending cache writes are erased", async () => {
+  const {
+    CAPTION_TRANSCRIPT_CACHE_KEY: cacheKey,
+    readCaptionCacheEpoch,
+    saveCachedTranscript,
+  } = await import("../src/captions/transcript-cache");
+  const f = commandBroadcastFixture();
+  f.command.mockResolvedValue({
+    status: "success",
+    snapshot: { courses: [], labels: {}, queue: [], status: "idle", current: null },
+  });
+  const local: Record<string, unknown> = {};
+  const session: Record<string, unknown> = {};
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let holdRead = true;
+  let cacheRemoved = false;
+  vi.mocked(chrome.storage.local.get).mockImplementation(async (name) => {
+    if (name === cacheKey && holdRead) {
+      holdRead = false;
+      started.resolve();
+      await release.promise;
+    }
+    return { ...local };
+  });
+  vi.mocked(chrome.storage.local.set).mockImplementation(async (patch) => {
+    Object.assign(local, patch);
+  });
+  vi.mocked(chrome.storage.local.remove).mockImplementation(async (names) => {
+    for (const name of typeof names === "string" ? [names] : names) {
+      delete local[name];
+      if (name === cacheKey) cacheRemoved = true;
+    }
+  });
+  vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({ ...session }));
+  vi.mocked(chrome.storage.session.set).mockImplementation(async (patch) => {
+    Object.assign(session, patch);
+  });
+  const epoch = await readCaptionCacheEpoch();
+  const value = {
+    items: [{ index: 0, time: "00:00", text: "삭제할 자막" }],
+    engine: "whisper", modelRevision: "r1",
+    extractedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+  };
+  const saving = saveCachedTranscript(`unidock-${"1".repeat(40)}`, value, epoch);
+  await started.promise;
+  const deleting = new Promise((resolve) => {
+    f.receive({ version: 1, type: "LOCAL_DATA_DELETE_ALL" }, f.panel, resolve);
+  });
+  await vi.waitFor(async () => {
+    const snapshot = await navigator.locks.query();
+    expect(snapshot.pending?.some((lock) => lock.name === "unidock-caption-cache")).toBe(true);
+  });
+  const capturing = readCaptionCacheEpoch().then((nextEpoch) => {
+    expect(cacheRemoved).toBe(true);
+    return nextEpoch;
+  });
+  const lateSave = saveCachedTranscript(`unidock-${"2".repeat(40)}`, value, epoch);
+  release.resolve();
+  const [, , nextEpoch] = await Promise.all([saving, deleting, capturing, lateSave]);
+  expect(nextEpoch).not.toBe(epoch);
+  expect(local[cacheKey]).toBeUndefined();
 });
 
 function popupFixture(

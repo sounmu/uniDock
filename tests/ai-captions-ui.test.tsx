@@ -16,6 +16,9 @@ const base: AiCaptionState = {
   errorCode: null,
   expiresAt: null,
   result: null,
+  title: null,
+  durationS: null,
+  restoredFromCache: false,
 };
 
 vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
@@ -25,7 +28,10 @@ vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
     cancel,
   }),
 }));
-vi.mock("../src/captions/download", () => ({ downloadCaption }));
+vi.mock("../src/captions/download", async (original) => ({
+  ...(await original<object>()),
+  downloadCaption,
+}));
 vi.mock("../entrypoints/sidepanel/useCaptionSession", () => ({
   useCaptionSession: () => session,
 }));
@@ -44,26 +50,42 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-async function render(onSettings?: () => void) {
+async function render(onSettings?: () => void, restoreOnly = false) {
   const { AiCaptionsSection } = await import(
     "../entrypoints/sidepanel/AiCaptionsSection"
   );
-  ui = await mount(<AiCaptionsSection onSettings={onSettings} />);
+  ui = await mount(<AiCaptionsSection onSettings={onSettings} restoreOnly={restoreOnly} />);
 }
+
+it("leaves no card or generation controls while looking for a cache without a result", async () => {
+  await render(undefined, true);
+  expect(ui.host.querySelector(".ai-offer")).toBeNull();
+  expect(ui.host.querySelector("button")).toBeNull();
+});
+
+it("shows an automatic restore failure with a retry action", async () => {
+  current = { ...base, phase: "failed", errorCode: "NETWORK" };
+  await render(undefined, true);
+  expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain("연결하지 못했습니다");
+  await click("다시 시도");
+  expect(ui.host.querySelector('[aria-label="AI 자막 생성 확인"]')).not.toBeNull();
+});
 
 it("confirms the server and audio before generating", async () => {
   await render();
-  await click("AI 자막 생성");
+  await click("AI 자막 만들기");
   expect(generate).not.toHaveBeenCalled();
   await click("음성 보내기");
   expect(generate).toHaveBeenCalledOnce();
 });
 
-it("shows only the expiry and offers download on success", async () => {
+it("previews the transcript and downloads each file on success", async () => {
   current = {
     ...base,
     phase: "succeeded",
-    expiresAt: "2027-04-24T03:05:00Z",
+    title: "3주차 강의",
+    durationS: 4320,
+    expiresAt: "2027-04-24T12:00:00Z",
     result: {
       engine: "whisper-large-v3-turbo",
       modelRevision: "r1",
@@ -80,13 +102,23 @@ it("shows only the expiry and offers download on success", async () => {
     },
   };
   await render();
-  expect(ui.host.textContent).toContain("서버 보관 만료일");
+  expect(ui.host.querySelector("h3")?.textContent).toBe("3주차 강의");
+  expect(ui.host.textContent).toContain("문장 2개 · 1시간 12분");
+  expect(ui.host.textContent).toContain("2027년 4월 24일까지 다시 받을 수 있어요");
   expect(ui.host.textContent).not.toContain("whisper-large-v3-turbo");
-  expect(ui.host.textContent).not.toContain("문장");
-  await click("AI 자막 TXT·JSON 다운로드");
-  expect(downloadCaption).toHaveBeenCalledWith(
+  expect(
+    [...ui.host.querySelectorAll(".ai-preview li")].map((li) => li.textContent),
+  ).toEqual(["00:00a", "00:05b"]);
+  await click("TXT 받기");
+  expect(downloadCaption).toHaveBeenLastCalledWith(
     expect.objectContaining({ itemCount: 2 }),
-    { variant: "ai" },
+    { variant: "ai", only: "txt" },
+  );
+  expect(ui.host.textContent).toContain("output/ 폴더로 TXT 다운로드를 시작했어요.");
+  await click("JSON 받기");
+  expect(downloadCaption).toHaveBeenLastCalledWith(
+    expect.objectContaining({ itemCount: 2 }),
+    { variant: "ai", only: "json" },
   );
 });
 
@@ -94,6 +126,31 @@ it("surfaces a failure message", async () => {
   current = { ...base, phase: "failed", errorCode: "LOGIN_REQUIRED" };
   await render();
   expect(ui.host.textContent).toContain("Google 계정으로 다시 로그인");
+});
+
+it.each([false, true])("renders every caption when restoredFromCache is %s", async (restoredFromCache) => {
+  const items = Array.from({ length: 350 }, (_, index) => ({
+    index, time: "00:00", text: `문장 ${index + 1}`,
+  }));
+  current = {
+    ...base, phase: "succeeded", restoredFromCache,
+    result: { engine: "whisper", modelRevision: "r1", transcript: {
+      sourceUrl: "https://kucom.korea.ac.kr/", pageTitle: "강의 자막",
+      extractedAt: "2026-11-05T00:00:00Z", itemCount: items.length, items,
+    } },
+  };
+  await render();
+  const list = ui.host.querySelector('[aria-label="전체 자막"]');
+  expect(list?.querySelectorAll("li")).toHaveLength(350);
+  expect(list?.lastElementChild?.textContent).toContain("문장 350");
+  expect(ui.host.querySelector(".ai-reader") !== null).toBe(restoredFromCache);
+  if (restoredFromCache) {
+    expect(ui.host.querySelector(".btn-primary")).toBeNull();
+    await click("TXT 받기");
+    expect(downloadCaption).toHaveBeenCalledWith(current.result?.transcript, {
+      variant: "ai", only: "txt",
+    });
+  }
 });
 
 it("explains a CDN refusal and a CDN network failure instead of a missing audio track", async () => {
@@ -114,7 +171,7 @@ it("asks for Google login instead of offering generation when signed out", async
   await render();
   expect(ui.host.textContent).toContain("Google 계정으로 로그인");
   expect([...ui.host.querySelectorAll("button")].map((b) => b.textContent)).not.toContain(
-    "AI 자막 생성",
+    "AI 자막 만들기",
   );
 });
 
@@ -137,5 +194,32 @@ it("shows the weekly quota, an offline worker and transcription progress", async
   await ui.unmount();
   current = { ...base, phase: "running", serverProgress: { stage: "transcribing", done: 600, total: 3938 } };
   await render();
-  expect(ui.host.textContent).toContain("10분 / 65분 처리");
+  expect(ui.host.textContent).toContain("10 / 65분");
+  expect(ui.host.querySelector(".ai-big")?.textContent).toBe("15%");
+  expect(
+    ui.host.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),
+  ).toBe("15");
+});
+
+it("marks finished steps and tells whether the panel may close", async () => {
+  current = { ...base, phase: "uploading", progress: 5 * 1024 * 1024 };
+  await render();
+  const steps = [...ui.host.querySelectorAll(".ai-steps li")];
+  expect(steps.map((li) => li.className)).toEqual(["done", "done", "now", "", ""]);
+  expect(steps[2]?.textContent).toContain("5.0MB");
+  expect(ui.host.textContent).toContain("패널을 열어 두세요");
+  await ui.unmount();
+  current = { ...base, phase: "queued" };
+  await render();
+  expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
+});
+
+it("offers settings instead of a retry when only settings can fix the failure", async () => {
+  const onSettings = vi.fn();
+  current = { ...base, phase: "failed", errorCode: "ACCOUNT_NOT_ALLOWED" };
+  await render(onSettings);
+  const labels = [...ui.host.querySelectorAll("button")].map((b) => b.textContent);
+  expect(labels).not.toContain("다시 시도");
+  await click("AI 자막 설정");
+  expect(onSettings).toHaveBeenCalledOnce();
 });

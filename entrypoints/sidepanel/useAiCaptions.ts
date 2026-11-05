@@ -26,6 +26,14 @@ import { projectServerSegments, type Transcript } from "../../src/captions/trans
 import { safeLog } from "../../src/security/logger";
 import type { ErrorCode } from "../../src/analytics/report";
 import { startOperation, type OperationHandle } from "./analytics";
+import { CAPTION_SESSION_EPOCH_KEY } from "../../src/caption-server-settings";
+import {
+  CAPTION_TRANSCRIPT_CACHE_KEY,
+  hasCachedTranscripts,
+  loadCachedTranscript,
+  readCaptionCacheEpoch,
+  saveCachedTranscript,
+} from "../../src/captions/transcript-cache";
 
 export interface AiCaptionResult {
   transcript: Transcript;
@@ -42,6 +50,10 @@ export interface AiCaptionState {
   errorCode: string | null;
   expiresAt: string | null;
   result: AiCaptionResult | null;
+  /** Player tab title and media length, shown in the panel only. */
+  title: string | null;
+  durationS: number | null;
+  restoredFromCache: boolean;
 }
 
 const IDLE: AiCaptionState = {
@@ -52,12 +64,16 @@ const IDLE: AiCaptionState = {
   errorCode: null,
   expiresAt: null,
   result: null,
+  title: null,
+  durationS: null,
+  restoredFromCache: false,
 };
 const POLL_QUEUED_MS = 10_000;
 const POLL_RUNNING_MS = 5_000;
 const POLL_VISIBLE_MS = 2_000;
 
 interface Run {
+  epoch: string | null;
   signal: AbortSignal;
   live: () => boolean;
   set: (patch: Partial<AiCaptionState>) => void;
@@ -139,7 +155,9 @@ export function useAiCaptions() {
       else op.failure(statisticsCode(patch.errorCode ?? "FAILED"));
     };
     try {
-      await body({ signal, live, set });
+      const epoch = await readCaptionCacheEpoch();
+      if (!live()) return;
+      await body({ signal, live, set, epoch });
     } catch (error) {
       if (!live()) return;
       const code = errorCode(error);
@@ -148,7 +166,16 @@ export function useAiCaptions() {
     }
   }, [stopLocal]);
 
-  const poll = useCallback(async (id: string, { signal, live, set }: Run) => {
+  const poll = useCallback(async (id: string, { signal, live, set, epoch }: Run, key: string) => {
+    const current = async () => {
+      const latest = await readCaptionCacheEpoch();
+      if (!live()) return false;
+      if (latest !== epoch) {
+        discard();
+        return false;
+      }
+      return true;
+    };
     while (live() && !signal.aborted) {
       const status = await getJob(id, signal);
       if (!live()) return;
@@ -166,9 +193,19 @@ export function useAiCaptions() {
       if (next === "succeeded") {
         if (!status.transcriptId)
           return set({ phase: "failed", errorCode: "RESPONSE" });
+        if (!(await current())) return;
         const server = await getTranscript(status.transcriptId, signal);
-        if (!live()) return;
+        if (!(await current())) return;
         const items = projectServerSegments(server.segments);
+        const extractedAt = new Date().toISOString();
+        await saveCachedTranscript(key, {
+          items,
+          engine: server.engine,
+          modelRevision: server.modelRevision,
+          expiresAt: server.expiresAt,
+          extractedAt,
+        }, epoch).catch(() => safeLog("REQUEST_FAILED"));
+        if (!(await current())) return;
         set({
           phase: "succeeded",
           expiresAt: server.expiresAt || null,
@@ -176,7 +213,7 @@ export function useAiCaptions() {
             transcript: {
               sourceUrl: "https://kucom.korea.ac.kr/",
               pageTitle: lectureTitle.current || "AI 자막",
-              extractedAt: new Date().toISOString(),
+              extractedAt,
               itemCount: items.length,
               items,
             },
@@ -213,13 +250,17 @@ export function useAiCaptions() {
         if (signal.aborted) finish();
       });
     }
-  }, []);
+  }, [discard]);
 
   useEffect(() => {
     mounted.current = true;
+    const changedSources = new Set<number>();
+    let restoring = true;
     // Only navigation or closing of the source player invalidates this run.
     // Selecting another tab must not cancel extraction, upload or polling.
     const changed = (tabId: number, change: { status?: string; url?: string }) => {
+      if (restoring && (change.status === "loading" || change.url !== undefined))
+        changedSources.add(tabId);
       if (
         tabId === jobTab.current?.tabId &&
         (change.status === "loading" || change.url !== undefined)
@@ -227,10 +268,24 @@ export function useAiCaptions() {
         discard();
     };
     const removed = (tabId: number) => {
+      if (restoring) changedSources.add(tabId);
       if (tabId === jobTab.current?.tabId) discard();
     };
     chrome.tabs.onUpdated.addListener(changed);
     chrome.tabs.onRemoved.addListener(removed);
+    const storageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      const cache = changes[CAPTION_TRANSCRIPT_CACHE_KEY];
+      const epoch = changes[CAPTION_SESSION_EPOCH_KEY];
+      if (
+        (area === "local" && cache?.oldValue !== undefined && cache.newValue === undefined) ||
+        (area === "session" && epoch && epoch.oldValue !== epoch.newValue)
+      )
+        discard();
+    };
+    chrome.storage.onChanged.addListener(storageChanged);
     // A job the server already accepted survives a closed panel; show it again.
     // A Generate or cancel that starts while storage is read bumps the
     // generation; the late restore must not replace it.
@@ -240,31 +295,79 @@ export function useAiCaptions() {
       jobId.current !== null ||
       generation.current !== restoreGeneration;
     void (async () => {
-      const saved = await loadActiveJob();
-      if (!saved || stale()) return;
+      const restoreEpoch = await readCaptionCacheEpoch();
+      if (stale()) return;
+      const [saved, cached] = await Promise.all([
+        loadActiveJob(),
+        hasCachedTranscripts().catch(() => false),
+      ]);
+      if ((!saved && !cached) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
+      let durationS: number;
+      let source: { tabId: number; windowId: number };
       try {
         const media = await identifyMedia();
+        if (stale() || changedSources.has(media.tabId)) return;
         title = media.title;
+        durationS = media.durationS;
+        source = { tabId: media.tabId, windowId: media.windowId };
+        jobTab.current = source;
         key = await captionJobKey(media.contentId);
       } catch {
         return;
       }
-      if (key !== saved.key || stale()) return;
+      if (stale()) return;
+      const transcript = await loadCachedTranscript(key).catch(() => null);
+      if (stale()) return;
       lectureTitle.current = title;
+      if (transcript) {
+        jobTab.current = source;
+        void run(async ({ set, epoch }) => {
+          if (epoch !== restoreEpoch) return discard();
+          set({
+            phase: "succeeded",
+            title: title || null,
+            durationS: durationS || null,
+            restoredFromCache: true,
+            expiresAt: transcript.expiresAt,
+            result: {
+              engine: transcript.engine,
+              modelRevision: transcript.modelRevision,
+              transcript: {
+                sourceUrl: "https://kucom.korea.ac.kr/",
+                pageTitle: title || "AI 자막",
+                extractedAt: transcript.extractedAt,
+                itemCount: transcript.items.length,
+                items: transcript.items,
+              },
+            },
+          });
+        });
+        return;
+      }
+      if (!saved || key !== saved.key) return;
       const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
-        ctx.set({ phase: "queued" });
-        await poll(id, ctx);
+        if (ctx.epoch !== restoreEpoch) return discard();
+        ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
+        await poll(id, ctx, key);
       });
-    })();
+    })().catch((error: unknown) => {
+      if (stale()) return;
+      phase.current = "failed";
+      setState({ ...IDLE, phase: "failed", errorCode: errorCode(error) });
+    }).finally(() => {
+      restoring = false;
+      changedSources.clear();
+    });
     return () => {
       mounted.current = false;
       chrome.tabs.onUpdated.removeListener(changed);
       chrome.tabs.onRemoved.removeListener(removed);
+      chrome.storage.onChanged.removeListener(storageChanged);
       // Closing the panel stops local capture only; accepted jobs keep running.
       stopLocal();
     };
@@ -282,6 +385,7 @@ export function useAiCaptions() {
       if (!live()) return;
       jobTab.current = { tabId: media.tabId, windowId: media.windowId };
       lectureTitle.current = media.title;
+      set({ title: media.title || null, durationS: media.durationS || null });
       const key = await captionJobKey(media.contentId);
       // The per-lecture key returns this user's existing job for the lecture,
       // so a repeat request skips extraction and upload entirely.
@@ -335,7 +439,7 @@ export function useAiCaptions() {
       if (!live()) return;
       await saveActiveJob({ jobId: id, key });
       set({ phase: "queued" });
-      await poll(id, ctx);
+      await poll(id, ctx, key);
     });
   }, [discard, poll, run]);
 

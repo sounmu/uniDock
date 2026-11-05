@@ -45,6 +45,7 @@ import {
   syncPopupAutoClose,
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
+import { withCaptionCacheLock } from "../src/captions/transcript-cache";
 import { CAPTION_SESSION_KEY, revokeAndClear } from "../src/caption-server-settings";
 import {
   CAPTION_ACTIVE_JOB_KEY,
@@ -593,11 +594,13 @@ export default defineBackground(() => {
                 CAPTION_SESSION_KEY,
                 CAPTION_INSTALL_SALT_KEY,
                 CAPTION_ACTIVE_JOB_KEY,
+                "unidock.caption-transcripts.v1",
               ]);
           };
           // The caption session is revoked and erased under its lock, so a
           // sign-in or refresh answered later cannot store tokens again.
-          if (__UNIDOCK_AI_CAPTIONS__) await revokeAndClear(erase);
+          if (__UNIDOCK_AI_CAPTIONS__)
+            await withCaptionCacheLock(() => revokeAndClear(erase));
           else await erase();
           if (!playback) {
             await returnPopupGrant();

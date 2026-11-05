@@ -16,6 +16,17 @@ const getWorkerStatus = vi.hoisted(() => vi.fn());
 const loadActiveJob = vi.hoisted(() => vi.fn());
 const saveActiveJob = vi.hoisted(() => vi.fn());
 const clearActiveJob = vi.hoisted(() => vi.fn());
+const hasCachedTranscripts = vi.hoisted(() => vi.fn());
+const loadCachedTranscript = vi.hoisted(() => vi.fn());
+const saveCachedTranscript = vi.hoisted(() => vi.fn());
+const readCaptionCacheEpoch = vi.hoisted(() => vi.fn());
+vi.mock("../src/captions/transcript-cache", () => ({
+  CAPTION_TRANSCRIPT_CACHE_KEY: "unidock.caption-transcripts.v1",
+  hasCachedTranscripts,
+  loadCachedTranscript,
+  saveCachedTranscript,
+  readCaptionCacheEpoch,
+}));
 
 vi.mock("../src/captions/media-source", async (orig) => ({
   ...(await orig<object>()),
@@ -82,6 +93,7 @@ const transcript = {
 
 type Listener = (...args: unknown[]) => void;
 let tabEvents: Record<"activated" | "updated" | "removed", Listener[]>;
+let storageListeners: Listener[];
 function event(name: keyof typeof tabEvents) {
   return {
     addListener: (fn: Listener) => tabEvents[name].push(fn),
@@ -95,7 +107,14 @@ async function fire(name: keyof typeof tabEvents, ...args: unknown[]) {
 
 beforeEach(() => {
   tabEvents = { activated: [], updated: [], removed: [] };
+  storageListeners = [];
   vi.stubGlobal("chrome", {
+    storage: { onChanged: {
+      addListener: (fn: Listener) => storageListeners.push(fn),
+      removeListener: (fn: Listener) => {
+        storageListeners = storageListeners.filter((listener) => listener !== fn);
+      },
+    } },
     tabs: {
       onActivated: event("activated"),
       onUpdated: event("updated"),
@@ -121,6 +140,10 @@ beforeEach(() => {
   loadActiveJob.mockResolvedValue(null);
   saveActiveJob.mockResolvedValue(undefined);
   clearActiveJob.mockResolvedValue(undefined);
+  hasCachedTranscripts.mockResolvedValue(false);
+  loadCachedTranscript.mockResolvedValue(null);
+  saveCachedTranscript.mockResolvedValue(undefined);
+  readCaptionCacheEpoch.mockResolvedValue(null);
 });
 afterEach(async () => {
   await ui?.unmount();
@@ -306,6 +329,88 @@ it("re-queries a saved accepted job when the panel opens again", async () => {
   expect(createJob).not.toHaveBeenCalled();
 });
 
+it("opens cached captions without creating a job or contacting the caption server", async () => {
+  hasCachedTranscripts.mockResolvedValue(true);
+  loadCachedTranscript.mockResolvedValue({
+    items: [{ index: 0, time: "00:00", text: "저장된 문장" }],
+    engine: "whisper", modelRevision: "r1",
+    expiresAt: "2027-01-01T00:00:00Z", extractedAt: "2026-11-01T00:00:00Z",
+  });
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(hook.state.phase).toBe("succeeded"));
+  });
+  expect(hook.state.restoredFromCache).toBe(true);
+  expect(hook.state.result?.transcript.items[0]?.text).toBe("저장된 문장");
+  expect(createJob).not.toHaveBeenCalled();
+  expect(getJob).not.toHaveBeenCalled();
+  expect(getTranscript).not.toHaveBeenCalled();
+  expect(requestCaptionMediaAccess).not.toHaveBeenCalled();
+  await act(async () => storageListeners.forEach((fn) =>
+    fn({ "unidock.caption-transcripts.v1": { oldValue: {} } }, "local")));
+  expect(hook.state.phase).toBe("idle");
+});
+
+it("does not replace a newer action with a late cache read", async () => {
+  hasCachedTranscripts.mockResolvedValue(true);
+  const cached = {
+    items: [{ index: 0, time: "00:00", text: "늦게 도착한 자막" }],
+    engine: "whisper", modelRevision: "r1",
+    expiresAt: "2027-01-01T00:00:00Z", extractedAt: "2026-11-01T00:00:00Z",
+  };
+  const pending = Promise.withResolvers<typeof cached>();
+  loadCachedTranscript.mockReturnValue(pending.promise);
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(loadCachedTranscript).toHaveBeenCalled());
+    hook.cancel();
+    pending.resolve(cached);
+  });
+  expect(hook.state.phase).toBe("idle");
+  expect(getJob).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("discards the first transcript after deletion (storage event: %s)", async (deliverEvent) => {
+  const response = Promise.withResolvers<typeof transcript>();
+  getJob.mockResolvedValueOnce(succeeded);
+  getTranscript.mockReturnValueOnce(response.promise);
+  ui = await mount(<Probe />);
+  await act(async () => {
+    void hook.generate();
+    await vi.waitFor(() => expect(getTranscript).toHaveBeenCalled());
+  });
+  readCaptionCacheEpoch.mockResolvedValue("after-deletion");
+  await act(async () => {
+    if (deliverEvent) storageListeners.forEach((fn) =>
+      fn({ "unidock.caption-session-epoch.v1": { newValue: "after-deletion" } }, "session"));
+    response.resolve(transcript);
+  });
+  expect(hook.state.phase).toBe("idle");
+  expect(hook.state.result).toBeNull();
+  expect(saveCachedTranscript).not.toHaveBeenCalled();
+});
+
+it.each(["navigation", "reload", "close"])("discards a pending cached transcript on source %s", async (change) => {
+  const cached = {
+    items: [{ index: 0, time: "00:00", text: "이전 강의 자막" }],
+    engine: "whisper", modelRevision: "r1",
+    expiresAt: "2027-01-01T00:00:00Z", extractedAt: "2026-11-01T00:00:00Z",
+  };
+  const pending = Promise.withResolvers<typeof cached>();
+  hasCachedTranscripts.mockResolvedValue(true);
+  loadCachedTranscript.mockReturnValueOnce(pending.promise);
+  ui = await mount(<Probe />);
+  await act(async () => {
+    await vi.waitFor(() => expect(loadCachedTranscript).toHaveBeenCalled());
+  });
+  if (change === "close") await fire("removed", 7);
+  else await fire("updated", 7, change === "reload"
+    ? { status: "loading" } : { url: "https://kucom.korea.ac.kr/em/lecture-b" });
+  await act(async () => pending.resolve(cached));
+  expect(hook.state.phase).toBe("idle");
+  expect(hook.state.result).toBeNull();
+});
+
 async function startPendingJob() {
   getJob.mockReturnValue(new Promise(() => {}));
   ui = await mount(<Probe />);
@@ -383,7 +488,7 @@ it("cancels when the job's tab closes", async () => {
   expect(cancelJob).toHaveBeenCalledWith("job_1");
 });
 
-it("never cancels a job restored on reopen because of tab events", async () => {
+it("cancels a restored job when its source tab closes", async () => {
   loadActiveJob.mockResolvedValue({ jobId: "job_9", key: "unidock-hashedkey" });
   getJob.mockReturnValue(new Promise(() => {}));
   ui = await mount(<Probe />);
@@ -393,8 +498,8 @@ it("never cancels a job restored on reopen because of tab events", async () => {
   await fire("removed", 7);
   await fire("activated", { tabId: 8, windowId: 1 });
   await fire("updated", 7, { status: "loading" });
-  expect(cancelJob).not.toHaveBeenCalled();
-  expect(hook.state.phase).toBe("queued");
+  expect(cancelJob).toHaveBeenCalledWith("job_9");
+  expect(hook.state.phase).toBe("idle");
 });
 
 it("drops a saved job that loads after a newer Generate started", async () => {
