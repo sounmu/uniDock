@@ -177,6 +177,39 @@ export async function captureSiteCaptions(target) {
         2,
       ) + "\n",
     );
+    // Seed a long transcript through the same storage boundary, then reopen.
+    await page.evaluate(async () => {
+      const name = "unidock.caption-transcripts.v1";
+      const records = (await globalThis.chrome.storage.local.get(name))[name];
+      const record = Object.values(records)[0];
+      record.items = Array.from({ length: 350 }, (_, index) => ({
+        index,
+        time: `${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}`,
+        text: `${index + 1}. 해시 테이블에서 충돌이 발생하면 체이닝을 이용해 같은 위치에 여러 값을 보관합니다.`,
+      }));
+      await globalThis.chrome.storage.local.set({ [name]: records });
+    });
+    const requestCount = requests.length;
+    await page.reload();
+    await page.getByRole("button", { name: "자막 추출", exact: true }).click();
+    await expect(page.locator(".ai-reader-text li")).toHaveCount(350);
+    assert.equal(requests.length, requestCount, "Cache restore must not call the caption server");
+    for (const width of [320, 440]) {
+      await page.setViewportSize({ width, height: 700 });
+      for (const colorScheme of ["light", "dark"]) {
+        await page.emulateMedia({ colorScheme });
+        await page.reload();
+        await page.getByRole("button", { name: "자막 추출", exact: true }).click();
+        await expect(page.locator(".ai-reader-text li")).toHaveCount(350);
+        await page.locator(".ai-reader-text").evaluate((el) => { el.scrollTop = 0; });
+        await page.screenshot({ animations: "disabled", path: path.join(evidenceDir, `reader-${width}-${colorScheme}.png`) });
+        await page.locator(".ai-reader-text li").last().scrollIntoViewIfNeeded();
+        await expect(page.locator(".ai-reader-text li").last()).toBeVisible();
+        assert(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth));
+        await page.screenshot({ animations: "disabled", path: path.join(evidenceDir, `reader-${width}-${colorScheme}-end.png`) });
+      }
+    }
+    assert.equal(requests.length, requestCount);
   } finally {
     if (browser) await browser.close();
     if (server)

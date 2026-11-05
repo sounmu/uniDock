@@ -8,11 +8,11 @@ const downloadCaption = vi.hoisted(() => vi.fn());
 vi.mock("../src/captions/service", () => ({ detectCaptions: detect }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
 vi.mock("../entrypoints/sidepanel/AiCaptionsSection", () => ({
-  AiCaptionsSection: ({ onSettings }: { onSettings?: () => void }) => (
-    <>
+  AiCaptionsSection: ({ onSettings, restoreOnly }: { onSettings?: () => void; restoreOnly?: boolean }) => restoreOnly ? null : (
+    <section className="ai-offer">
       AI 자막 섹션
       {onSettings && <button onClick={onSettings}>AI 자막 설정</button>}
-    </>
+    </section>
   ),
 }));
 import { CaptionsPanel } from "../entrypoints/sidepanel/CaptionsPanel";

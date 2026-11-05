@@ -3,6 +3,7 @@ import { downloadCaption, exportTranscript } from "../../src/captions/download";
 import { coreResult, startOperation } from "./analytics";
 import { useAiCaptions, type AiCaptionState } from "./useAiCaptions";
 import { useCaptionSession } from "./useCaptionSession";
+import { AiCaptionReader } from "./AiCaptionReader";
 
 const steps = [
   ["identifying", "영상 확인"],
@@ -144,8 +145,31 @@ function Body({ children, foot }: { readonly children?: ReactNode; readonly foot
   );
 }
 
-export function AiCaptionsSection({ onSettings, reason = "NO_CAPTIONS" }: { readonly onSettings?: () => void; readonly reason?: "NO_CAPTIONS" | "UNSAFE_CAPTION" } = {}) {
-  const { state, generate, cancel } = useAiCaptions();
+interface AiCaptionsProps {
+  readonly onSettings?: () => void;
+  readonly reason?: "NO_CAPTIONS" | "UNSAFE_CAPTION";
+  readonly restoreOnly?: boolean;
+}
+
+/** Keep the restore hook mounted without leaving an empty card in the page. */
+export function AiCaptionsSection(props: AiCaptionsProps = {}) {
+  const flow = useAiCaptions();
+  const phase = flow.state.phase;
+  if (props.restoreOnly && (phase === "idle" || phase === "failed" || phase === "cancelled"))
+    return null;
+  return (
+    <section className="settings-card ai-offer" aria-labelledby="ai-offer-title">
+      <AiCaptionsContent {...props} flow={flow} />
+    </section>
+  );
+}
+
+function AiCaptionsContent({
+  onSettings,
+  reason = "NO_CAPTIONS",
+  flow,
+}: AiCaptionsProps & { readonly flow: ReturnType<typeof useAiCaptions> }) {
+  const { state, generate, cancel } = flow;
   const session = useCaptionSession();
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
@@ -202,6 +226,16 @@ export function AiCaptionsSection({ onSettings, reason = "NO_CAPTIONS" }: { read
     }
   }
 
+  if (state.phase === "succeeded" && state.result && state.restoredFromCache)
+    return (
+      <AiCaptionReader
+        transcript={state.result.transcript}
+        notice={notice}
+        onExport={(format) => void exportResult(format)}
+        onCopy={() => void copyResult()}
+      />
+    );
+
   if (confirming)
     return (
       <div className="ai-job" role="group" aria-label="AI 자막 생성 확인">
@@ -229,7 +263,7 @@ export function AiCaptionsSection({ onSettings, reason = "NO_CAPTIONS" }: { read
             <p className="ai-lead">보내기 전에 확인해 주세요</p>
             <ul className="ai-checks">
               <li>{checkIcon}강의 음성만 보내고, 처리 후 지워요</li>
-              <li>{checkIcon}자막은 6개월 동안 다시 받을 수 있어요</li>
+              <li>{checkIcon}자막은 이 브라우저에 저장해 다시 볼 수 있어요</li>
               <li>{checkIcon}이번 주 사용 횟수 1회가 차감돼요</li>
             </ul>
           </div>

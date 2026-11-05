@@ -26,6 +26,12 @@ import { projectServerSegments, type Transcript } from "../../src/captions/trans
 import { safeLog } from "../../src/security/logger";
 import type { ErrorCode } from "../../src/analytics/report";
 import { startOperation, type OperationHandle } from "./analytics";
+import {
+  CAPTION_TRANSCRIPT_CACHE_KEY,
+  hasCachedTranscripts,
+  loadCachedTranscript,
+  saveCachedTranscript,
+} from "../../src/captions/transcript-cache";
 
 export interface AiCaptionResult {
   transcript: Transcript;
@@ -42,8 +48,10 @@ export interface AiCaptionState {
   errorCode: string | null;
   expiresAt: string | null;
   result: AiCaptionResult | null;
+  /** Player tab title and media length, shown in the panel only. */
   title: string | null;
   durationS: number | null;
+  restoredFromCache: boolean;
 }
 
 const IDLE: AiCaptionState = {
@@ -56,6 +64,7 @@ const IDLE: AiCaptionState = {
   result: null,
   title: null,
   durationS: null,
+  restoredFromCache: false,
 };
 const POLL_QUEUED_MS = 10_000;
 const POLL_RUNNING_MS = 5_000;
@@ -152,7 +161,7 @@ export function useAiCaptions() {
     }
   }, [stopLocal]);
 
-  const poll = useCallback(async (id: string, { signal, live, set }: Run) => {
+  const poll = useCallback(async (id: string, { signal, live, set }: Run, key: string) => {
     while (live() && !signal.aborted) {
       const status = await getJob(id, signal);
       if (!live()) return;
@@ -173,6 +182,15 @@ export function useAiCaptions() {
         const server = await getTranscript(status.transcriptId, signal);
         if (!live()) return;
         const items = projectServerSegments(server.segments);
+        const extractedAt = new Date().toISOString();
+        await saveCachedTranscript(key, {
+          items,
+          engine: server.engine,
+          modelRevision: server.modelRevision,
+          expiresAt: server.expiresAt,
+          extractedAt,
+        }).catch(() => safeLog("REQUEST_FAILED"));
+        if (!live()) return;
         set({
           phase: "succeeded",
           expiresAt: server.expiresAt || null,
@@ -180,7 +198,7 @@ export function useAiCaptions() {
             transcript: {
               sourceUrl: "https://kucom.korea.ac.kr/",
               pageTitle: lectureTitle.current || "AI 자막",
-              extractedAt: new Date().toISOString(),
+              extractedAt,
               itemCount: items.length,
               items,
             },
@@ -235,6 +253,15 @@ export function useAiCaptions() {
     };
     chrome.tabs.onUpdated.addListener(changed);
     chrome.tabs.onRemoved.addListener(removed);
+    const storageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      const cache = changes[CAPTION_TRANSCRIPT_CACHE_KEY];
+      if (area === "local" && cache?.oldValue && cache.newValue === undefined)
+        discard();
+    };
+    chrome.storage.onChanged.addListener(storageChanged);
     // A job the server already accepted survives a closed panel; show it again.
     // A Generate or cancel that starts while storage is read bumps the
     // generation; the late restore must not replace it.
@@ -244,33 +271,66 @@ export function useAiCaptions() {
       jobId.current !== null ||
       generation.current !== restoreGeneration;
     void (async () => {
-      const saved = await loadActiveJob();
-      if (!saved || stale()) return;
+      const [saved, cached] = await Promise.all([
+        loadActiveJob(),
+        hasCachedTranscripts().catch(() => false),
+      ]);
+      if ((!saved && !cached) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
       let durationS: number;
+      let source: { tabId: number; windowId: number };
       try {
         const media = await identifyMedia();
         title = media.title;
         durationS = media.durationS;
+        source = { tabId: media.tabId, windowId: media.windowId };
         key = await captionJobKey(media.contentId);
       } catch {
         return;
       }
-      if (key !== saved.key || stale()) return;
+      if (stale()) return;
+      const transcript = await loadCachedTranscript(key).catch(() => null);
+      if (stale()) return;
       lectureTitle.current = title;
+      if (transcript) {
+        jobTab.current = source;
+        void run(async ({ set }) => {
+          set({
+            phase: "succeeded",
+            title: title || null,
+            durationS: durationS || null,
+            restoredFromCache: true,
+            expiresAt: transcript.expiresAt,
+            result: {
+              engine: transcript.engine,
+              modelRevision: transcript.modelRevision,
+              transcript: {
+                sourceUrl: "https://kucom.korea.ac.kr/",
+                pageTitle: title || "AI 자막",
+                extractedAt: transcript.extractedAt,
+                itemCount: transcript.items.length,
+                items: transcript.items,
+              },
+            },
+          });
+        });
+        return;
+      }
+      if (!saved || key !== saved.key) return;
       const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
         ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
-        await poll(id, ctx);
+        await poll(id, ctx, key);
       });
     })();
     return () => {
       mounted.current = false;
       chrome.tabs.onUpdated.removeListener(changed);
       chrome.tabs.onRemoved.removeListener(removed);
+      chrome.storage.onChanged.removeListener(storageChanged);
       // Closing the panel stops local capture only; accepted jobs keep running.
       stopLocal();
     };
@@ -342,7 +402,7 @@ export function useAiCaptions() {
       if (!live()) return;
       await saveActiveJob({ jobId: id, key });
       set({ phase: "queued" });
-      await poll(id, ctx);
+      await poll(id, ctx, key);
     });
   }, [discard, poll, run]);
 

@@ -37,6 +37,8 @@ LMS에서 평소처럼 로그인하고 탭을 선택한 뒤 uniDock에서 조회
 
 ## 이미지
 
+AI 자막 로컬 보관 안내: 생성된 AI 자막의 시간·문장, 엔진 정보와 추출·만료 시각을 강의의 HMAC 작업 키에 연결해 `chrome.storage.local`의 `unidock.caption-transcripts.v1`에 저장합니다. 최대 20개·4MiB이며 서버 만료 이후에는 복원하지 않습니다. 같은 강의에서는 자막 서버에 재요청하지 않고 별도 읽기 화면을 보여줍니다. 아래의 조회 결과 비저장 설명에 대한 AI 자막 전용 예외이며, 캐시에는 제목·URL·원본 강의 ID가 없고 ‘로컬 데이터 모두 삭제’로 지울 수 있습니다.
+
 - 확장 아이콘: public/icons/128.png (128×128 PNG, 자체 디자인)
 - 소형 홍보 이미지: store/assets/promo.png (440×280)
 - 샘플 화면: store/assets/assignments.png(과제), recordings.png(주차학습·게시판 녹화 강의), schedule.png(일정 과제·공지 구분) (1280×800)

@@ -18,6 +18,7 @@ const base: AiCaptionState = {
   result: null,
   title: null,
   durationS: null,
+  restoredFromCache: false,
 };
 
 vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
@@ -49,12 +50,18 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-async function render(onSettings?: () => void) {
+async function render(onSettings?: () => void, restoreOnly = false) {
   const { AiCaptionsSection } = await import(
     "../entrypoints/sidepanel/AiCaptionsSection"
   );
-  ui = await mount(<AiCaptionsSection onSettings={onSettings} />);
+  ui = await mount(<AiCaptionsSection onSettings={onSettings} restoreOnly={restoreOnly} />);
 }
+
+it("leaves no card or generation controls while looking for a cache without a result", async () => {
+  await render(undefined, true);
+  expect(ui.host.querySelector(".ai-offer")).toBeNull();
+  expect(ui.host.querySelector("button")).toBeNull();
+});
 
 it("confirms the server and audio before generating", async () => {
   await render();
@@ -111,6 +118,31 @@ it("surfaces a failure message", async () => {
   current = { ...base, phase: "failed", errorCode: "LOGIN_REQUIRED" };
   await render();
   expect(ui.host.textContent).toContain("Google 계정으로 다시 로그인");
+});
+
+it.each([false, true])("renders every caption when restoredFromCache is %s", async (restoredFromCache) => {
+  const items = Array.from({ length: 350 }, (_, index) => ({
+    index, time: "00:00", text: `문장 ${index + 1}`,
+  }));
+  current = {
+    ...base, phase: "succeeded", restoredFromCache,
+    result: { engine: "whisper", modelRevision: "r1", transcript: {
+      sourceUrl: "https://kucom.korea.ac.kr/", pageTitle: "강의 자막",
+      extractedAt: "2026-11-05T00:00:00Z", itemCount: items.length, items,
+    } },
+  };
+  await render();
+  const list = ui.host.querySelector('[aria-label="전체 자막"]');
+  expect(list?.querySelectorAll("li")).toHaveLength(350);
+  expect(list?.lastElementChild?.textContent).toContain("문장 350");
+  expect(ui.host.querySelector(".ai-reader") !== null).toBe(restoredFromCache);
+  if (restoredFromCache) {
+    expect(ui.host.querySelector(".btn-primary")).toBeNull();
+    await click("TXT 받기");
+    expect(downloadCaption).toHaveBeenCalledWith(current.result?.transcript, {
+      variant: "ai", only: "txt",
+    });
+  }
 });
 
 it("explains a CDN refusal and a CDN network failure instead of a missing audio track", async () => {

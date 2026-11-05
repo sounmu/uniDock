@@ -599,7 +599,7 @@ it("discards unsent statistics and the popup opt-in before the existing clear-da
   expect(order).toEqual([
     "erase:unidock.analytics.v2,unidock.analytics-counters.v1,unidock.analytics.v1",
     "erase:unidock.popup-auto-close.v1",
-    "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1",
+    "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1,unidock.caption-transcripts.v1",
     "playback",
   ]);
 });

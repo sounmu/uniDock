@@ -1029,7 +1029,8 @@ progress {
   margin: var(--space-3) 0 0;
   min-height: calc(100dvh - var(--captions-card-top) - var(--tabbar-space));
 }
-.ai-offer:has(.ai-preview) {
+.ai-offer:has(.ai-preview),
+.ai-offer:has(.ai-reader) {
   height: max(
     calc(var(--row-h) * 9),
     calc(100dvh - var(--captions-card-top) - var(--tabbar-space))
@@ -1291,6 +1292,42 @@ progress {
   color: var(--muted);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
+}
+.ai-reader-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+}
+.ai-reader-tools button {
+  font-size: var(--fs-sm);
+}
+.ai-reader-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-5);
+  overflow-y: auto;
+  list-style: none;
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  scrollbar-gutter: stable;
+}
+.ai-reader-text li {
+  display: grid;
+  grid-template-columns: minmax(5ch, max-content) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+.ai-reader-text time {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.ai-reader-text span,
+.ai-preview span {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .ai-error {
   margin: 0;

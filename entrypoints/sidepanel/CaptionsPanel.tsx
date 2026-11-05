@@ -214,10 +214,13 @@ export function CaptionsPanel({
           {state.status === "error" && !aiOffer && (
             <Notice error>{messages[state.code]}</Notice>
           )}
-          {aiOffer && (
-            <section className="settings-card ai-offer" aria-labelledby="ai-offer-title">
-              <AiCaptionsSection reason={aiOffer} onSettings={onConnectionSettings} />
-            </section>
+          {__UNIDOCK_AI_CAPTIONS__ && (aiOffer || state.status === "idle") && (
+              <AiCaptionsSection
+                key={generation.current}
+                reason={aiOffer ?? undefined}
+                restoreOnly={!aiOffer}
+                onSettings={onConnectionSettings}
+              />
           )}
           {state.status === "success" && (
             <>

@@ -593,6 +593,7 @@ export default defineBackground(() => {
                 CAPTION_SESSION_KEY,
                 CAPTION_INSTALL_SALT_KEY,
                 CAPTION_ACTIVE_JOB_KEY,
+                "unidock.caption-transcripts.v1",
               ]);
           };
           // The caption session is revoked and erased under its lock, so a
