@@ -42,6 +42,8 @@ export interface AiCaptionState {
   errorCode: string | null;
   expiresAt: string | null;
   result: AiCaptionResult | null;
+  title: string | null;
+  durationS: number | null;
 }
 
 const IDLE: AiCaptionState = {
@@ -52,6 +54,8 @@ const IDLE: AiCaptionState = {
   errorCode: null,
   expiresAt: null,
   result: null,
+  title: null,
+  durationS: null,
 };
 const POLL_QUEUED_MS = 10_000;
 const POLL_RUNNING_MS = 5_000;
@@ -245,9 +249,11 @@ export function useAiCaptions() {
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
+      let durationS: number;
       try {
         const media = await identifyMedia();
         title = media.title;
+        durationS = media.durationS;
         key = await captionJobKey(media.contentId);
       } catch {
         return;
@@ -257,7 +263,7 @@ export function useAiCaptions() {
       const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
-        ctx.set({ phase: "queued" });
+        ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
         await poll(id, ctx);
       });
     })();
@@ -282,6 +288,7 @@ export function useAiCaptions() {
       if (!live()) return;
       jobTab.current = { tabId: media.tabId, windowId: media.windowId };
       lectureTitle.current = media.title;
+      set({ title: media.title || null, durationS: media.durationS || null });
       const key = await captionJobKey(media.contentId);
       // The per-lecture key returns this user's existing job for the lecture,
       // so a repeat request skips extraction and upload entirely.

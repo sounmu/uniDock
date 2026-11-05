@@ -110,10 +110,10 @@ export async function captureSiteCaptions(target) {
     await page.getByRole("button", { name: "자막 추출", exact: true }).click();
     await page.getByRole("button", { name: "자막 감지", exact: true }).click();
     await expect(
-      page.getByText("제공된 자막이 없습니다", { exact: true }),
+      page.getByText("제공된 자막이 없어요", { exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "AI 자막 생성", exact: true })
+      .getByRole("button", { name: "AI 자막 만들기", exact: true })
       .click();
     await expect(
       page.getByRole("group", { name: "AI 자막 생성 확인" }),
@@ -123,20 +123,22 @@ export async function captureSiteCaptions(target) {
       .getByRole("button", { name: "음성 보내기", exact: true })
       .click();
     await expect(
-      page.getByText("자막을 생성하고 있습니다…", { exact: true }),
+      page.getByText("자막을 만들고 있어요", { exact: true }),
     ).toBeVisible();
     await page.screenshot({ path: path.join(evidenceDir, "running.png") });
-    const download = page.getByRole("button", {
-      name: "AI 자막 TXT·JSON 다운로드",
-      exact: true,
-    });
-    await expect(download).toBeVisible();
-    await download.click();
-    await expect(
-      page.getByText("output/에 AI 자막 TXT·JSON 다운로드를 요청했습니다.", {
+    for (const format of ["TXT", "JSON"]) {
+      const download = page.getByRole("button", {
+        name: `${format} 받기`,
         exact: true,
-      }),
-    ).toBeVisible();
+      });
+      await expect(download).toBeVisible();
+      await download.click();
+      await expect(
+        page.getByText(`output/ 폴더로 ${format} 다운로드를 시작했어요.`, {
+          exact: true,
+        }),
+      ).toBeVisible();
+    }
     const evidence = await page.evaluate(() => globalThis.__siteCaptionFixture);
     assert.equal(evidence.downloads.length, 2);
     assert.match(evidence.downloads[0].filename, /AI 자막\.txt$/);

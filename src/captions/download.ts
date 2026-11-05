@@ -47,6 +47,8 @@ export async function downloadCaption(
     signal?: AbortSignal;
     isCurrent?: () => boolean;
     variant?: "ai";
+    /** Download only one of the two files; both by default. */
+    only?: "txt" | "json";
   } = {},
 ): Promise<CaptionDownloadResult> {
   const files = exportTranscript(value);
@@ -67,6 +69,7 @@ export async function downloadCaption(
     ["txt", files.text, "text/plain"],
     ["json", files.json, "application/json"],
   ] as const) {
+    if (options.only && options.only !== extension) continue;
     if (!canContinue())
       return { status: "partial", accepted: accepted as 0 | 1 };
     const url = URL.createObjectURL(

@@ -215,30 +215,8 @@ export function CaptionsPanel({
             <Notice error>{messages[state.code]}</Notice>
           )}
           {aiOffer && (
-            <section
-              className="settings-card ai-offer"
-              aria-labelledby="ai-offer-title"
-            >
-              <div className="settings-row">
-                <div className="row-text">
-                  <h3 id="ai-offer-title" className="row-title">
-                    {aiOffer === "NO_CAPTIONS"
-                      ? "제공된 자막이 없습니다"
-                      : "제공된 자막을 읽을 수 없습니다"}
-                  </h3>
-                  <p className="row-sub">
-                    AI로 자막을 만들 수 있습니다.
-                  </p>
-                </div>
-                {onConnectionSettings && (
-                  <div className="row-actions">
-                    <button className="btn-ghost" onClick={onConnectionSettings}>
-                      AI 자막 설정
-                    </button>
-                  </div>
-                )}
-              </div>
-              <AiCaptionsSection onSettings={onConnectionSettings} />
+            <section className="settings-card ai-offer" aria-labelledby="ai-offer-title">
+              <AiCaptionsSection reason={aiOffer} onSettings={onConnectionSettings} />
             </section>
           )}
           {state.status === "success" && (

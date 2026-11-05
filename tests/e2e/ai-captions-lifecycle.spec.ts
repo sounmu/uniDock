@@ -386,7 +386,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
 
   async function openPanelOnPlayer() {
     const opened = await detectOnPlayer();
-    await opened.panel.getByRole("button", { name: "AI 자막 생성" }).click();
+    await opened.panel.getByRole("button", { name: "AI 자막 만들기" }).click();
     return opened;
   }
 
@@ -516,7 +516,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
 
         // Then even the held success response cannot advance the aborted run.
         await expect(
-          panel.getByRole("button", { name: "AI 자막 TXT·JSON 다운로드" }),
+          panel.getByRole("button", { name: "TXT 받기" }),
         ).toHaveCount(0);
         expect(services.cancels()).toBe(1);
         expect(services.idempotencyKeys).toHaveLength(1);
@@ -608,7 +608,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
 
   async function expectFinished(panel: import("@playwright/test").Page, logs: string[]) {
     await expect(
-      panel.getByRole("button", { name: "AI 자막 TXT·JSON 다운로드" }),
+      panel.getByRole("button", { name: "TXT 받기" }),
     ).toBeVisible({ timeout: 20_000 }).catch((error) => {
       throw new Error(`${error}\nPANEL: ${logs.join(" | ")}\nCDN: ${JSON.stringify(services.cdn.slice(0, 5))}`);
     });
@@ -697,7 +697,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     await worker.evaluate((key) => chrome.storage.local.remove(key), SESSION_KEY);
     const { panel } = await detectOnPlayer();
     await expect(panel.getByText(/Google 계정으로 로그인하세요/)).toBeVisible();
-    await expect(panel.getByRole("button", { name: "AI 자막 생성" })).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "AI 자막 만들기" })).toHaveCount(0);
     expect(services.idempotencyKeys).toEqual([]);
     expect(services.cdn).toEqual([]);
   });
