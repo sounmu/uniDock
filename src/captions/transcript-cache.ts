@@ -1,8 +1,22 @@
 import type { Transcript } from "./transcript";
+import { CAPTION_SESSION_EPOCH_KEY } from "../caption-server-settings";
 
 export const CAPTION_TRANSCRIPT_CACHE_KEY = "unidock.caption-transcripts.v1";
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_ENTRIES = 20;
+const CACHE_LOCK = "unidock-caption-cache";
+
+/** Shared by panel writers and background erasure, including across windows. */
+export function withCaptionCacheLock<T>(action: () => Promise<T>): Promise<T> {
+  return navigator.locks.request(CACHE_LOCK, action);
+}
+
+export async function readCaptionCacheEpoch(): Promise<string | null> {
+  const value = (await chrome.storage.session.get(CAPTION_SESSION_EPOCH_KEY))[
+    CAPTION_SESSION_EPOCH_KEY
+  ];
+  return typeof value === "string" ? value : null;
+}
 
 export interface CachedTranscript {
   readonly items: Transcript["items"];
@@ -68,19 +82,27 @@ export async function loadCachedTranscript(key: string): Promise<CachedTranscrip
   return (await records())[key] ?? null;
 }
 
-export async function saveCachedTranscript(key: string, value: CachedTranscript): Promise<void> {
+export async function saveCachedTranscript(
+  key: string,
+  value: CachedTranscript,
+  expectedEpoch?: string | null,
+): Promise<void> {
   if (!/^unidock-[0-9a-f]{40}$/.test(key)) return;
   const parsed = parse(value);
   if (!parsed) return;
   const bytes = (data: unknown) => new TextEncoder().encode(JSON.stringify(data)).byteLength;
   if (bytes({ [key]: parsed }) > MAX_BYTES) return;
-  const entries = await records();
-  delete entries[key];
-  entries[key] = parsed;
-  while (Object.keys(entries).length > MAX_ENTRIES || bytes(entries) > MAX_BYTES) {
-    const oldest = Object.keys(entries)[0];
-    if (!oldest) break;
-    delete entries[oldest];
-  }
-  await chrome.storage.local.set({ [CAPTION_TRANSCRIPT_CACHE_KEY]: entries });
+  const epoch = expectedEpoch === undefined ? await readCaptionCacheEpoch() : expectedEpoch;
+  await withCaptionCacheLock(async () => {
+    if (await readCaptionCacheEpoch() !== epoch) return;
+    const entries = await records();
+    delete entries[key];
+    entries[key] = parsed;
+    while (Object.keys(entries).length > MAX_ENTRIES || bytes(entries) > MAX_BYTES) {
+      const oldest = Object.keys(entries)[0];
+      if (!oldest) break;
+      delete entries[oldest];
+    }
+    await chrome.storage.local.set({ [CAPTION_TRANSCRIPT_CACHE_KEY]: entries });
+  });
 }

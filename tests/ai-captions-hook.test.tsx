@@ -24,6 +24,7 @@ vi.mock("../src/captions/transcript-cache", () => ({
   hasCachedTranscripts,
   loadCachedTranscript,
   saveCachedTranscript,
+  readCaptionCacheEpoch: async () => null,
 }));
 
 vi.mock("../src/captions/media-source", async (orig) => ({
@@ -350,13 +351,18 @@ it("opens cached captions without creating a job or contacting the caption serve
 
 it("does not replace a newer action with a late cache read", async () => {
   hasCachedTranscripts.mockResolvedValue(true);
-  const pending = Promise.withResolvers<null>();
+  const cached = {
+    items: [{ index: 0, time: "00:00", text: "늦게 도착한 자막" }],
+    engine: "whisper", modelRevision: "r1",
+    expiresAt: "2027-01-01T00:00:00Z", extractedAt: "2026-11-01T00:00:00Z",
+  };
+  const pending = Promise.withResolvers<typeof cached>();
   loadCachedTranscript.mockReturnValue(pending.promise);
   ui = await mount(<Probe />);
   await act(async () => {
     await vi.waitFor(() => expect(loadCachedTranscript).toHaveBeenCalled());
     hook.cancel();
-    pending.resolve(null);
+    pending.resolve(cached);
   });
   expect(hook.state.phase).toBe("idle");
   expect(getJob).not.toHaveBeenCalled();

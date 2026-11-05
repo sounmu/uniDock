@@ -30,6 +30,7 @@ import {
   CAPTION_TRANSCRIPT_CACHE_KEY,
   hasCachedTranscripts,
   loadCachedTranscript,
+  readCaptionCacheEpoch,
   saveCachedTranscript,
 } from "../../src/captions/transcript-cache";
 
@@ -179,6 +180,7 @@ export function useAiCaptions() {
       if (next === "succeeded") {
         if (!status.transcriptId)
           return set({ phase: "failed", errorCode: "RESPONSE" });
+        const cacheEpoch = await readCaptionCacheEpoch();
         const server = await getTranscript(status.transcriptId, signal);
         if (!live()) return;
         const items = projectServerSegments(server.segments);
@@ -189,7 +191,7 @@ export function useAiCaptions() {
           modelRevision: server.modelRevision,
           expiresAt: server.expiresAt,
           extractedAt,
-        }).catch(() => safeLog("REQUEST_FAILED"));
+        }, cacheEpoch).catch(() => safeLog("REQUEST_FAILED"));
         if (!live()) return;
         set({
           phase: "succeeded",

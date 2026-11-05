@@ -74,7 +74,7 @@ export function installCaptionFixture() {
         throw new Error(`Unexpected fixture message: ${message.type}`);
       },
     },
-    storage: { local: storage, onChanged: event },
+    storage: { local: storage, session: storage, onChanged: event },
     tabs: {
       query: async () => [tab],
       get: async () => tab,
