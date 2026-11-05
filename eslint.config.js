@@ -7,6 +7,7 @@ export default ts.config(
       ".wxt/**",
       ".output/**",
       ".store-build/**",
+      ".store-v052-build/**",
       "release/**",
     ],
   },
