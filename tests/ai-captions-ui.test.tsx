@@ -63,6 +63,14 @@ it("leaves no card or generation controls while looking for a cache without a re
   expect(ui.host.querySelector("button")).toBeNull();
 });
 
+it("shows an automatic restore failure with a retry action", async () => {
+  current = { ...base, phase: "failed", errorCode: "NETWORK" };
+  await render(undefined, true);
+  expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain("연결하지 못했습니다");
+  await click("다시 시도");
+  expect(ui.host.querySelector('[aria-label="AI 자막 생성 확인"]')).not.toBeNull();
+});
+
 it("confirms the server and audio before generating", async () => {
   await render();
   await click("AI 자막 만들기");

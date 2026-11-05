@@ -56,6 +56,7 @@ export async function captureSiteCaptions(target) {
     const requests = [];
     const errors = [];
     let polls = 0;
+    let failRestoredJob = false;
     await context.route("**/*", async (route) => {
       const url = new URL(route.request().url());
       if (url.origin === origin) return route.continue();
@@ -77,6 +78,7 @@ export async function captureSiteCaptions(target) {
         url.pathname === "/v1/transcription-jobs/site-fixture-job" &&
         method === "GET"
       ) {
+        if (failRestoredJob) return route.abort("failed");
         polls++;
         return route.fulfill({
           json:
@@ -210,6 +212,21 @@ export async function captureSiteCaptions(target) {
       }
     }
     assert.equal(requests.length, requestCount);
+    failRestoredJob = true;
+    await page.evaluate(() => globalThis.chrome.storage.local.set({
+      "unidock.caption-transcripts.v1": {},
+    }));
+    for (const width of [320, 440]) {
+      await page.setViewportSize({ width, height: 700 });
+      await page.emulateMedia({ colorScheme: width === 320 ? "light" : "dark" });
+      await page.reload();
+      await page.getByRole("button", { name: "자막 추출", exact: true }).click();
+      await expect(page.getByRole("alert")).toContainText("자막 서버에 연결하지 못했습니다.");
+      await expect(page.getByRole("button", { name: "다시 시도", exact: true })).toBeVisible();
+      await page.screenshot({ animations: "disabled", path: path.join(evidenceDir, `restore-error-${width}.png`) });
+      await page.getByRole("button", { name: "다시 시도", exact: true }).click();
+      await expect(page.getByRole("group", { name: "AI 자막 생성 확인" })).toBeVisible();
+    }
   } finally {
     if (browser) await browser.close();
     if (server)

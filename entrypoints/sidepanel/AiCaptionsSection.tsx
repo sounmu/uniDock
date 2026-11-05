@@ -155,7 +155,7 @@ interface AiCaptionsProps {
 export function AiCaptionsSection(props: AiCaptionsProps = {}) {
   const flow = useAiCaptions();
   const phase = flow.state.phase;
-  if (props.restoreOnly && (phase === "idle" || phase === "failed" || phase === "cancelled"))
+  if (props.restoreOnly && (phase === "idle" || phase === "cancelled"))
     return null;
   return (
     <section className="settings-card ai-offer" aria-labelledby="ai-offer-title">
