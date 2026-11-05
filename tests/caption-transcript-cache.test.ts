@@ -88,10 +88,9 @@ it("finishes deletion after an in-flight save without resurrecting caption text"
   });
   const saving = saveCachedTranscript(key(2), value);
   await started.promise;
-  // revokeAndClear invalidates the session generation before taking the cache lock.
-  session[CAPTION_SESSION_EPOCH_KEY] = "deleted";
   let erased = false;
   const erasing = withCaptionCacheLock(async () => {
+    session[CAPTION_SESSION_EPOCH_KEY] = "deleted";
     delete stored[CAPTION_TRANSCRIPT_CACHE_KEY];
     erased = true;
   });

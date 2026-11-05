@@ -26,6 +26,7 @@ import { projectServerSegments, type Transcript } from "../../src/captions/trans
 import { safeLog } from "../../src/security/logger";
 import type { ErrorCode } from "../../src/analytics/report";
 import { startOperation, type OperationHandle } from "./analytics";
+import { CAPTION_SESSION_EPOCH_KEY } from "../../src/caption-server-settings";
 import {
   CAPTION_TRANSCRIPT_CACHE_KEY,
   hasCachedTranscripts,
@@ -72,6 +73,7 @@ const POLL_RUNNING_MS = 5_000;
 const POLL_VISIBLE_MS = 2_000;
 
 interface Run {
+  epoch: string | null;
   signal: AbortSignal;
   live: () => boolean;
   set: (patch: Partial<AiCaptionState>) => void;
@@ -153,7 +155,9 @@ export function useAiCaptions() {
       else op.failure(statisticsCode(patch.errorCode ?? "FAILED"));
     };
     try {
-      await body({ signal, live, set });
+      const epoch = await readCaptionCacheEpoch();
+      if (!live()) return;
+      await body({ signal, live, set, epoch });
     } catch (error) {
       if (!live()) return;
       const code = errorCode(error);
@@ -162,7 +166,16 @@ export function useAiCaptions() {
     }
   }, [stopLocal]);
 
-  const poll = useCallback(async (id: string, { signal, live, set }: Run, key: string) => {
+  const poll = useCallback(async (id: string, { signal, live, set, epoch }: Run, key: string) => {
+    const current = async () => {
+      const latest = await readCaptionCacheEpoch();
+      if (!live()) return false;
+      if (latest !== epoch) {
+        discard();
+        return false;
+      }
+      return true;
+    };
     while (live() && !signal.aborted) {
       const status = await getJob(id, signal);
       if (!live()) return;
@@ -180,9 +193,9 @@ export function useAiCaptions() {
       if (next === "succeeded") {
         if (!status.transcriptId)
           return set({ phase: "failed", errorCode: "RESPONSE" });
-        const cacheEpoch = await readCaptionCacheEpoch();
+        if (!(await current())) return;
         const server = await getTranscript(status.transcriptId, signal);
-        if (!live()) return;
+        if (!(await current())) return;
         const items = projectServerSegments(server.segments);
         const extractedAt = new Date().toISOString();
         await saveCachedTranscript(key, {
@@ -191,8 +204,8 @@ export function useAiCaptions() {
           modelRevision: server.modelRevision,
           expiresAt: server.expiresAt,
           extractedAt,
-        }, cacheEpoch).catch(() => safeLog("REQUEST_FAILED"));
-        if (!live()) return;
+        }, epoch).catch(() => safeLog("REQUEST_FAILED"));
+        if (!(await current())) return;
         set({
           phase: "succeeded",
           expiresAt: server.expiresAt || null,
@@ -237,13 +250,17 @@ export function useAiCaptions() {
         if (signal.aborted) finish();
       });
     }
-  }, []);
+  }, [discard]);
 
   useEffect(() => {
     mounted.current = true;
+    const changedSources = new Set<number>();
+    let restoring = true;
     // Only navigation or closing of the source player invalidates this run.
     // Selecting another tab must not cancel extraction, upload or polling.
     const changed = (tabId: number, change: { status?: string; url?: string }) => {
+      if (restoring && (change.status === "loading" || change.url !== undefined))
+        changedSources.add(tabId);
       if (
         tabId === jobTab.current?.tabId &&
         (change.status === "loading" || change.url !== undefined)
@@ -251,6 +268,7 @@ export function useAiCaptions() {
         discard();
     };
     const removed = (tabId: number) => {
+      if (restoring) changedSources.add(tabId);
       if (tabId === jobTab.current?.tabId) discard();
     };
     chrome.tabs.onUpdated.addListener(changed);
@@ -260,7 +278,11 @@ export function useAiCaptions() {
       area: string,
     ) => {
       const cache = changes[CAPTION_TRANSCRIPT_CACHE_KEY];
-      if (area === "local" && cache?.oldValue && cache.newValue === undefined)
+      const epoch = changes[CAPTION_SESSION_EPOCH_KEY];
+      if (
+        (area === "local" && cache?.oldValue !== undefined && cache.newValue === undefined) ||
+        (area === "session" && epoch && epoch.oldValue !== epoch.newValue)
+      )
         discard();
     };
     chrome.storage.onChanged.addListener(storageChanged);
@@ -273,6 +295,8 @@ export function useAiCaptions() {
       jobId.current !== null ||
       generation.current !== restoreGeneration;
     void (async () => {
+      const restoreEpoch = await readCaptionCacheEpoch();
+      if (stale()) return;
       const [saved, cached] = await Promise.all([
         loadActiveJob(),
         hasCachedTranscripts().catch(() => false),
@@ -285,9 +309,11 @@ export function useAiCaptions() {
       let source: { tabId: number; windowId: number };
       try {
         const media = await identifyMedia();
+        if (stale() || changedSources.has(media.tabId)) return;
         title = media.title;
         durationS = media.durationS;
         source = { tabId: media.tabId, windowId: media.windowId };
+        jobTab.current = source;
         key = await captionJobKey(media.contentId);
       } catch {
         return;
@@ -298,7 +324,8 @@ export function useAiCaptions() {
       lectureTitle.current = title;
       if (transcript) {
         jobTab.current = source;
-        void run(async ({ set }) => {
+        void run(async ({ set, epoch }) => {
+          if (epoch !== restoreEpoch) return discard();
           set({
             phase: "succeeded",
             title: title || null,
@@ -324,10 +351,18 @@ export function useAiCaptions() {
       const id = saved.jobId;
       jobId.current = id;
       void run(async (ctx) => {
+        if (ctx.epoch !== restoreEpoch) return discard();
         ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
         await poll(id, ctx, key);
       });
-    })();
+    })().catch((error: unknown) => {
+      if (stale()) return;
+      phase.current = "failed";
+      setState({ ...IDLE, phase: "failed", errorCode: errorCode(error) });
+    }).finally(() => {
+      restoring = false;
+      changedSources.clear();
+    });
     return () => {
       mounted.current = false;
       chrome.tabs.onUpdated.removeListener(changed);

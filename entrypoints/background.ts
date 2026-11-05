@@ -600,7 +600,7 @@ export default defineBackground(() => {
           // The caption session is revoked and erased under its lock, so a
           // sign-in or refresh answered later cannot store tokens again.
           if (__UNIDOCK_AI_CAPTIONS__)
-            await revokeAndClear(() => withCaptionCacheLock(erase));
+            await withCaptionCacheLock(() => revokeAndClear(erase));
           else await erase();
           if (!playback) {
             await returnPopupGrant();

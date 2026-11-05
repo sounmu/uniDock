@@ -11,11 +11,15 @@ export function withCaptionCacheLock<T>(action: () => Promise<T>): Promise<T> {
   return navigator.locks.request(CACHE_LOCK, action);
 }
 
-export async function readCaptionCacheEpoch(): Promise<string | null> {
+async function readEpoch(): Promise<string | null> {
   const value = (await chrome.storage.session.get(CAPTION_SESSION_EPOCH_KEY))[
     CAPTION_SESSION_EPOCH_KEY
   ];
   return typeof value === "string" ? value : null;
+}
+
+export function readCaptionCacheEpoch(): Promise<string | null> {
+  return withCaptionCacheLock(readEpoch);
 }
 
 export interface CachedTranscript {
@@ -94,7 +98,7 @@ export async function saveCachedTranscript(
   if (bytes({ [key]: parsed }) > MAX_BYTES) return;
   const epoch = expectedEpoch === undefined ? await readCaptionCacheEpoch() : expectedEpoch;
   await withCaptionCacheLock(async () => {
-    if (await readCaptionCacheEpoch() !== epoch) return;
+    if (await readEpoch() !== epoch) return;
     const entries = await records();
     delete entries[key];
     entries[key] = parsed;
