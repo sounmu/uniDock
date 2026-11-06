@@ -30,6 +30,8 @@ export interface PlaybackOptions {
   isLoginPage?: () => boolean;
   /** The caller supplies frame visibility so native controls cannot bypass visible-only playback. */
   isVisible?: () => boolean;
+  /** Intermediary media can end on the same element before the actual content starts. */
+  isCompletionMedia?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
   /** Bounds metadata and play() waits. Clamped to 1..30000 ms. */
   timeoutMs?: number;
@@ -267,6 +269,10 @@ export class PlaybackPlayer {
     };
     const ended = (event: Event) => {
       if (event.isTrusted && current() && this.video.ended) {
+        if (this.options.isCompletionMedia?.() === false) {
+          resetEvidence();
+          return;
+        }
         const duration = this.video.duration;
         const evidence = this.completionEvidence;
         if (

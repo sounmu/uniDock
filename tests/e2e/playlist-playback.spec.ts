@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PLAYBACK_SKIP_REASON, playbackBuild } from "./build-shape";
@@ -10,7 +10,7 @@ test.skip(!playbackBuild(), PLAYBACK_SKIP_REASON);
 const origin = "https://mylms.korea.ac.kr";
 const kuPlayer = "https://kucom.korea.ac.kr";
 
-function playerHtml(id: string): string {
+function playerHtml(id: string, withIntro = false): string {
   return `<!doctype html><html><title>Synthetic Player ${id}</title><body>
     <script>
       const video = document.createElement("video");
@@ -29,8 +29,11 @@ function playerHtml(id: string): string {
       video.muted = true;
       video.playsInline = true;
       video.preload = "auto";
+      const isIntro = () => video.currentSrc.endsWith("/settings/viewer/uniplayer/intro.mp4");
       for (const type of ["playing", "pause", "ended", "ratechange", "error"])
-        video.addEventListener(type, () => console.log("UNIDOCK_QA_" + type.toUpperCase() + ":${id}"));
+        video.addEventListener(type, () => {
+          if (!isIntro()) console.log("UNIDOCK_QA_" + type.toUpperCase() + ":${id}");
+        });
       const canvas = document.createElement("canvas");
       canvas.width = 64; canvas.height = 48;
       const paint = canvas.getContext("2d");
@@ -46,10 +49,22 @@ function playerHtml(id: string): string {
         start.textContent = "Start lecture";
         start.onclick = () => {
           start.style.display = "none";
-          video.src = URL.createObjectURL(blob);
+          video.src = ${withIntro} ? "/settings/viewer/uniplayer/intro.mp4" : URL.createObjectURL(blob);
           video.load();
           void video.play();
         };
+        video.addEventListener("ended", () => {
+          if (!isIntro()) return;
+          const proceed = document.createElement("button");
+          proceed.textContent = "Continue lecture";
+          proceed.onclick = () => {
+            proceed.remove();
+            video.src = URL.createObjectURL(blob);
+            video.load();
+            void video.play();
+          };
+          document.body.append(proceed);
+        });
         document.body.append(start);
         const helper = document.createElement("video");
         helper.className = "vc-sdvideo-video";
@@ -1084,13 +1099,25 @@ test("production extension plays a click-ordered playlist and explicitly recover
       }
       await route.fulfill({ status: 404, body: "not found" });
     });
+    await context.route(
+      `${kuPlayer}/settings/viewer/uniplayer/intro.mp4`,
+      async (route) => {
+        await route.fulfill({
+          contentType: "video/mp4",
+          body: await readFile(path.resolve("tests/fixtures/media/tail.mp4")),
+        });
+      },
+    );
+    let firstPlayerFrame = true;
     await context.route(`${kuPlayer}/em/**`, async (route) => {
       const id = new URL(route.request().url()).searchParams.get("id") ?? "";
       actions.push(`PLAYER_FRAME:${id}`);
+      const withIntro = firstPlayerFrame;
+      firstPlayerFrame = false;
       await route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: playerHtml(id),
+        body: playerHtml(id, withIntro),
       });
     });
 
@@ -1229,6 +1256,18 @@ test("production extension plays a click-ordered playlist and explicitly recover
       .pages()
       .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
     expect(secondPage).toBeDefined();
+    const continueLecture = secondPage!
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .getByRole("button", { name: "Continue lecture" });
+    await expect(continueLecture).toBeVisible();
+    // A real native intro end must retain this tab and both playlist items.
+    await expect(panel.locator(".playback-current")).toContainText(
+      "두 번째 합성 영상",
+    );
+    await expect(panel.locator(".playback-queue")).toContainText(
+      "첫 번째 합성 영상",
+    );
+    await continueLecture.click();
     await expect
       .poll(() =>
         secondPage!
@@ -1576,12 +1615,15 @@ test("production extension plays a click-ordered playlist and explicitly recover
     for (let attempt = 0; attempt < 2; attempt++) {
       const unauthorized = context.waitForEvent("response", {
         predicate: (response) =>
-          response.url() === `${origin}/api/v1/users/self` && response.status() === 401,
+          response.url() === `${origin}/api/v1/users/self` &&
+          response.status() === 401,
         timeout: 10_000,
       });
       await panel.getByRole("button", { name: "새로고침" }).click();
       await unauthorized;
-      await expect(panel.getByRole("button", { name: "새로고침" })).toBeEnabled();
+      await expect(
+        panel.getByRole("button", { name: "새로고침" }),
+      ).toBeEnabled();
       await expect(panel.locator(".playback-panel h1")).toContainText(
         "로그인 필요",
       );

@@ -335,6 +335,15 @@ export default defineContentScript({
             onDiagnostic: diagnostic,
             isLoginPage: () => !playerPage(location.href),
             isVisible: () => document.visibilityState !== "hidden",
+            // KU plays these UI assets on the lecture's own primary element.
+            // Keep observing across their end and the optional resume prompt.
+            isCompletionMedia: () =>
+              ![
+                "/viewer/uniplayer/preloader.mp4",
+                "/settings/viewer/uniplayer/intro.mp4",
+              ].includes(
+                new URL(video?.currentSrc ?? "", originalUrl).pathname,
+              ),
             onStateChange: (status) => {
               diagnostic(
                 `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
