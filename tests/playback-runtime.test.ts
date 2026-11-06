@@ -103,9 +103,9 @@ function fixture() {
       return 9;
     },
     navigate: async () => {},
-    releaseTab: async (tabId, retainForNext = false) => {
+    releaseTab: async (tabId) => {
       revoked.push(tabId);
-      if (!retainForNext) released.push(tabId);
+      released.push(tabId);
     },
     control: async (_address, authorization, action) => {
       controls.push(action);
@@ -998,6 +998,15 @@ describe("immediate ordered playlist runtime", () => {
 
   it("advances immediately and only after matching native ended", async () => {
     const f = fixture();
+    vi.spyOn(f.ports, "open")
+      .mockImplementationOnce(async (url) => {
+        f.opened.push(url);
+        return 9;
+      })
+      .mockImplementationOnce(async (url) => {
+        f.opened.push(url);
+        return 10;
+      });
     const navigate = vi.spyOn(f.ports, "navigate");
     const binding = await playing(f);
     expect(
@@ -1008,31 +1017,47 @@ describe("immediate ordered playlist runtime", () => {
       ),
     ).toBe(false);
     expect(await f.runtime.signal(address, binding, "ended")).toBe(true);
-    expect(f.opened).toEqual([`${origin}/courses/101/modules/items/501`]);
-    expect(navigate.mock.calls).toEqual([
-      [9, `${origin}/courses/101/modules/items/501`, false],
-      [9, `${origin}/courses/101/modules/items/502`, true],
+    expect(f.opened).toEqual([
+      `${origin}/courses/101/modules/items/501`,
+      `${origin}/courses/101/modules/items/502`,
     ]);
-    expect(f.released).toEqual([]);
+    // The completed page is only revoked and released, never navigated or closed;
+    // the next lecture gets a fresh tab.
+    expect(navigate.mock.calls).toEqual([
+      [9, `${origin}/courses/101/modules/items/501`],
+      [10, `${origin}/courses/101/modules/items/502`],
+    ]);
+    expect(f.released).toEqual([9]);
     expect(f.revoked).toEqual([9]);
-    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.runtime.dedicatedTabId).toBe(10);
+    expect(f.saved?.player?.tabId).toBe(10);
+    // A stale cleanup signal for the retained old page cannot disturb the new run.
+    await f.runtime.lost(9);
+    expect(f.runtime.dedicatedTabId).toBe(10);
+    expect(f.saved?.stopped).toBe(false);
     expect(await f.runtime.signal(address, binding, "ended")).toBe(false);
     expect(f.saved?.playlist).toEqual([{ id: "101:502", courseId: "101" }]);
     expect(JSON.stringify(f.saved)).not.toContain("finishedIds");
     expect(JSON.stringify(f.saved)).not.toContain("terminalAt");
-    const nextAddress = { ...address, documentId: "next-document" };
+    const nextAddress = {
+      ...address,
+      tabId: 10,
+      documentId: "next-document",
+    };
     const next = await f.runtime.authorize(nextAddress);
     if (!next) throw new Error("next lecture was not authorized");
     expect(next.binding.token).not.toBe(binding.token);
     await f.runtime.signal(nextAddress, next.binding, "playing");
     await f.runtime.signal(nextAddress, next.binding, "ended");
-    expect(f.opened).toHaveLength(1);
-    expect(f.released).toEqual([9]);
+    expect(f.opened).toHaveLength(2);
+    // Final completion retains the last page: revoke only, no further navigation.
+    expect(navigate).toHaveBeenCalledTimes(2);
+    expect(f.released).toEqual([9, 10]);
     expect(f.saved?.playlist).toEqual([]);
     expect(f.saved?.player).toBeNull();
   });
 
-  it("stops when the retained tab is closed during next-lecture discovery", async () => {
+  it("keeps the completed tab released while next-lecture discovery is pending", async () => {
     const f = fixture();
     const binding = await playing(f);
     const nextDiscovery = deferred<PlaybackDiscovery>();
@@ -1042,20 +1067,30 @@ describe("immediate ordered playlist runtime", () => {
       discovering.resolve();
       return nextDiscovery.promise;
     });
+    vi.spyOn(f.ports, "open").mockImplementationOnce(async (url) => {
+      f.opened.push(url);
+      return 10;
+    });
     const ended = f.runtime.signal(address, binding, "ended");
     await discovering.promise;
-    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(f.runtime.dedicatedTabId).toBeNull();
+    expect(f.released).toEqual([9]);
 
     await f.runtime.lost(9);
     nextDiscovery.resolve(discovery);
     await ended;
 
-    expect(navigate).not.toHaveBeenCalled();
-    expect(f.opened).toHaveLength(1);
+    expect(f.opened).toHaveLength(2);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(
+      10,
+      `${origin}/courses/101/modules/items/502`,
+    );
+    expect(f.released).toEqual([9]);
+    expect(f.runtime.dedicatedTabId).toBe(10);
     expect(f.saved).toMatchObject({
-      stopped: true,
-      player: null,
-      playlist: [{ id: "101:502", courseId: "101" }],
+      stopped: false,
+      player: { tabId: 10 },
     });
   });
 

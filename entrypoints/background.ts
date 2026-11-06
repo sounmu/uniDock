@@ -327,18 +327,13 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       }
       return tab.id;
     },
-    async navigate(tabId, url, reusing) {
+    async navigate(tabId, url) {
       if (navigationUrl(url, url) !== url)
         throw new PlaybackRuntimeError("POLICY");
       const owner = ownedInMemory.get(tabId);
       if (!owner) throw new PlaybackRuntimeError("PLAYER_LOST");
-      // Newly created about:blank tabs have no readable URL under our host
-      // permissions. A reused lecture tab must still match its prior page.
-      if (reusing) {
-        const tab = await chrome.tabs.get(tabId);
-        if (ownedInMemory.get(tabId) !== owner || !ownedPage(tab.url, owner))
-          throw new PlaybackRuntimeError("PLAYER_LOST");
-      }
+      // Only a freshly opened about:blank tab is ever navigated; it has no
+      // readable URL under our host permissions, so ownership is the guard.
       await chrome.tabs.update(tabId, { url, active: true });
       if (ownedInMemory.get(tabId) !== owner)
         throw new PlaybackRuntimeError("PLAYER_LOST");
@@ -348,12 +343,12 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       ownedInMemory.set(tabId, next);
       await registerOwnership(tabId, next);
     },
-    async releaseTab(tabId, retainForNext = false) {
+    async releaseTab(tabId) {
       // Session storage survives worker eviction but not browser restart. Never trust a reused tab ID.
-      const stored = retainForNext ? null : await takeOwnership(tabId);
+      const stored = await takeOwnership(tabId);
       const owner = ownedInMemory.get(tabId) ?? stored;
       if (!owner) return;
-      if (!retainForNext) ownedInMemory.delete(tabId);
+      ownedInMemory.delete(tabId);
       let tab: chrome.tabs.Tab;
       try {
         tab = await chrome.tabs.get(tabId);

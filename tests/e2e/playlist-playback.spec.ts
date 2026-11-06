@@ -1666,21 +1666,44 @@ test("production extension plays a click-ordered playlist and explicitly recover
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
       .locator("video#lecture");
     await expect(replayVideo).toBeAttached({ timeout: 20_000 });
+    let leaveDialogs = 0;
+    replayPage!.on("dialog", async (dialog) => {
+      leaveDialogs++;
+      await dialog.dismiss();
+    });
+    await replayPage!.evaluate(() => {
+      const button = document.createElement("button");
+      button.textContent = "Enable leave confirmation";
+      document.body.prepend(button);
+      window.addEventListener("beforeunload", (event) => {
+        event.preventDefault();
+        event.returnValue = "";
+      });
+    });
+    await replayPage!
+      .getByRole("button", { name: "Enable leave confirmation" })
+      .click();
+    const nextOpened = context.waitForEvent("page");
     // Let the native media run to completion: no seeking or synthetic ended.
     await expect(panel.locator(".playback-current")).toContainText(
       "첫 번째 합성 영상",
       { timeout: 30_000 },
     );
+    const nextPage = await nextOpened;
+    expect(nextPage).not.toBe(replayPage);
+    await expect(nextPage).toHaveURL(`${origin}/courses/101/modules/items/501`);
+    expect(replayPage!.isClosed()).toBe(false);
     await expect(replayPage!).toHaveURL(
-      `${origin}/courses/101/modules/items/501`,
+      `${origin}/courses/101/modules/items/502`,
     );
+    expect(leaveDialogs).toBe(0);
     expect(
       context
         .pages()
         .filter((page) =>
           page.url().endsWith("/courses/101/modules/items/501"),
         ),
-    ).toEqual([replayPage]);
+    ).toEqual([nextPage]);
 
     await panel.screenshot({
       path: testInfo.outputPath("playback-running.png"),
@@ -1714,10 +1737,10 @@ test("production extension plays a click-ordered playlist and explicitly recover
     );
     // A held LMS lookup cannot delay revocation or remove the retained page.
     expect(identityRequests).toBe(beforeHeldRefresh + 1);
-    expect(replayPage!.isClosed()).toBe(false);
+    expect(nextPage.isClosed()).toBe(false);
     await expect
       .poll(() =>
-        replayPage!
+        nextPage
           .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
           .locator("video#lecture")
           .evaluate((video: HTMLVideoElement) => video.paused),
