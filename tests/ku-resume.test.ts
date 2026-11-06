@@ -35,12 +35,17 @@ function fixture(text = "이전에 시청했던 32:33부터 이어서 보시겠�
   return { box, label, yes, accepted, declined };
 }
 
-it.each(["32:33", "1:12:26"])(
+it.each([
+  ["32:33", 1953],
+  ["1:12:26", 4346],
+] as const)(
   "accepts the saved-position prompt once per display: %s",
-  async (position) => {
+  async (position, seconds) => {
     const f = fixture(`이전에 시청했던 ${position}부터 이어서 보시겠습니까?`);
-    cleanups.push(observeKuResume(document, () => true));
+    const acceptedPosition = vi.fn();
+    cleanups.push(observeKuResume(document, () => true, acceptedPosition));
     expect(f.accepted).toHaveBeenCalledOnce();
+    expect(acceptedPosition).toHaveBeenCalledExactlyOnceWith(seconds);
     expect(f.declined).not.toHaveBeenCalled();
     f.box.classList.add("updated");
     await Promise.resolve();

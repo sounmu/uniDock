@@ -643,6 +643,104 @@ it("accepts the KU resume prompt only while the bound player is active", async (
   expect(accepted).toHaveBeenCalledOnce();
 });
 
+it.each(
+  [0, 0.005].flatMap((remaining) =>
+    [
+      { position: "00:01", seekAgain: false, trusted: true, state: "ended" },
+      { position: "00:00", seekAgain: false, trusted: true, state: "paused" },
+      { position: "00:01", seekAgain: true, trusted: true, state: "paused" },
+      { position: "00:01", seekAgain: false, trusted: false, state: "paused" },
+    ].map((scenario) => ({ ...scenario, remaining })),
+  ),
+)(
+  "verifies a short resume end: $position, seek=$seekAgain, trusted=$trusted, remaining=$remaining",
+  async ({ position, seekAgain, trusted, state, remaining }) => {
+    const fixture = setup();
+    let source =
+      "https://kucom.korea.ac.kr/settings/viewer/uniplayer/intro.mp4";
+    let duration = 4;
+    let paused = false;
+    let ended = false;
+    let seeking = false;
+    Object.defineProperties(fixture.video, {
+      currentSrc: { get: () => source },
+      duration: { get: () => duration },
+      paused: { get: () => paused },
+      ended: { get: () => ended },
+      seeking: { get: () => seeking },
+    });
+    const handlers = new Map<string, Set<EventListener>>();
+    const add = fixture.video.addEventListener.bind(fixture.video);
+    const remove = fixture.video.removeEventListener.bind(fixture.video);
+    vi.spyOn(fixture.video, "addEventListener").mockImplementation(
+      (name, handler, options) => {
+        if (typeof handler === "function") {
+          const set = handlers.get(name) ?? new Set<EventListener>();
+          set.add(handler);
+          handlers.set(name, set);
+        }
+        add(name, handler, options);
+      },
+    );
+    vi.spyOn(fixture.video, "removeEventListener").mockImplementation(
+      (name, handler, options) => {
+        if (typeof handler === "function") handlers.get(name)?.delete(handler);
+        remove(name, handler, options);
+      },
+    );
+    const native = (name: string, isTrusted = true) => {
+      for (const handler of [...(handlers.get(name) ?? [])])
+        handler({ isTrusted } as Event);
+    };
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const prompt = document.createElement("div");
+    prompt.className = "confirm-msg-box";
+    prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 ${position}부터 이어서 보시겠습니까?</div>
+      <div class="confirm-ok-btn" role="button">예</div>
+      <div class="confirm-cancel-btn" role="button">아니오</div>`;
+    const yes = prompt.querySelector(".confirm-ok-btn");
+    if (!yes) throw new Error("missing resume action");
+    yes.addEventListener("click", () => {
+      source = "https://kucom.korea.ac.kr/lecture.mp4";
+      duration = 1 + remaining;
+      fixture.video.currentTime = 1;
+      seeking = true;
+      native("loadstart");
+      native("seeking");
+      seeking = false;
+      paused = remaining === 0;
+      ended = remaining === 0;
+      clock.mockReturnValue(1000);
+      native("playing", trusted);
+      if (seekAgain) {
+        native("seeking");
+        native("playing");
+      }
+      clock.mockReturnValue(1010);
+      fixture.video.currentTime = duration;
+      ended = true;
+      paused = true;
+      native("timeupdate");
+      native("pause");
+      native("ended");
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 100, 40),
+    );
+    document.body.append(fixture.video, prompt);
+    const playing = fixture.event("playing");
+    page.main();
+    await playing;
+    await Promise.resolve();
+
+    expect(
+      fixture.sendMessage.mock.calls
+        .filter(([message]) => message.type === "PLAYBACK_PLAYER_EVENT")
+        .map(([message]) => message.state),
+    ).toEqual(["starting", "playing", state]);
+  },
+);
+
 it("reports native autoplay denial after one muted retry without restarting", async () => {
   const fixture = setup();
   fixture.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));

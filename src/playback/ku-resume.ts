@@ -2,6 +2,7 @@
 export function observeKuResume(
   document: Document,
   authorized: () => boolean,
+  onAccept?: (positionSeconds: number) => void,
 ): () => void {
   let active = true;
   let handled: HTMLElement | null = null;
@@ -29,13 +30,12 @@ export function observeKuResume(
       .querySelector(".confirm-msg-text")
       ?.textContent?.replace(/\s+/g, " ")
       .trim();
-    if (
-      !text ||
-      !/^이전에 시청했던 \d{1,3}:[0-5]\d(?::[0-5]\d)?부터 이어서 보시겠습니까\?$/.test(
-        text,
-      )
-    )
-      return;
+    const position = text
+      ? /^이전에 시청했던 (\d{1,3}:[0-5]\d(?::[0-5]\d)?)부터 이어서 보시겠습니까\?$/.exec(
+          text,
+        )?.[1]
+      : undefined;
+    if (!position) return;
     const yes = box.querySelector<HTMLElement>(".confirm-ok-btn");
     const no = box.querySelector<HTMLElement>(".confirm-cancel-btn");
     if (
@@ -48,6 +48,11 @@ export function observeKuResume(
     )
       return;
     handled = box;
+    onAccept?.(
+      position
+        .split(":")
+        .reduce((seconds, part) => seconds * 60 + Number(part), 0),
+    );
     yes.click();
   };
   const observer = new MutationObserver(check);

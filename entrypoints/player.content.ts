@@ -397,6 +397,7 @@ export default defineContentScript({
               !dormant &&
               leaseUntil > Date.now() &&
               player?.status.state === "playing",
+            (position) => player?.expectNativeResume(position),
           );
         }
         visibleOnly();
