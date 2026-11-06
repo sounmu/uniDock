@@ -7,6 +7,7 @@ import {
   isPlayerControl,
   object,
   playerPage,
+  PLAYBACK_PLAYER_REVOKE,
   type PlayerBinding,
 } from "../src/playback/bridge";
 import { LMS_MATCHES } from "../src/security/policy";
@@ -421,9 +422,17 @@ export default defineContentScript({
     document.addEventListener("visibilitychange", visibleOnly);
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        if (!backgroundSender(sender) || !object(message)) return false;
         if (
-          !backgroundSender(sender) ||
-          !object(message) ||
+          message.version === PLAYBACK_PLAYER_REVOKE.version &&
+          message.type === PLAYBACK_PLAYER_REVOKE.type &&
+          Object.keys(message).length === 2
+        ) {
+          stop();
+          respond({ ok: true });
+          return false;
+        }
+        if (
           !isPlayerControl(message) ||
           !binding ||
           message.runId !== binding.runId ||

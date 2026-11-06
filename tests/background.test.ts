@@ -62,7 +62,11 @@ it("rejects analytics messages from content scripts and accepts only the exact e
     ).toBe(true);
   });
   // Development builds never report; the setting itself still materializes.
-  expect(result).toEqual({ available: false, enabled: true, notice: "changed" });
+  expect(result).toEqual({
+    available: false,
+    enabled: true,
+    notice: "changed",
+  });
 });
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -254,34 +258,35 @@ it.each([
     label: "unowned LMS tab",
     owned: false,
     target: "canonical",
-    closed: false,
+    revoked: false,
   },
-  { label: "owned LMS item", owned: true, target: "canonical", closed: true },
+  { label: "owned LMS item", owned: true, target: "canonical", revoked: true },
   {
     label: "changed item route",
     owned: true,
     target: "wrong-item",
-    closed: false,
+    revoked: false,
   },
-  { label: "foreign origin", owned: true, target: "foreign", closed: false },
-  { label: "tab without a URL", owned: true, target: "no-url", closed: false },
-  { label: "verified KU player", owned: true, target: "player", closed: true },
-  { label: "staged blank tab", owned: true, target: "blank", closed: true },
+  { label: "foreign origin", owned: true, target: "foreign", revoked: false },
+  { label: "tab without a URL", owned: true, target: "no-url", revoked: false },
+  { label: "verified KU player", owned: true, target: "player", revoked: true },
+  { label: "staged blank tab", owned: true, target: "blank", revoked: true },
   {
     label: "already removed tab",
     owned: true,
     target: "missing",
-    closed: false,
+    revoked: false,
   },
 ])(
   "requires verified session ownership and document for $label",
-  async ({ owned, target, closed }) => {
+  async ({ owned, target, revoked }) => {
     const accountKey = "a".repeat(64),
       origin = "https://mylms.korea.ac.kr";
     const saved = emptyPlayback(accountKey, origin);
     saved.playlist = [{ id: "101:501", courseId: "101" }];
     saved.player = { tabId: 9, courseId: "101", id: "101:501" };
     const remove = vi.fn().mockResolvedValue(undefined);
+    const sendMessage = vi.fn().mockResolvedValue({ ok: true });
     const local: Record<string, unknown> = { [PLAYBACK_STORAGE_KEY]: saved };
     const session = owned
       ? {
@@ -324,21 +329,20 @@ it.each([
           return { id, url };
         },
         remove,
-        sendMessage: async () => ({
-          status: "success",
-          discovery: {
-            accountKey,
-            origin,
-            courses: [{ id: "101", name: "Course" }],
-            candidates: [],
-          },
-        }),
+        sendMessage,
       },
       alarms: { clear: vi.fn(), create: vi.fn() },
     });
     const result = await createChromePlaybackRuntime().startup();
     expect(result.status).toBe("success");
-    expect(remove).toHaveBeenCalledTimes(closed ? 1 : 0);
+    expect(remove).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(revoked ? 1 : 0);
+    if (revoked)
+      expect(sendMessage).toHaveBeenCalledWith(
+        9,
+        { version: 1, type: "PLAYBACK_PLAYER_REVOKE" },
+        {},
+      );
     if (result.status === "success")
       expect(result.snapshot.status).toBe("paused");
   },
@@ -613,7 +617,13 @@ it("does not publish a new caption epoch until pending cache writes are erased",
   const f = commandBroadcastFixture();
   f.command.mockResolvedValue({
     status: "success",
-    snapshot: { courses: [], labels: {}, queue: [], status: "idle", current: null },
+    snapshot: {
+      courses: [],
+      labels: {},
+      queue: [],
+      status: "idle",
+      current: null,
+    },
   });
   const local: Record<string, unknown> = {};
   const session: Record<string, unknown> = {};
@@ -638,33 +648,51 @@ it("does not publish a new caption epoch until pending cache writes are erased",
       if (name === cacheKey) cacheRemoved = true;
     }
   });
-  vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({ ...session }));
+  vi.mocked(chrome.storage.session.get).mockImplementation(async () => ({
+    ...session,
+  }));
   vi.mocked(chrome.storage.session.set).mockImplementation(async (patch) => {
     Object.assign(session, patch);
   });
   const epoch = await readCaptionCacheEpoch();
   const value = {
     items: [{ index: 0, time: "00:00", text: "삭제할 자막" }],
-    engine: "whisper", modelRevision: "r1",
+    engine: "whisper",
+    modelRevision: "r1",
     extractedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 86400000).toISOString(),
   };
-  const saving = saveCachedTranscript(`unidock-${"1".repeat(40)}`, value, epoch);
+  const saving = saveCachedTranscript(
+    `unidock-${"1".repeat(40)}`,
+    value,
+    epoch,
+  );
   await started.promise;
   const deleting = new Promise((resolve) => {
     f.receive({ version: 1, type: "LOCAL_DATA_DELETE_ALL" }, f.panel, resolve);
   });
   await vi.waitFor(async () => {
     const snapshot = await navigator.locks.query();
-    expect(snapshot.pending?.some((lock) => lock.name === "unidock-caption-cache")).toBe(true);
+    expect(
+      snapshot.pending?.some((lock) => lock.name === "unidock-caption-cache"),
+    ).toBe(true);
   });
   const capturing = readCaptionCacheEpoch().then((nextEpoch) => {
     expect(cacheRemoved).toBe(true);
     return nextEpoch;
   });
-  const lateSave = saveCachedTranscript(`unidock-${"2".repeat(40)}`, value, epoch);
+  const lateSave = saveCachedTranscript(
+    `unidock-${"2".repeat(40)}`,
+    value,
+    epoch,
+  );
   release.resolve();
-  const [, , nextEpoch] = await Promise.all([saving, deleting, capturing, lateSave]);
+  const [, , nextEpoch] = await Promise.all([
+    saving,
+    deleting,
+    capturing,
+    lateSave,
+  ]);
   expect(nextEpoch).not.toBe(epoch);
   expect(local[cacheKey]).toBeUndefined();
 });
@@ -1319,18 +1347,28 @@ it("keeps overlapping created-tab ownership isolated through late cleanup", asyn
 
   firstCreate.resolve({ id: 9, url: "about:blank" } as chrome.tabs.Tab);
   expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
-  expect(removed).toEqual([9]);
+  expect(removed).toEqual([]);
+  expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+    9,
+    { version: 1, type: "PLAYBACK_PLAYER_REVOKE" },
+    {},
+  );
   expect(session["unidock.playback.owned-tab"]).toEqual({
     version: 1,
     tabs: { "10": { courseId: "101", itemId: "502" } },
   });
 
   await runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
-  expect(removed).toEqual([9, 10]);
+  expect(removed).toEqual([]);
+  expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+    10,
+    { version: 1, type: "PLAYBACK_PLAYER_REVOKE" },
+    {},
+  );
   expect(session).not.toHaveProperty("unidock.playback.owned-tab");
 });
 
-it("closes a pending created tab after local deletion erases its stored ownership", async () => {
+it("revokes a pending created tab without closing it after local deletion", async () => {
   const discovery = {
     ...validDiscovery,
     candidates: [{ id: "101:501", courseId: "101", title: "First" }],
@@ -1412,7 +1450,12 @@ it("closes a pending created tab after local deletion erases its stored ownershi
   releaseRegistration.resolve();
 
   expect(await start).toEqual({ status: "error", code: "BUSY" });
-  expect(removed).toEqual([9]);
+  expect(removed).toEqual([]);
+  expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+    9,
+    { version: 1, type: "PLAYBACK_PLAYER_REVOKE" },
+    {},
+  );
   expect(session).not.toHaveProperty("unidock.playback.owned-tab");
 });
 

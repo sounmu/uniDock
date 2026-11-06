@@ -41,8 +41,15 @@ export interface RuntimePorts {
     source: PlaybackSource,
   ) => Promise<ResolvedRecordingBatch>;
   readonly open: (url: string) => Promise<number>;
-  readonly navigate: (tabId: number, url: string) => Promise<void>;
-  readonly close: (tabId: number) => Promise<void>;
+  readonly navigate: (
+    tabId: number,
+    url: string,
+    reusing: boolean,
+  ) => Promise<void>;
+  readonly releaseTab: (
+    tabId: number,
+    retainForNext?: boolean,
+  ) => Promise<void>;
   readonly control: (
     address: PlayerAddress,
     authorization: PlayerAuthorization,
@@ -235,15 +242,15 @@ export class PlaybackRuntime {
       this.saved.player = null;
     }
     const cleanup = this.disarmWatchdog();
-    const close =
+    const revoke =
       tabId === undefined || tabId === null
         ? Promise.resolve()
-        : this.ports.close(tabId);
-    return Promise.all([cleanup, close]).then(() => undefined);
+        : this.ports.releaseTab(tabId);
+    return Promise.all([cleanup, revoke]).then(() => undefined);
   }
   private async abandon(run: ActiveRun): Promise<void> {
     if (this.run === run) await this.release(run);
-    else if (run.tabId !== null) await this.ports.close(run.tabId);
+    else if (run.tabId !== null) await this.ports.releaseTab(run.tabId);
   }
   private ensureInitialized(): Promise<void> {
     return (this.initialization ??= this.serial(async () => {
@@ -323,7 +330,8 @@ export class PlaybackRuntime {
     const itemId = run.item.id.split(":")[1];
     const url = `${this.saved.origin}/courses/${run.item.courseId}/modules/items/${itemId}`;
     try {
-      const tabId = await this.ports.open(url);
+      const reusing = run.tabId !== null;
+      const tabId = run.tabId ?? (await this.ports.open(url));
       run.tabId = tabId;
       if (!this.current(context) || this.run !== run)
         throw new SupersededOperationError();
@@ -339,7 +347,7 @@ export class PlaybackRuntime {
       });
       this.assertCurrent(context);
       if (this.run !== run) throw new SupersededOperationError();
-      await this.ports.navigate(tabId, url);
+      await this.ports.navigate(tabId, url, reusing);
       this.assertCurrent(context);
       if (this.run !== run) throw new SupersededOperationError();
       await this.armWatchdog(run);
@@ -357,6 +365,7 @@ export class PlaybackRuntime {
   private async prepareAndStart(
     context: OperationContext,
     knownDiscovery?: PlaybackDiscovery,
+    retainedTabId: number | null = null,
   ): Promise<void> {
     this.assertCurrent(context);
     const item = this.saved.playlist[0];
@@ -378,6 +387,7 @@ export class PlaybackRuntime {
       if (!this.candidate(item, discovery))
         throw new PlaybackRuntimeError("STALE_SELECTION");
       const created = this.newRun(item);
+      created.tabId = retainedTabId;
       this.run = created;
       this.status = "starting";
       return created;
@@ -485,7 +495,6 @@ export class PlaybackRuntime {
             this.status = "paused";
             await this.disarmWatchdog();
           } else if (command.type === "PLAYBACK_STOP_ALL") {
-            this.saved.playlist = [];
             this.source = null;
             this.status = "stopped";
             await this.disarm();
@@ -764,12 +773,24 @@ export class PlaybackRuntime {
     try {
       if (state === "ended") {
         if (this.status !== "playing" || this.saved.stopped) return false;
+        let retainedTabId: number | null = null;
         await this.serial(async () => {
           this.assertCurrent(context);
           if (!this.matches(address, binding))
             throw new SupersededOperationError();
           this.saved.playlist.shift();
-          await this.release();
+          if (this.saved.playlist.length && this.run) {
+            retainedTabId = this.run.tabId;
+            // Transfer the tab, never the old document's playback authority.
+            this.run.tabId = null;
+            this.run = null;
+            await Promise.all([
+              this.disarmWatchdog(),
+              ...(retainedTabId === null
+                ? []
+                : [this.ports.releaseTab(retainedTabId, true)]),
+            ]);
+          } else await this.release();
           this.assertCurrent(context);
           if (!this.saved.playlist.length) {
             this.saved.stopped = true;
@@ -778,7 +799,7 @@ export class PlaybackRuntime {
           }
           await this.persist();
         });
-        await this.prepareAndStart(context);
+        await this.prepareAndStart(context, undefined, retainedTabId);
       } else {
         await this.serial(async () => {
           this.assertCurrent(context);
@@ -855,15 +876,15 @@ export class PlaybackRuntime {
   }
   async lost(tabId: number): Promise<void> {
     await this.ensureInitialized();
-    if (this.run?.tabId !== tabId) return;
+    if (this.run?.tabId !== tabId && this.saved.player?.tabId !== tabId) return;
     this.epoch++;
     const context = this.context();
     await this.serial(async () => {
-      if (this.run?.tabId !== tabId) return;
-      this.run.tabId = null;
+      if (this.run?.tabId !== tabId && this.saved.player?.tabId !== tabId)
+        return;
+      if (this.run?.tabId === tabId) this.run.tabId = null;
       this.saved.player = null;
-      // Drops the tab's ownership record; close() never removes a non-player page.
-      await this.ports.close(tabId);
+      await this.ports.releaseTab(tabId);
     });
     await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
   }
@@ -888,7 +909,7 @@ export class PlaybackRuntime {
     return this.pendingSource?.tabId ?? this.source?.sourceTabId ?? null;
   }
   get dedicatedTabId(): number | null {
-    return this.run?.tabId ?? null;
+    return this.run?.tabId ?? this.saved.player?.tabId ?? null;
   }
   get dedicatedItem(): PlaylistItem | null {
     return this.run?.item ?? null;

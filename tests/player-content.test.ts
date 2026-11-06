@@ -567,6 +567,52 @@ it("blocks hidden autoplay and hidden resume without invoking native play", asyn
   expect(fixture.play).toHaveBeenCalledOnce();
 });
 
+it("revokes owned playback only for an exact background revocation", async () => {
+  const fixture = setup();
+  document.body.append(fixture.video);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  const listener = fixture.listeners[0];
+  if (!listener) throw new Error("missing player listener");
+  const message = { version: 1, type: "PLAYBACK_PLAYER_REVOKE" };
+  const respond = vi.fn();
+
+  for (const from of [
+    { ...sender, id: "other-extension" },
+    {
+      ...sender,
+      tab: {
+        id: 9,
+        index: 0,
+        pinned: false,
+        highlighted: true,
+        windowId: 1,
+        active: true,
+        frozen: false,
+        incognito: false,
+        selected: true,
+        discarded: false,
+        autoDiscardable: true,
+        groupId: -1,
+        lastAccessed: 0,
+      },
+    },
+    { ...sender, url: `chrome-extension://${extension}/sidepanel.html` },
+  ]) {
+    expect(listener(message, from, respond)).toBe(false);
+  }
+  expect(listener({ ...message, extra: true }, sender, respond)).toBe(false);
+  expect(fixture.pause).not.toHaveBeenCalled();
+  expect(respond).not.toHaveBeenCalled();
+
+  expect(listener(message, sender, respond)).toBe(false);
+  expect(respond).toHaveBeenCalledExactlyOnceWith({ ok: true });
+  expect(fixture.pause).toHaveBeenCalledOnce();
+  expect(fixture.control("resume").accepted).toBe(false);
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
 it("reports native autoplay denial after one muted retry without restarting", async () => {
   const fixture = setup();
   fixture.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));

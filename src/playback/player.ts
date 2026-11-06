@@ -470,7 +470,7 @@ export class PlaybackPlayer {
   /** Terminal for this instance: never restarts or rewinds the video. */
   stop(): PlaybackStatus {
     if (this.status.state === "stopped") return this.status;
-    const shouldPause = ["starting", "playing", "paused"].includes(
+    const shouldPause = ["starting", "playing", "paused", "ended"].includes(
       this.status.state,
     );
     this.set({ state: "stopped" });

@@ -67,6 +67,11 @@ export const PLAYBACK_DISCOVER = {
   version: 1,
   type: "PLAYBACK_DISCOVER",
 } as const;
+/** Background-only revocation also stops a player retained across worker recovery. */
+export const PLAYBACK_PLAYER_REVOKE = {
+  version: 1,
+  type: "PLAYBACK_PLAYER_REVOKE",
+} as const;
 export interface ResolvedRecording {
   readonly id: string;
   readonly courseId: string;

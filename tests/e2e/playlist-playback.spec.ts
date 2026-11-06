@@ -455,14 +455,14 @@ test("production HELLO rejects an LMS candidate made ambiguous in flight", async
       snapshot: { status: "failed" },
     });
     expect(mediaActions).toEqual([]);
-    expect(player!.isClosed()).toBe(true);
+    expect(player!.isClosed()).toBe(false);
     expect(
       context
         .pages()
         .filter((page) =>
           page.url().endsWith("/courses/101/modules/items/501"),
         ),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
 
     await worker.evaluate(() =>
       (
@@ -490,7 +490,11 @@ test("production HELLO rejects an LMS candidate made ambiguous in flight", async
       .toMatchObject({ entered: true, discoverCount: 4 });
     const resumed = context
       .pages()
-      .find((page) => page.url().endsWith("/courses/101/modules/items/501"));
+      .find(
+        (page) =>
+          page !== player &&
+          page.url().endsWith("/courses/101/modules/items/501"),
+      );
     expect(resumed).toBeDefined();
     const resumedActions: string[] = [];
     resumed!.on("console", (message) => {
@@ -1634,16 +1638,15 @@ test("production extension plays a click-ordered playlist and explicitly recover
       await expect(panel.locator(".playback-queue")).toContainText(
         "첫 번째 합성 영상",
       );
+      expect(secondPage!.isClosed()).toBe(false);
       await expect
-        .poll(
-          () =>
-            context!
-              .pages()
-              .filter((page) =>
-                /\/courses\/101\/modules\/items\//.test(page.url()),
-              ).length,
+        .poll(() =>
+          secondPage!
+            .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+            .locator("video#lecture")
+            .evaluate((video: HTMLVideoElement) => video.paused),
         )
-        .toBe(0);
+        .toBe(true);
     }
 
     loggedIn = true;
@@ -1653,7 +1656,11 @@ test("production extension plays a click-ordered playlist and explicitly recover
     });
     const replayPage = context
       .pages()
-      .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
+      .find(
+        (page) =>
+          page !== secondPage &&
+          /\/courses\/101\/modules\/items\/502$/.test(page.url()),
+      );
     expect(replayPage).toBeDefined();
     const replayVideo = replayPage!
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
@@ -1664,6 +1671,16 @@ test("production extension plays a click-ordered playlist and explicitly recover
       "첫 번째 합성 영상",
       { timeout: 30_000 },
     );
+    await expect(replayPage!).toHaveURL(
+      `${origin}/courses/101/modules/items/501`,
+    );
+    expect(
+      context
+        .pages()
+        .filter((page) =>
+          page.url().endsWith("/courses/101/modules/items/501"),
+        ),
+    ).toEqual([replayPage]);
 
     await panel.screenshot({
       path: testInfo.outputPath("playback-running.png"),
@@ -1695,20 +1712,55 @@ test("production extension plays a click-ordered playlist and explicitly recover
     await expect(secondPanel.locator(".playback-panel h1")).toContainText(
       "중지됨",
     );
-    // The held LMS response is still gated: tab closure and the second panel's
-    // state are physical/message barriers, not fixed-sleep timing evidence.
+    // A held LMS lookup cannot delay revocation or remove the retained page.
     expect(identityRequests).toBe(beforeHeldRefresh + 1);
+    expect(replayPage!.isClosed()).toBe(false);
     await expect
-      .poll(
-        () =>
-          context!
-            .pages()
-            .filter((page) =>
-              /\/courses\/101\/modules\/items\//.test(page.url()),
-            ).length,
+      .poll(() =>
+        replayPage!
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate((video: HTMLVideoElement) => video.paused),
       )
-      .toBe(0);
+      .toBe(true);
+    await expect(secondPanel.locator(".playback-current")).toContainText(
+      "첫 번째 합성 영상",
+    );
     identityGate.release.resolve();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await secondPanel.emulateMedia({ colorScheme });
+      for (const width of [375, 640]) {
+        await secondPanel.setViewportSize({ width, height: 760 });
+        expect(
+          await secondPanel.evaluate(
+            () =>
+              document.documentElement.scrollWidth <=
+              document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+        await secondPanel.screenshot({
+          path: testInfo.outputPath(`stopped-${colorScheme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+    const finalOpened = context.waitForEvent("page");
+    await secondPanel.getByRole("button", { name: "자동 재생 재개" }).click();
+    const finalPage = await finalOpened;
+    await expect(finalPage).toHaveURL(
+      `${origin}/courses/101/modules/items/501`,
+    );
+    await expect(secondPanel.locator(".playback-panel h1")).toContainText(
+      "대기",
+      { timeout: 30_000 },
+    );
+    expect(finalPage.isClosed()).toBe(false);
+    expect(
+      await finalPage
+        .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+        .locator("video#lecture")
+        .evaluate((video: HTMLVideoElement) => video.ended && video.paused),
+    ).toBe(true);
     const consoleErrors = actions.filter(
       (entry) =>
         entry.startsWith("CONSOLE_ERROR:") ||

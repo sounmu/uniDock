@@ -52,7 +52,8 @@ function fixture() {
   let failSecondResolve = false;
   let resolveCount = 0;
   const opened: string[] = [];
-  const closed: number[] = [];
+  const released: number[] = [];
+  const revoked: number[] = [];
   const controls: string[] = [];
   const controlAuthorizations: Array<{
     binding: { runId: string; token: string; deadline: number };
@@ -102,8 +103,9 @@ function fixture() {
       return 9;
     },
     navigate: async () => {},
-    close: async (tabId) => {
-      closed.push(tabId);
+    releaseTab: async (tabId, retainForNext = false) => {
+      revoked.push(tabId);
+      if (!retainForNext) released.push(tabId);
     },
     control: async (_address, authorization, action) => {
       controls.push(action);
@@ -124,7 +126,8 @@ function fixture() {
     runtime,
     ports,
     opened,
-    closed,
+    released,
+    revoked,
     controls,
     controlAuthorizations,
     alarms,
@@ -164,13 +167,15 @@ async function playing(f: ReturnType<typeof fixture>) {
   return authorization.binding;
 }
 
-it("hands a lost player tab to close so its ownership record is dropped", async () => {
+it("releases a lost player tab so its ownership record is dropped", async () => {
   const f = fixture();
   await playing(f);
   await f.runtime.lost(9);
   expect(f.runtime.dedicatedTabId).toBeNull();
   expect(f.saved?.player).toBeNull();
-  expect(f.closed).toEqual([9]);
+  expect(f.released).toEqual([9]);
+  expect(f.saved?.stopped).toBe(true);
+  expect(f.saved?.playlist).toHaveLength(2);
 });
 it("keeps active-run discovery pinned to the listing source", async () => {
   const f = fixture();
@@ -337,7 +342,7 @@ it("invalidates the active source while a replacement start owns another pending
   expect(await replacement).toEqual({ status: "error", code: "BUSY" });
   expect(f.runtime.sourceTabId).toBeNull();
   expect(f.runtime.dedicatedTabId).toBeNull();
-  expect(f.closed).toEqual([9]);
+  expect(f.released).toEqual([9]);
   expect(f.alarms.size).toBe(0);
 });
 function watchdogName(f: ReturnType<typeof fixture>): string {
@@ -528,7 +533,11 @@ describe("immediate ordered playlist runtime", () => {
       status: "success",
       snapshot: { status: "stopped" },
     });
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
+    expect(f.saved?.playlist).toEqual([
+      { id: "101:501", courseId: "101" },
+      { id: "101:502", courseId: "101" },
+    ]);
 
     discover.resolve(discovery);
     expect(await refresh).toEqual({ status: "error", code: "BUSY" });
@@ -563,7 +572,7 @@ describe("immediate ordered playlist runtime", () => {
       version: 1,
       type: "LOCAL_DATA_DELETE_ALL",
     });
-    await vi.waitFor(() => expect(f.closed).toEqual([9]));
+    await vi.waitFor(() => expect(f.released).toEqual([9]));
     expect(erase).not.toHaveBeenCalled();
 
     saveGate.resolve();
@@ -593,7 +602,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(request).toHaveBeenCalledTimes(1);
 
     await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
     discover.resolve(discovery);
     expect(await lease).toBeNull();
     expect(await refresh).toEqual({ status: "error", code: "BUSY" });
@@ -640,7 +649,7 @@ describe("immediate ordered playlist runtime", () => {
       id: "101:502",
       courseId: "101",
     });
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
   });
 
   it("does not persist or launch a partial playlist when a later handle is stale", async () => {
@@ -870,7 +879,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
     await stop;
     expect(snapshot(await newStart).current?.id).toBe("101:502");
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
     expect(f.runtime.dedicatedTabId).toBe(10);
   });
 
@@ -911,7 +920,7 @@ describe("immediate ordered playlist runtime", () => {
     oldOpen.resolve(9);
 
     expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
-    expect(f.closed).toContain(9);
+    expect(f.released).toContain(9);
     await stop;
     expect(snapshot(await newStart).current?.id).toBe("101:502");
     expect(f.runtime.dedicatedTabId).toBe(10);
@@ -983,12 +992,13 @@ describe("immediate ordered playlist runtime", () => {
       status: "starting",
       current: { id: "101:501" },
     });
-    expect(f.closed).toContain(9);
+    expect(f.released).toContain(9);
     expect(f.runtime.dedicatedTabId).toBe(10);
   });
 
   it("advances immediately and only after matching native ended", async () => {
     const f = fixture();
+    const navigate = vi.spyOn(f.ports, "navigate");
     const binding = await playing(f);
     expect(
       await f.runtime.signal(
@@ -998,13 +1008,55 @@ describe("immediate ordered playlist runtime", () => {
       ),
     ).toBe(false);
     expect(await f.runtime.signal(address, binding, "ended")).toBe(true);
-    expect(f.opened).toEqual([
-      `${origin}/courses/101/modules/items/501`,
-      `${origin}/courses/101/modules/items/502`,
+    expect(f.opened).toEqual([`${origin}/courses/101/modules/items/501`]);
+    expect(navigate.mock.calls).toEqual([
+      [9, `${origin}/courses/101/modules/items/501`, false],
+      [9, `${origin}/courses/101/modules/items/502`, true],
     ]);
+    expect(f.released).toEqual([]);
+    expect(f.revoked).toEqual([9]);
+    expect(f.runtime.dedicatedTabId).toBe(9);
+    expect(await f.runtime.signal(address, binding, "ended")).toBe(false);
     expect(f.saved?.playlist).toEqual([{ id: "101:502", courseId: "101" }]);
     expect(JSON.stringify(f.saved)).not.toContain("finishedIds");
     expect(JSON.stringify(f.saved)).not.toContain("terminalAt");
+    const nextAddress = { ...address, documentId: "next-document" };
+    const next = await f.runtime.authorize(nextAddress);
+    if (!next) throw new Error("next lecture was not authorized");
+    expect(next.binding.token).not.toBe(binding.token);
+    await f.runtime.signal(nextAddress, next.binding, "playing");
+    await f.runtime.signal(nextAddress, next.binding, "ended");
+    expect(f.opened).toHaveLength(1);
+    expect(f.released).toEqual([9]);
+    expect(f.saved?.playlist).toEqual([]);
+    expect(f.saved?.player).toBeNull();
+  });
+
+  it("stops when the retained tab is closed during next-lecture discovery", async () => {
+    const f = fixture();
+    const binding = await playing(f);
+    const nextDiscovery = deferred<PlaybackDiscovery>();
+    const discovering = deferred<void>();
+    const navigate = vi.spyOn(f.ports, "navigate");
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(() => {
+      discovering.resolve();
+      return nextDiscovery.promise;
+    });
+    const ended = f.runtime.signal(address, binding, "ended");
+    await discovering.promise;
+    expect(f.runtime.dedicatedTabId).toBe(9);
+
+    await f.runtime.lost(9);
+    nextDiscovery.resolve(discovery);
+    await ended;
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(f.opened).toHaveLength(1);
+    expect(f.saved).toMatchObject({
+      stopped: true,
+      player: null,
+      playlist: [{ id: "101:502", courseId: "101" }],
+    });
   });
 
   it("does not launch a cancelled native-advance head after held discovery", async () => {
@@ -1203,7 +1255,7 @@ describe("immediate ordered playlist runtime", () => {
       await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
     );
     expect(blocked.status).toBe("blocked-login");
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
     expect(f.saved?.playlist.map((item) => item.id)).toEqual([
       "101:501",
       "101:502",
@@ -1222,7 +1274,7 @@ describe("immediate ordered playlist runtime", () => {
     ).toBe("paused");
     expect(f.controls).toEqual(["pause"]);
     expect(f.runtime.dedicatedTabId).toBe(9);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
   });
 
   it("issues a fresh bounded authorization when resuming a long-dormant owned adapter", async () => {
@@ -1248,7 +1300,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(resumed.leaseUntil).toBe(dormantNow + 60000);
     expect(f.controls).toEqual(["pause", "resume"]);
     expect(f.opened).toHaveLength(1);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
   });
 
   it("does not let a lease pending at pause re-arm or close the dormant run", async () => {
@@ -1270,7 +1322,7 @@ describe("immediate ordered playlist runtime", () => {
     renewal.resolve(discovery);
     expect(await lease).toBeNull();
     expect(f.runtime.dedicatedTabId).toBe(9);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
     expect(f.alarms.size).toBe(0);
   });
 
@@ -1298,7 +1350,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(await nativePause).toBe(true);
     expect(snapshot(await pause).status).toBe("paused");
     expect(f.runtime.dedicatedTabId).toBe(9);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
     expect(f.alarms.size).toBe(0);
 
     expect(
@@ -1307,7 +1359,7 @@ describe("immediate ordered playlist runtime", () => {
     ).toBe("playing");
     expect(f.runtime.dedicatedTabId).toBe(9);
     expect(f.controls).toEqual(["pause", "resume"]);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
   });
 
   it("does not grant a pending lease after the source document is replaced", async () => {
@@ -1352,7 +1404,7 @@ describe("immediate ordered playlist runtime", () => {
 
       expect(await lease).toBeNull();
       expect(f.runtime.dedicatedTabId).toBe(9);
-      expect(f.closed).toEqual([]);
+      expect(f.released).toEqual([]);
       expect(f.alarms.size).toBe(0);
       expect(
         snapshot(
@@ -1400,7 +1452,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(result.status).toBe("paused");
     expect(result.current?.id).toBe("101:501");
     expect(f.opened).toHaveLength(1);
-    expect(f.closed).toEqual([9]);
+    expect(f.released).toEqual([9]);
     expect(
       snapshot(await restarted.command({ version: 1, type: "PLAYBACK_STATUS" }))
         .status,
@@ -1494,7 +1546,7 @@ describe("immediate ordered playlist runtime", () => {
       snapshot: { status: "playing" },
     });
     expect(f.saved?.stopped).toBe(false);
-    expect(f.closed).toEqual([]);
+    expect(f.released).toEqual([]);
   });
 
   it("stops after the current watchdog expires without dropping the playlist", async () => {

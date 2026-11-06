@@ -16,6 +16,7 @@ import {
   panelSender,
   playbackErrors,
   playerPage,
+  PLAYBACK_PLAYER_REVOKE,
   itemKey,
   stableId,
   type PlayerSignal,
@@ -31,10 +32,7 @@ import {
   reinjectLmsContentScripts,
   takeUpdateBadge,
 } from "../src/update-notice";
-import {
-  ANALYTICS_ALARM,
-  isAnalyticsCommand,
-} from "../src/analytics/contract";
+import { ANALYTICS_ALARM, isAnalyticsCommand } from "../src/analytics/contract";
 import {
   applyPopupAutoCloseChange,
   isPopupAutoCloseGet,
@@ -46,7 +44,10 @@ import {
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
 import { withCaptionCacheLock } from "../src/captions/transcript-cache";
-import { CAPTION_SESSION_KEY, revokeAndClear } from "../src/caption-server-settings";
+import {
+  CAPTION_SESSION_KEY,
+  revokeAndClear,
+} from "../src/caption-server-settings";
 import {
   CAPTION_ACTIVE_JOB_KEY,
   CAPTION_INSTALL_SALT_KEY,
@@ -87,6 +88,16 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
       Object.keys(value).length === 2 &&
       stableId(value.courseId) &&
       stableId(value.itemId)
+    );
+  }
+  function ownedPage(url: string | undefined, owner: OwnedTab): boolean {
+    return Boolean(
+      url &&
+      (url === "about:blank" ||
+        (playerPage(url) &&
+          (!allowedPage(url) ||
+            new URL(url).pathname ===
+              `/courses/${owner.courseId}/modules/items/${owner.itemId}`))),
     );
   }
   function mutateOwnership<T>(operation: () => Promise<T>): Promise<T> {
@@ -312,36 +323,49 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
         await registerOwnership(tab.id, owner);
       } catch {
         ownedInMemory.delete(tab.id);
-        await chrome.tabs.remove(tab.id);
         throw new PlaybackRuntimeError("STORAGE");
       }
       return tab.id;
     },
-    async navigate(tabId, url) {
+    async navigate(tabId, url, reusing) {
       if (navigationUrl(url, url) !== url)
         throw new PlaybackRuntimeError("POLICY");
+      const owner = ownedInMemory.get(tabId);
+      if (!owner) throw new PlaybackRuntimeError("PLAYER_LOST");
+      // Newly created about:blank tabs have no readable URL under our host
+      // permissions. A reused lecture tab must still match its prior page.
+      if (reusing) {
+        const tab = await chrome.tabs.get(tabId);
+        if (ownedInMemory.get(tabId) !== owner || !ownedPage(tab.url, owner))
+          throw new PlaybackRuntimeError("PLAYER_LOST");
+      }
       await chrome.tabs.update(tabId, { url, active: true });
+      if (ownedInMemory.get(tabId) !== owner)
+        throw new PlaybackRuntimeError("PLAYER_LOST");
+      const [, , courseId, , , itemId] = new URL(url).pathname.split("/");
+      if (!courseId || !itemId) throw new PlaybackRuntimeError("POLICY");
+      const next = { courseId, itemId };
+      ownedInMemory.set(tabId, next);
+      await registerOwnership(tabId, next);
     },
-    async close(tabId) {
+    async releaseTab(tabId, retainForNext = false) {
       // Session storage survives worker eviction but not browser restart. Never trust a reused tab ID.
-      const owner = (await takeOwnership(tabId)) ?? ownedInMemory.get(tabId);
+      const stored = retainForNext ? null : await takeOwnership(tabId);
+      const owner = ownedInMemory.get(tabId) ?? stored;
       if (!owner) return;
-      ownedInMemory.delete(tabId);
+      if (!retainForNext) ownedInMemory.delete(tabId);
       let tab: chrome.tabs.Tab;
       try {
         tab = await chrome.tabs.get(tabId);
       } catch {
         return; /* A removed tab is already stopped. */
       }
-      if (!tab.url || (tab.url !== "about:blank" && !playerPage(tab.url)))
-        return;
-      if (
-        allowedPage(tab.url) &&
-        new URL(tab.url).pathname !==
-          `/courses/${owner.courseId}/modules/items/${owner.itemId}`
-      )
-        return;
-      await chrome.tabs.remove(tabId);
+      if (!ownedPage(tab.url, owner)) return;
+      // Revoke in every player frame, including after worker recovery when no
+      // in-memory binding remains. A navigated/removed receiver is already gone.
+      await boundedMessage(tabId, PLAYBACK_PLAYER_REVOKE, {}).catch(
+        () => undefined,
+      );
     },
     async control(address, authorization, action) {
       if (action === "resume")
