@@ -387,6 +387,23 @@ it("reports login, autoplay denial, play rejection and native media errors", asy
   expect(media.player.status).toEqual({ state: "failed", reason: "media" });
 });
 
+it.each([
+  { name: "unsupported intro", content: false, src: "intro.mp4", code: 4 },
+  { name: "cleared lecture", content: true, src: "", code: 4 },
+  { name: "intro decode failure", content: false, src: "", code: 3 },
+])("still fails on $name", async ({ content, src, code }) => {
+  const { video, player } = fixture({ isCompletionMedia: () => content });
+  video.setAttribute("src", src);
+  Object.defineProperty(video, "srcObject", { value: null });
+  const error = nativeSignal(video, "error");
+  await player.start();
+  Object.defineProperty(video, "error", { value: { code } });
+
+  error();
+
+  expect(player.status).toEqual({ state: "failed", reason: "media" });
+});
+
 it("retries autoplay denial once muted and reports fixed diagnostic codes", async () => {
   const onDiagnostic = vi.fn();
   const { video, play, player } = fixture({ onDiagnostic });

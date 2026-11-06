@@ -59,9 +59,13 @@ function playerHtml(id: string, withIntro = false): string {
           proceed.textContent = "Continue lecture";
           proceed.onclick = () => {
             proceed.remove();
-            video.src = URL.createObjectURL(blob);
+            video.addEventListener("error", () => {
+              video.src = URL.createObjectURL(blob);
+              video.load();
+              void video.play();
+            }, { once: true });
+            video.src = "";
             video.load();
-            void video.play();
           };
           document.body.append(proceed);
         });

@@ -487,6 +487,15 @@ it.each(["lecture", "intro"] as const)(
     if (initialMedia === "intro") {
       native("ended");
       await Promise.resolve();
+      // KU clears the intro before loading the lecture. Chrome reports this
+      // empty source as a native MEDIA_ERR_SRC_NOT_SUPPORTED event.
+      fixture.video.setAttribute("src", "");
+      Object.defineProperty(fixture.video, "srcObject", { value: null });
+      Object.defineProperty(fixture.video, "error", {
+        configurable: true,
+        value: { code: 4 },
+      });
+      native("error");
       expect(
         fixture.sendMessage.mock.calls.filter(([m]) =>
           ["ended", "paused", "failed"].includes(m.state ?? ""),
@@ -495,6 +504,11 @@ it.each(["lecture", "intro"] as const)(
 
       // KU reuses the same primary element for the actual lecture after its intro.
       source = "https://kucom.korea.ac.kr/lecture.mp4";
+      fixture.video.src = source;
+      Object.defineProperty(fixture.video, "error", {
+        configurable: true,
+        value: null,
+      });
       fixture.video.currentTime = 0;
       Object.defineProperty(fixture.video, "ended", {
         configurable: true,

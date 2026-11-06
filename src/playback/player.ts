@@ -302,6 +302,17 @@ export class PlaybackPlayer {
     };
     const error = (event: Event) => {
       if (event.isTrusted && current() && this.video.error) {
+        // KU clears the finished intro's src before assigning lecture media.
+        // Chrome reports that empty source as MEDIA_ERR_SRC_NOT_SUPPORTED.
+        if (
+          this.options.isCompletionMedia?.() === false &&
+          this.video.error.code === 4 &&
+          this.video.getAttribute("src") === "" &&
+          this.video.srcObject === null
+        ) {
+          resetEvidence();
+          return;
+        }
         this.clearCompletionEvidence();
         this.detachEvents?.();
         this.detachEvents = undefined;
