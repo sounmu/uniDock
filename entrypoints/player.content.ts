@@ -1,6 +1,7 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { PlaybackPlayer, type PlaybackStatus } from "../src/playback/player";
 import { initializeKuLecture } from "../src/playback/ku-player";
+import { observeKuResume } from "../src/playback/ku-resume";
 import {
   backgroundSender,
   isPlayerBinding,
@@ -36,6 +37,8 @@ export default defineContentScript({
     let closed = false,
       connecting = false;
     let expiry: ReturnType<typeof setTimeout> | undefined;
+    let leaseUntil = 0;
+    let stopResumeObserver: (() => void) | undefined;
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     let authorizationGeneration = 0;
     let dormant = false;
@@ -105,6 +108,7 @@ export default defineContentScript({
       clearTimeout(expiry);
       clearTimeout(heartbeat);
       clearTimeout(discoveryTimer);
+      stopResumeObserver?.();
       initialization?.abort();
       initialization = null;
       observer.disconnect();
@@ -181,6 +185,7 @@ export default defineContentScript({
       )
         return false;
       binding = value.binding;
+      leaseUntil = Math.min(value.leaseUntil, binding.deadline);
       dormant = false;
       const generation = ++authorizationGeneration;
       clearTimeout(expiry);
@@ -195,7 +200,7 @@ export default defineContentScript({
           void signal({ state: "failed", reason: "timeout" });
           stop();
         },
-        Math.max(0, Math.min(value.leaseUntil, binding.deadline) - Date.now()),
+        Math.max(0, leaseUntil - Date.now()),
       );
       clearTimeout(heartbeat);
       heartbeat = setTimeout(() => {
@@ -384,6 +389,16 @@ export default defineContentScript({
           return;
         }
         await player.start();
+        if (kuPlayer && current()) {
+          stopResumeObserver = observeKuResume(
+            document,
+            () =>
+              current() &&
+              !dormant &&
+              leaseUntil > Date.now() &&
+              player?.status.state === "playing",
+          );
+        }
         visibleOnly();
       } catch {
         diagnostic("KU_INITIALIZATION_FAILED");

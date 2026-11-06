@@ -11,7 +11,7 @@ const origin = "https://mylms.korea.ac.kr";
 const kuPlayer = "https://kucom.korea.ac.kr";
 
 function playerHtml(id: string, withIntro = false): string {
-  return `<!doctype html><html><title>Synthetic Player ${id}</title><body>
+  return `<!doctype html><html><meta charset="utf-8"><title>Synthetic Player ${id}</title><body>
     <script>
       const video = document.createElement("video");
       for (let i = 0; i < 10; i++) {
@@ -55,10 +55,13 @@ function playerHtml(id: string, withIntro = false): string {
         };
         video.addEventListener("ended", () => {
           if (!isIntro()) return;
-          const proceed = document.createElement("button");
-          proceed.textContent = "Continue lecture";
+          const prompt = document.createElement("div");
+          prompt.className = "confirm-msg-box";
+          prompt.innerHTML = '<div class="confirm-msg-text">이전에 시청했던 00:00부터 이어서 보시겠습니까?</div><div class="confirm-ok-btn" role="button">예</div><div class="confirm-cancel-btn" role="button">아니오</div>';
+          const proceed = prompt.querySelector(".confirm-ok-btn");
           proceed.onclick = () => {
-            proceed.remove();
+            video.dataset.resumeAccepted = "true";
+            prompt.remove();
             video.addEventListener("error", () => {
               video.src = URL.createObjectURL(blob);
               video.load();
@@ -67,7 +70,7 @@ function playerHtml(id: string, withIntro = false): string {
             video.src = "";
             video.load();
           };
-          document.body.append(proceed);
+          document.body.append(prompt);
         });
         document.body.append(start);
         const helper = document.createElement("video");
@@ -1264,18 +1267,20 @@ test("production extension plays a click-ordered playlist and explicitly recover
       .pages()
       .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
     expect(secondPage).toBeDefined();
-    const continueLecture = secondPage!
+    const lectureAfterResume = secondPage!
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
-      .getByRole("button", { name: "Continue lecture" });
-    await expect(continueLecture).toBeVisible();
-    // A real native intro end must retain this tab and both playlist items.
+      .locator("video#lecture");
+    await expect(lectureAfterResume).toHaveAttribute(
+      "data-resume-accepted",
+      "true",
+    );
+    // Auto-accepting the prompt after the intro must not advance the playlist.
     await expect(panel.locator(".playback-current")).toContainText(
       "두 번째 합성 영상",
     );
     await expect(panel.locator(".playback-queue")).toContainText(
       "첫 번째 합성 영상",
     );
-    await continueLecture.click();
     await expect
       .poll(() =>
         secondPage!

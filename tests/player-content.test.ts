@@ -613,6 +613,36 @@ it("revokes owned playback only for an exact background revocation", async () =>
   expect(fixture.play).toHaveBeenCalledOnce();
 });
 
+it("accepts the KU resume prompt only while the bound player is active", async () => {
+  const fixture = setup();
+  document.body.append(fixture.video);
+  const prompt = document.createElement("div");
+  prompt.className = "confirm-msg-box";
+  prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 32:33부터 이어서 보시겠습니까?</div>
+    <div class="confirm-ok-btn" role="button">예</div>
+    <div class="confirm-cancel-btn" role="button">아니오</div>`;
+  const yes = prompt.querySelector(".confirm-ok-btn");
+  if (!yes) throw new Error("missing resume action");
+  const accepted = vi.fn();
+  yes.addEventListener("click", accepted);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 100, 40),
+  );
+  document.body.append(prompt);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  await Promise.resolve();
+  expect(accepted).toHaveBeenCalledOnce();
+
+  await fixture.control("pause").done;
+  prompt.style.display = "none";
+  await Promise.resolve();
+  prompt.style.display = "block";
+  await Promise.resolve();
+  expect(accepted).toHaveBeenCalledOnce();
+});
+
 it("reports native autoplay denial after one muted retry without restarting", async () => {
   const fixture = setup();
   fixture.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
