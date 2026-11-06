@@ -129,6 +129,89 @@ test("native play is physically rejected after an adapter pause", async ({
   expect(evidence.elapsed).toBeLessThan(0.05);
 });
 
+test("revocation stops native media recovered after a player failure", async ({
+  page,
+}, testInfo) => {
+  await page.goto("about:blank");
+  await page.setContent("<video muted playsinline></video>");
+  await installPlaybackPlayer(page);
+  const evidence = await page.evaluate(async () => {
+    const video = document.querySelector("video");
+    if (!video) throw new Error("missing video");
+    const canvas = document.createElement("canvas");
+    const paint = canvas.getContext("2d");
+    if (!paint) throw new Error("missing canvas context");
+    const timer = setInterval(() => paint.fillRect(0, 0, 64, 48), 40);
+    const stream = canvas.captureStream(24);
+    const invalidMedia = URL.createObjectURL(
+      new Blob(["invalid media"], { type: "video/webm" }),
+    );
+    try {
+      const metadata = new Promise<void>((resolve) =>
+        video.addEventListener("loadedmetadata", () => resolve(), {
+          once: true,
+        }),
+      );
+      video.srcObject = stream;
+      await metadata;
+      const player = new (window as any).PlaybackPlayer(video);
+      await player.start();
+      const failed = new Promise<boolean>((resolve) =>
+        video.addEventListener("error", (event) => resolve(event.isTrusted), {
+          once: true,
+        }),
+      );
+      video.srcObject = null;
+      video.src = invalidMedia;
+      video.load();
+      const trustedError = await failed;
+      const failedState = player.status.state;
+      const errorCode = video.error?.code;
+
+      video.srcObject = stream;
+      await video.play();
+      const recovered = !video.paused;
+      const paused = new Promise<void>((resolve) =>
+        video.addEventListener("pause", () => resolve(), { once: true }),
+      );
+      player.invalidate();
+      await paused;
+      const revoked = {
+        state: player.status.state,
+        paused: video.paused,
+      };
+      await video.play();
+      player.invalidate();
+      return {
+        trustedError,
+        errorCode,
+        failedState,
+        recovered,
+        revoked,
+        manualPlayback: !video.paused,
+      };
+    } finally {
+      video.pause();
+      clearInterval(timer);
+      stream.getTracks().forEach((track) => track.stop());
+      URL.revokeObjectURL(invalidMedia);
+    }
+  });
+  expect(evidence).toEqual({
+    trustedError: true,
+    errorCode: 4,
+    failedState: "failed",
+    recovered: true,
+    revoked: { state: "stopped", paused: true },
+    manualPlayback: true,
+  });
+  expect(page.isClosed()).toBe(false);
+  await testInfo.attach("failed-player-revocation", {
+    body: Buffer.from(JSON.stringify(evidence)),
+    contentType: "application/json",
+  });
+});
+
 test("finite native media keeps completion proof across only an unchanged pause", async ({
   page,
 }) => {

@@ -409,6 +409,40 @@ it.each([
   expect(player.status).toEqual({ state: "failed", reason: "media" });
 });
 
+it("revocation pauses media recovered by the page after an adapter failure", async () => {
+  const { video, player, play, pause } = fixture();
+  let paused = true;
+  Object.defineProperty(video, "paused", { get: () => paused });
+  play.mockImplementation(async () => {
+    paused = false;
+  });
+  pause.mockImplementation(() => {
+    paused = true;
+  });
+  const error = nativeSignal(video, "error");
+  await player.start();
+  Object.defineProperty(video, "error", {
+    configurable: true,
+    value: { code: 3 },
+  });
+  error();
+  expect(player.status).toEqual({ state: "failed", reason: "media" });
+
+  Object.defineProperty(video, "error", { configurable: true, value: null });
+  video.src = "https://kucom.korea.ac.kr/recovered.webm";
+  await video.play();
+  expect(video.paused).toBe(false);
+  expect(player.invalidate()).toEqual({ state: "stopped" });
+  expect(video.paused).toBe(true);
+  expect(pause).toHaveBeenCalledOnce();
+
+  // After revocation the page belongs to the user, not the retired adapter.
+  await video.play();
+  player.invalidate();
+  expect(video.paused).toBe(false);
+  expect(pause).toHaveBeenCalledOnce();
+});
+
 it("retries autoplay denial once muted and reports fixed diagnostic codes", async () => {
   const onDiagnostic = vi.fn();
   const { video, play, player } = fixture({ onDiagnostic });
