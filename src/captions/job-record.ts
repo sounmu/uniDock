@@ -41,11 +41,14 @@ export interface ActiveJob {
   key: string;
 }
 
-export async function loadActiveJob(): Promise<ActiveJob | null> {
-  const values = await chrome.storage.local.get(CAPTION_ACTIVE_JOB_KEY);
-  const value = values[CAPTION_ACTIVE_JOB_KEY] as Partial<ActiveJob> | undefined;
-  const jobId = value?.jobId;
-  const key = value?.key;
+/** Accepted jobs kept for resuming; one per lecture, oldest dropped first. */
+export const MAX_ACTIVE_JOBS = 8;
+const RECORD_LOCK = "unidock-caption-active-jobs";
+
+function parseJob(value: unknown): ActiveJob | null {
+  const job = value as Partial<ActiveJob> | null | undefined;
+  const jobId = job?.jobId;
+  const key = job?.key;
   return typeof jobId === "string" &&
     /^[\w-]{1,128}$/.test(jobId) &&
     typeof key === "string" &&
@@ -54,12 +57,38 @@ export async function loadActiveJob(): Promise<ActiveJob | null> {
     : null;
 }
 
-export async function saveActiveJob(job: ActiveJob): Promise<void> {
-  await chrome.storage.local.set({
-    [CAPTION_ACTIVE_JOB_KEY]: { jobId: job.jobId, key: job.key },
+/** Reads the stored list; a 0.5.3 single record is read as a list of one. */
+export function parseActiveJobs(value: unknown): ActiveJob[] {
+  const jobs: ActiveJob[] = [];
+  for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) {
+    const job = parseJob(item);
+    if (job && !jobs.some((j) => j.key === job.key || j.jobId === job.jobId)) jobs.push(job);
+  }
+  return jobs.slice(-MAX_ACTIVE_JOBS);
+}
+
+export async function loadActiveJobs(): Promise<ActiveJob[]> {
+  const values = await chrome.storage.local.get(CAPTION_ACTIVE_JOB_KEY);
+  return parseActiveJobs(values[CAPTION_ACTIVE_JOB_KEY]);
+}
+
+/** Panels and the worker both edit the list; the lock keeps their edits from overwriting each other. */
+function editActiveJobs(edit: (jobs: ActiveJob[]) => ActiveJob[]): Promise<void> {
+  return navigator.locks.request(RECORD_LOCK, async () => {
+    const jobs = edit(await loadActiveJobs()).slice(-MAX_ACTIVE_JOBS);
+    if (jobs.length) await chrome.storage.local.set({ [CAPTION_ACTIVE_JOB_KEY]: jobs });
+    else await chrome.storage.local.remove(CAPTION_ACTIVE_JOB_KEY);
   });
 }
 
-export async function clearActiveJob(): Promise<void> {
-  await chrome.storage.local.remove(CAPTION_ACTIVE_JOB_KEY);
+export function saveActiveJob(job: ActiveJob): Promise<void> {
+  const saved = { jobId: job.jobId, key: job.key };
+  return editActiveJobs((jobs) => [
+    ...jobs.filter((j) => j.key !== saved.key && j.jobId !== saved.jobId),
+    saved,
+  ]);
+}
+
+export function clearActiveJob(jobId: string): Promise<void> {
+  return editActiveJobs((jobs) => jobs.filter((j) => j.jobId !== jobId));
 }

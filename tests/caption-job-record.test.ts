@@ -3,8 +3,9 @@ import {
   CAPTION_ACTIVE_JOB_KEY,
   CAPTION_INSTALL_SALT_KEY,
   captionJobKey,
+  MAX_ACTIVE_JOBS,
   clearActiveJob,
-  loadActiveJob,
+  loadActiveJobs,
   saveActiveJob,
 } from "../src/captions/job-record";
 
@@ -42,21 +43,39 @@ it("gives a different key on another install (salt)", async () => {
   expect(await captionJobKey("0123456789abc")).not.toBe(first);
 });
 
-it("stores, reads and clears the accepted job with its lecture key", async () => {
+it("keeps one accepted job per lecture and clears jobs one at a time", async () => {
   const key = await captionJobKey("0123456789abc");
-  expect(await loadActiveJob()).toBeNull();
+  const other = await captionJobKey("0123456789abd");
+  expect(await loadActiveJobs()).toEqual([]);
   await saveActiveJob({ jobId: "job_1", key });
-  expect(await loadActiveJob()).toEqual({ jobId: "job_1", key });
-  for (const bad of [
+  await saveActiveJob({ jobId: "job_2", key: other });
+  expect(await loadActiveJobs()).toEqual([{ jobId: "job_1", key }, { jobId: "job_2", key: other }]);
+  await saveActiveJob({ jobId: "job_3", key });
+  expect(await loadActiveJobs()).toEqual([{ jobId: "job_2", key: other }, { jobId: "job_3", key }]);
+  await clearActiveJob("job_2");
+  expect(await loadActiveJobs()).toEqual([{ jobId: "job_3", key }]);
+  await clearActiveJob("job_3");
+  expect(CAPTION_ACTIVE_JOB_KEY in store).toBe(false);
+});
+
+it("reads a 0.5.3 single record and skips malformed entries", async () => {
+  const key = await captionJobKey("0123456789abc");
+  store[CAPTION_ACTIVE_JOB_KEY] = { jobId: "job_1", key };
+  expect(await loadActiveJobs()).toEqual([{ jobId: "job_1", key }]);
+  store[CAPTION_ACTIVE_JOB_KEY] = [
     "job_1",
     { jobId: "bad id/..", key },
     { jobId: "job_1", key: "0123456789abc" },
     { jobId: "job_1" },
-  ]) {
-    store[CAPTION_ACTIVE_JOB_KEY] = bad;
-    expect(await loadActiveJob()).toBeNull();
-  }
-  await saveActiveJob({ jobId: "job_2", key });
-  await clearActiveJob();
-  expect(await loadActiveJob()).toBeNull();
+    { jobId: "job_2", key },
+  ];
+  expect(await loadActiveJobs()).toEqual([{ jobId: "job_2", key }]);
+});
+
+it("keeps at most MAX_ACTIVE_JOBS records, dropping the oldest", async () => {
+  for (let i = 0; i <= MAX_ACTIVE_JOBS; i++)
+    await saveActiveJob({ jobId: `job_${i}`, key: await captionJobKey(`lecture${i}`) });
+  const jobs = await loadActiveJobs();
+  expect(jobs).toHaveLength(MAX_ACTIVE_JOBS);
+  expect(jobs[0]?.jobId).toBe("job_1");
 });

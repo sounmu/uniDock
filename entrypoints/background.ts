@@ -19,6 +19,7 @@ import {
   itemKey,
   stableId,
   type PlayerSignal,
+  type PlaybackSnapshot,
   type PlaybackSource,
 } from "../src/playback/bridge";
 import { validHandle } from "../src/protocol";
@@ -45,6 +46,12 @@ import {
   syncPopupAutoClose,
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
+import { ProgressHub } from "../src/progress-hub";
+import {
+  CAPTION_JOB_ALARM,
+  CAPTION_JOB_PORT,
+  CaptionJobMonitor,
+} from "../src/captions/job-monitor";
 import { withCaptionCacheLock } from "../src/captions/transcript-cache";
 import { CAPTION_SESSION_KEY, revokeAndClear } from "../src/caption-server-settings";
 import {
@@ -468,6 +475,36 @@ export default defineBackground(() => {
     chrome.runtime.onConnect
   )
     void installCaptionRuleCleanup(panelSender);
+  const progress = __UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__ ? new ProgressHub() : null;
+  if (progress && chrome.tabs?.onUpdated)
+    chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+      if (change.status === "complete") progress.tabReady(tabId, tab.url);
+    });
+  const captionJobs =
+    __UNIDOCK_AI_CAPTIONS__ && chrome.runtime.onConnect
+      ? new CaptionJobMonitor(undefined, (jobs) => progress?.setCaptions(jobs))
+      : null;
+  if (__UNIDOCK_AI_CAPTIONS__ && captionJobs) {
+    chrome.runtime.onConnect.addListener((port) => {
+      if (port.name !== CAPTION_JOB_PORT) return;
+      if (!port.sender || !panelSender(port.sender)) return port.disconnect();
+      captionJobs.connect(port);
+    });
+    // Builds without playback have no alarms grant; the alarm is only a
+    // restart backstop, so following still works without it.
+    chrome.alarms?.onAlarm?.addListener((alarm) => {
+      if (alarm.name === CAPTION_JOB_ALARM) void captionJobs.resume();
+    });
+    chrome.storage?.onChanged?.addListener((changes, area) =>
+      captionJobs.storageChanged(changes, area),
+    );
+    // The alarm exists only while a job is followed, so an idle worker boot
+    // reads no caption storage.
+    void chrome.alarms
+      ?.get?.(CAPTION_JOB_ALARM)
+      ?.then((alarm) => (alarm ? captionJobs.resume() : undefined))
+      .catch(() => {});
+  }
   chrome.runtime.onInstalled?.addListener((details) => {
     void markUpdate(details);
     void reinjectLmsContentScripts(details);
@@ -530,7 +567,20 @@ export default defineBackground(() => {
   chrome.permissions?.onRemoved?.addListener(() =>
     popupTask(() => syncPopupAutoClose(true)),
   );
-  const notifyPlayback = () => {
+  // Reuses the snapshot a command already returned (an error changed nothing);
+  // reads status only after events that return no command result.
+  const notifyPlayback = (outcome?: unknown) => {
+    const known = outcome as { status?: unknown; snapshot?: PlaybackSnapshot } | undefined;
+    if (progress && playback) {
+      if (known?.status === "success" && known.snapshot) progress.setPlayback(known.snapshot);
+      else if (known?.status !== "error")
+        void playback
+          .command({ version: 1, type: "PLAYBACK_STATUS" })
+          .then((result) => {
+            if (result.status === "success") progress.setPlayback(result.snapshot);
+          })
+          .catch(() => {});
+    }
     try {
       void chrome.runtime
         .sendMessage({ version: 1, type: "PLAYBACK_UPDATED" })
@@ -540,6 +590,16 @@ export default defineBackground(() => {
     }
   };
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
+    if (
+      progress &&
+      object(message) &&
+      message.version === 1 &&
+      message.type === "PROGRESS_GET" &&
+      Object.keys(message).length === 2
+    ) {
+      respond(panelSender(sender) ? progress.state() : null);
+      return false;
+    }
     if (isAnalyticsCommand(message)) {
       if (!panelSender(sender)) {
         respond({ ok: false });
@@ -615,7 +675,7 @@ export default defineBackground(() => {
         .then(
           (result) => {
             respond(result);
-            notifyPlayback();
+            notifyPlayback(result);
           },
           () => respond({ status: "error", code: "STORAGE" }),
         );
@@ -635,7 +695,8 @@ export default defineBackground(() => {
         // change the outcome of the command that caused it. STATUS is the read
         // used to consume this invalidation, so broadcasting it would loop.
         respond(result);
-        if (message.type !== "PLAYBACK_STATUS") notifyPlayback();
+        if (message.type !== "PLAYBACK_STATUS") notifyPlayback(result);
+        else if (progress && result.status === "success") progress.setPlayback(result.snapshot);
       });
       return true;
     }
@@ -715,7 +776,7 @@ export default defineBackground(() => {
       void playback.startup().then(notifyPlayback);
     };
     chrome.alarms.onAlarm.addListener((alarm) => {
-      if (alarm.name === ANALYTICS_ALARM) return;
+      if (alarm.name === ANALYTICS_ALARM || alarm.name === CAPTION_JOB_ALARM) return;
       void playback.alarm(alarm.name).then(notifyPlayback);
     });
     chrome.runtime.onStartup?.addListener(recover);

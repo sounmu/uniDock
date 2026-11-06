@@ -9,6 +9,8 @@ import {
 } from "../src/course-selector-registry";
 import { safeDownloadPath } from "../src/security/download";
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { isProgressState } from "../src/progress";
+import { createProgressToast } from "../src/progress-toast";
 import { listCourseIndex, listQuery } from "../src/api/client";
 import { learningxToken } from "../src/security/learningx-token";
 import {
@@ -294,6 +296,7 @@ export default defineContentScript({
   allFrames: false,
   main() {
     const documentToken = crypto.randomUUID();
+    let progressToast: ReturnType<typeof createProgressToast> | undefined;
     const catalogs = new NavigationCatalogRegistry();
     const courseSelectors = new CourseSelectorRegistry();
     const cache = new QueryResultCache();
@@ -685,6 +688,14 @@ export default defineContentScript({
     }
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        if (
+          (__UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__) &&
+          isProgressState(message) &&
+          backgroundSender(sender)
+        ) {
+          (progressToast ??= createProgressToast()).update(message.items);
+          return false;
+        }
         // Lets background skip re-injection where this extension copy is live.
         if (
           object(message) &&
