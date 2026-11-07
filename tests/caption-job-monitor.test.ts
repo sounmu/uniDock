@@ -128,6 +128,22 @@ it("forgets a failed job and stops its alarm", async () => {
   expect(vi.getTimerCount()).toBe(0);
 });
 
+it("keeps following a job through a transient network error", async () => {
+  getJob
+    .mockResolvedValueOnce(job("running"))
+    .mockRejectedValueOnce(Object.assign(new Error("offline"), { code: "NETWORK" }))
+    .mockResolvedValueOnce(job("succeeded", { transcriptId: "t_1" }));
+  monitor.track("job_1", KEY);
+  await vi.advanceTimersByTimeAsync(CAPTION_POLL_MS.unwatchedRunning);
+  expect(getJob).toHaveBeenCalledTimes(2);
+  expect(alarm.clear).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(CAPTION_POLL_MS.unwatchedRunning);
+  expect(getJob).toHaveBeenCalledTimes(3);
+  expect(saveCachedTranscript).toHaveBeenCalledOnce();
+  expect(clearActiveJob).not.toHaveBeenCalled();
+  expect(alarm.clear).toHaveBeenCalled();
+});
+
 it("resumes a saved unfinished job but not one whose transcript is cached", async () => {
   loadActiveJobs.mockResolvedValue([{ jobId: "job_1", key: KEY }]);
   loadCachedTranscript.mockResolvedValueOnce({ items: [] });

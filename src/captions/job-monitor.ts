@@ -58,6 +58,9 @@ export const CAPTION_POLL_MS = {
   unwatchedQueued: 25_000,
 } as const;
 
+/** Errors that say nothing about the job itself: the worker keeps following it. */
+const TRANSIENT = new Set(["NETWORK", "SERVER", "UNAVAILABLE", "RATE_LIMITED"]);
+
 const JOB_ID = /^[\w-]{1,128}$/;
 const JOB_KEY = /^unidock-[0-9a-f]{40}$/;
 
@@ -298,64 +301,90 @@ export class CaptionJobMonitor {
   private async follow(job: Job, run: Run): Promise<void> {
     const { signal } = run.controller;
     const live = () => job.run === run && !signal.aborted;
+    let epoch: Awaited<ReturnType<typeof readCaptionCacheEpoch>>;
     try {
-      const epoch = await readCaptionCacheEpoch();
-      const current = async () => {
-        const latest = await readCaptionCacheEpoch();
-        if (!live()) return false;
-        if (latest === epoch) return true;
-        this.drop(job.jobId);
-        return false;
-      };
-      while (live()) {
-        const status = await getJob(job.jobId, signal);
-        if (!live()) return;
-        const next = serverPhase(status.state);
-        if (!next) return this.finish(job, run, { phase: "failed", errorCode: "RESPONSE" });
-        const workerOffline =
-          next === "queued" &&
-          (await getWorkerStatus(signal).catch(() => "online" as const)) === "offline";
-        if (!live()) return;
-        const serverProgress = status.progress ?? null;
-        if (next === "succeeded") {
-          if (!status.transcriptId)
-            return this.finish(job, run, { phase: "failed", errorCode: "RESPONSE" });
-          if (!(await current())) return;
-          const server = await getTranscript(status.transcriptId, signal);
-          if (!(await current())) return;
-          const value: CachedTranscript = {
-            items: projectServerSegments(server.segments),
-            engine: server.engine,
-            modelRevision: server.modelRevision,
-            expiresAt: server.expiresAt,
-            extractedAt: new Date().toISOString(),
-          };
-          await saveCachedTranscript(job.key, value, epoch).catch(() =>
-            safeLog("REQUEST_FAILED"),
-          );
-          if (!(await current())) return;
-          job.result = value;
-          return this.finish(job, run, { phase: "succeeded", serverProgress, workerOffline });
-        }
-        if (next === "failed" || next === "cancelled") {
-          this.finish(job, run, {
-            phase: next,
-            serverProgress,
-            errorCode: next === "failed" ? status.errorCode || "FAILED" : null,
-          });
-          await clearActiveJob(job.jobId).catch(() => safeLog("REQUEST_FAILED"));
-          return;
-        }
-        job.snapshot = { ...job.snapshot, phase: next, serverProgress, workerOffline };
-        this.publish(job);
-        await this.sleep(run, this.delay(job, next, workerOffline));
-      }
+      epoch = await readCaptionCacheEpoch();
     } catch (error) {
+      if (live()) this.finish(job, run, { phase: "failed", errorCode: errorCode(error) });
+      return;
+    }
+    const current = async () => {
+      const latest = await readCaptionCacheEpoch();
+      if (!live()) return false;
+      if (latest === epoch) return true;
+      this.drop(job.jobId);
+      return false;
+    };
+    while (live()) {
+      try {
+        await this.poll(job, run, live, current, epoch);
+        return;
+      } catch (error) {
+        if (!live()) return;
+        const code = errorCode(error);
+        // The server job goes on while this worker is offline; keep polling it.
+        if (TRANSIENT.has(code)) {
+          await this.sleep(run, this.delay(job, job.snapshot.phase, false));
+          continue;
+        }
+        this.finish(job, run, { phase: "failed", errorCode: code });
+        if (code === "EXPIRED")
+          await clearActiveJob(job.jobId).catch(() => safeLog("REQUEST_FAILED"));
+        return;
+      }
+    }
+  }
+
+  private async poll(
+    job: Job,
+    run: Run,
+    live: () => boolean,
+    current: () => Promise<boolean>,
+    epoch: Awaited<ReturnType<typeof readCaptionCacheEpoch>>,
+  ): Promise<void> {
+    const { signal } = run.controller;
+    while (live()) {
+      const status = await getJob(job.jobId, signal);
       if (!live()) return;
-      const code = errorCode(error);
-      this.finish(job, run, { phase: "failed", errorCode: code });
-      if (code === "EXPIRED")
+      const next = serverPhase(status.state);
+      if (!next) return this.finish(job, run, { phase: "failed", errorCode: "RESPONSE" });
+      const workerOffline =
+        next === "queued" &&
+        (await getWorkerStatus(signal).catch(() => "online" as const)) === "offline";
+      if (!live()) return;
+      const serverProgress = status.progress ?? null;
+      if (next === "succeeded") {
+        if (!status.transcriptId)
+          return this.finish(job, run, { phase: "failed", errorCode: "RESPONSE" });
+        if (!(await current())) return;
+        const server = await getTranscript(status.transcriptId, signal);
+        if (!(await current())) return;
+        const value: CachedTranscript = {
+          items: projectServerSegments(server.segments),
+          engine: server.engine,
+          modelRevision: server.modelRevision,
+          expiresAt: server.expiresAt,
+          extractedAt: new Date().toISOString(),
+        };
+        await saveCachedTranscript(job.key, value, epoch).catch(() =>
+          safeLog("REQUEST_FAILED"),
+        );
+        if (!(await current())) return;
+        job.result = value;
+        return this.finish(job, run, { phase: "succeeded", serverProgress, workerOffline });
+      }
+      if (next === "failed" || next === "cancelled") {
+        this.finish(job, run, {
+          phase: next,
+          serverProgress,
+          errorCode: next === "failed" ? status.errorCode || "FAILED" : null,
+        });
         await clearActiveJob(job.jobId).catch(() => safeLog("REQUEST_FAILED"));
+        return;
+      }
+      job.snapshot = { ...job.snapshot, phase: next, serverProgress, workerOffline };
+      this.publish(job);
+      await this.sleep(run, this.delay(job, next, workerOffline));
     }
   }
 }
