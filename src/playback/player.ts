@@ -30,6 +30,8 @@ export interface PlaybackOptions {
   isLoginPage?: () => boolean;
   /** The caller supplies frame visibility so native controls cannot bypass visible-only playback. */
   isVisible?: () => boolean;
+  /** Intermediary media can end on the same element before the actual content starts. */
+  isCompletionMedia?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
   /** Bounds metadata and play() waits. Clamped to 1..30000 ms. */
   timeoutMs?: number;
@@ -44,8 +46,10 @@ export class PlaybackPlayer {
   private statusValue: PlaybackStatus = { state: "idle" };
   private cancelPending = new Set<() => void>();
   private detachEvents?: () => void;
+  private pendingResumePosition?: number;
   private completionEvidence?: {
     progressSeconds: number;
+    minimumProgressSeconds: number;
     source: string;
     sourceObject: HTMLVideoElement["srcObject"];
     position: number;
@@ -86,6 +90,8 @@ export class PlaybackPlayer {
 
   private set(status: PlaybackStatus): PlaybackStatus {
     this.statusValue = status;
+    if (status.state !== "playing" && status.state !== "starting")
+      this.pendingResumePosition = undefined;
     this.options.onStateChange?.(status);
     return status;
   }
@@ -140,6 +146,12 @@ export class PlaybackPlayer {
     return this.play();
   }
 
+  /** Record an accepted site prompt; only a matching native playing event can use it. */
+  expectNativeResume(positionSeconds: number): void {
+    if (this.status.state === "playing")
+      this.pendingResumePosition = positionSeconds;
+  }
+
   resume(): Promise<PlaybackStatus> {
     if (this.status.state !== "paused") return Promise.resolve(this.status);
     this.retainEvidenceForResume();
@@ -177,11 +189,20 @@ export class PlaybackPlayer {
       return true;
     };
     const nativePlaying = (event: Event) => {
+      // An accepted resume exactly at duration may already be paused when its
+      // trusted playing callback runs. It still needs the matching native end.
       if (
         rejectUnauthorizedNativePlay(event) ||
         !event.isTrusted ||
         !current() ||
-        this.video.paused ||
+        (this.video.paused &&
+          !(
+            this.video.ended &&
+            this.pendingResumePosition !== undefined &&
+            Math.floor(this.video.currentTime) === this.pendingResumePosition &&
+            this.video.currentTime === this.video.duration &&
+            this.options.isCompletionMedia?.() !== false
+          )) ||
         this.video.seeking
       )
         return;
@@ -197,10 +218,26 @@ export class PlaybackPlayer {
         this.clearCompletionEvidence();
       this.completionEvidence ??= {
         progressSeconds: 0,
+        minimumProgressSeconds: 1,
         source: this.video.currentSrc,
         sourceObject: this.video.srcObject,
         position: this.video.currentTime,
       };
+      if (this.options.isCompletionMedia?.() !== false) {
+        const expected = this.pendingResumePosition;
+        this.pendingResumePosition = undefined;
+        const duration = this.video.duration;
+        const remaining = duration - lastTime;
+        if (
+          expected !== undefined &&
+          Math.floor(lastTime) === expected &&
+          Number.isFinite(duration) &&
+          duration > 0 &&
+          remaining >= 0 &&
+          remaining < 1
+        )
+          this.completionEvidence.minimumProgressSeconds = remaining;
+      }
       this.completionEvidence.pausedPosition = undefined;
       this.options.onDiagnostic?.("NATIVE_PLAYING");
     };
@@ -220,6 +257,7 @@ export class PlaybackPlayer {
       lastWall = performance.now();
       this.completionEvidence ??= {
         progressSeconds: 0,
+        minimumProgressSeconds: 1,
         source: this.video.currentSrc,
         sourceObject: this.video.srcObject,
         position: this.video.currentTime,
@@ -232,7 +270,7 @@ export class PlaybackPlayer {
         !current() ||
         !observedPlaying ||
         this.video.seeking ||
-        this.video.paused
+        (this.video.paused && !this.video.ended)
       )
         return;
       if (!this.visible() || this.video.playbackRate !== 1) {
@@ -267,12 +305,19 @@ export class PlaybackPlayer {
     };
     const ended = (event: Event) => {
       if (event.isTrusted && current() && this.video.ended) {
+        if (this.options.isCompletionMedia?.() === false) {
+          resetEvidence();
+          return;
+        }
+        // Native tail timeupdates arrive with paused=true. Sample the final
+        // position as well, including a sub-second, explicitly accepted resume.
+        progress(event);
         const duration = this.video.duration;
         const evidence = this.completionEvidence;
         if (
           !observedPlaying ||
           !evidence ||
-          evidence.progressSeconds < 1 ||
+          evidence.progressSeconds < evidence.minimumProgressSeconds ||
           this.video.seeking ||
           !this.visible() ||
           this.video.playbackRate !== 1 ||
@@ -296,6 +341,17 @@ export class PlaybackPlayer {
     };
     const error = (event: Event) => {
       if (event.isTrusted && current() && this.video.error) {
+        // KU clears the finished intro's src before assigning lecture media.
+        // Chrome reports that empty source as MEDIA_ERR_SRC_NOT_SUPPORTED.
+        if (
+          this.options.isCompletionMedia?.() === false &&
+          this.video.error.code === 4 &&
+          this.video.getAttribute("src") === "" &&
+          this.video.srcObject === null
+        ) {
+          resetEvidence();
+          return;
+        }
         this.clearCompletionEvidence();
         this.detachEvents?.();
         this.detachEvents = undefined;
@@ -453,13 +509,10 @@ export class PlaybackPlayer {
   /** Terminal for this instance: never restarts or rewinds the video. */
   stop(): PlaybackStatus {
     if (this.status.state === "stopped") return this.status;
-    const shouldPause = ["starting", "playing", "paused"].includes(
-      this.status.state,
-    );
     this.set({ state: "stopped" });
     this.clearCompletionEvidence();
     this.cancel();
-    if (this.ownsVideo() && shouldPause) this.video.pause();
+    if (this.ownsVideo()) this.video.pause();
     return this.status;
   }
 

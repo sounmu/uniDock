@@ -427,63 +427,117 @@ it("accepts only background controls with the current complete binding", async (
   expect(fixture.play).toHaveBeenCalledTimes(2);
 });
 
-it("reports only trusted native ended, not forged ended or native pause before ended", async () => {
-  const fixture = setup();
-  document.body.append(fixture.video);
-  const handlers = new Map<string, EventListener[]>();
-  const add = fixture.video.addEventListener.bind(fixture.video);
-  vi.spyOn(fixture.video, "addEventListener").mockImplementation(
-    (name, handler, options) => {
-      if (typeof handler === "function")
-        handlers.set(name, [...(handlers.get(name) ?? []), handler]);
-      add(name, handler, options);
-    },
-  );
-  const native = (name: string) => {
-    for (const handler of handlers.get(name) ?? [])
-      handler({ isTrusted: true } as Event);
-  };
-  const playing = fixture.event("playing");
-  page.main();
-  await playing;
-  fixture.video.dispatchEvent(new Event("ended"));
-  expect(
-    fixture.sendMessage.mock.calls.some(([m]) => m.state === "ended"),
-  ).toBe(false);
-  const clock = vi.spyOn(performance, "now").mockReturnValue(0);
-  Object.defineProperty(fixture.video, "paused", {
-    configurable: true,
-    value: false,
-  });
-  Object.defineProperty(fixture.video, "duration", {
-    configurable: true,
-    value: 2,
-  });
-  native("playing");
-  for (let time = 0.25; time <= 2; time += 0.25) {
-    clock.mockReturnValue(time * 1000);
-    fixture.video.currentTime = time;
-    native("timeupdate");
-  }
-  Object.defineProperty(fixture.video, "paused", {
-    configurable: true,
-    value: true,
-  });
-  Object.defineProperty(fixture.video, "ended", {
-    configurable: true,
-    value: true,
-  });
-  native("pause");
-  expect(
-    fixture.sendMessage.mock.calls.some(([m]) => m.state === "paused"),
-  ).toBe(false);
-  const ended = fixture.event("ended");
-  native("ended");
-  await ended;
-  expect(
-    fixture.sendMessage.mock.calls.filter(([m]) => m.state === "ended"),
-  ).toHaveLength(1);
-});
+it.each(["lecture", "intro"] as const)(
+  "reports only the lecture end after trusted playback: %s",
+  async (initialMedia) => {
+    const fixture = setup();
+    let source =
+      initialMedia === "intro"
+        ? "https://kucom.korea.ac.kr/settings/viewer/uniplayer/intro.mp4"
+        : "https://kucom.korea.ac.kr/lecture.mp4";
+    Object.defineProperty(fixture.video, "currentSrc", { get: () => source });
+    document.body.append(fixture.video);
+    const handlers = new Map<string, EventListener[]>();
+    const add = fixture.video.addEventListener.bind(fixture.video);
+    vi.spyOn(fixture.video, "addEventListener").mockImplementation(
+      (name, handler, options) => {
+        if (typeof handler === "function")
+          handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+        add(name, handler, options);
+      },
+    );
+    const native = (name: string) => {
+      for (const handler of handlers.get(name) ?? [])
+        handler({ isTrusted: true } as Event);
+    };
+    const playing = fixture.event("playing");
+    page.main();
+    await playing;
+    fixture.video.dispatchEvent(new Event("ended"));
+    expect(
+      fixture.sendMessage.mock.calls.some(([m]) => m.state === "ended"),
+    ).toBe(false);
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    Object.defineProperty(fixture.video, "paused", {
+      configurable: true,
+      value: false,
+    });
+    Object.defineProperty(fixture.video, "duration", {
+      configurable: true,
+      value: 2,
+    });
+    native("playing");
+    for (let time = 0.25; time <= 2; time += 0.25) {
+      clock.mockReturnValue(time * 1000);
+      fixture.video.currentTime = time;
+      native("timeupdate");
+    }
+    Object.defineProperty(fixture.video, "paused", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(fixture.video, "ended", {
+      configurable: true,
+      value: true,
+    });
+    native("pause");
+    expect(
+      fixture.sendMessage.mock.calls.some(([m]) => m.state === "paused"),
+    ).toBe(false);
+    if (initialMedia === "intro") {
+      native("ended");
+      await Promise.resolve();
+      // KU clears the intro before loading the lecture. Chrome reports this
+      // empty source as a native MEDIA_ERR_SRC_NOT_SUPPORTED event.
+      fixture.video.setAttribute("src", "");
+      Object.defineProperty(fixture.video, "srcObject", { value: null });
+      Object.defineProperty(fixture.video, "error", {
+        configurable: true,
+        value: { code: 4 },
+      });
+      native("error");
+      expect(
+        fixture.sendMessage.mock.calls.filter(([m]) =>
+          ["ended", "paused", "failed"].includes(m.state ?? ""),
+        ),
+      ).toHaveLength(0);
+
+      // KU reuses the same primary element for the actual lecture after its intro.
+      source = "https://kucom.korea.ac.kr/lecture.mp4";
+      fixture.video.src = source;
+      Object.defineProperty(fixture.video, "error", {
+        configurable: true,
+        value: null,
+      });
+      fixture.video.currentTime = 0;
+      Object.defineProperty(fixture.video, "ended", {
+        configurable: true,
+        value: false,
+      });
+      Object.defineProperty(fixture.video, "paused", {
+        configurable: true,
+        value: false,
+      });
+      native("loadstart");
+      native("playing");
+      for (let time = 0.25; time <= 2; time += 0.25) {
+        clock.mockReturnValue(2000 + time * 1000);
+        fixture.video.currentTime = time;
+        native("timeupdate");
+      }
+      Object.defineProperty(fixture.video, "ended", {
+        configurable: true,
+        value: true,
+      });
+    }
+    const ended = fixture.event("ended");
+    native("ended");
+    await ended;
+    expect(
+      fixture.sendMessage.mock.calls.filter(([m]) => m.state === "ended"),
+    ).toHaveLength(1);
+  },
+);
 
 it("blocks hidden autoplay and hidden resume without invoking native play", async () => {
   const hidden = setup({ hidden: true });
@@ -512,6 +566,180 @@ it("blocks hidden autoplay and hidden resume without invoking native play", asyn
   expect(resume.respond).toHaveBeenCalledWith({ ok: false });
   expect(fixture.play).toHaveBeenCalledOnce();
 });
+
+it("revokes owned playback only for an exact background revocation", async () => {
+  const fixture = setup();
+  document.body.append(fixture.video);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  const listener = fixture.listeners[0];
+  if (!listener) throw new Error("missing player listener");
+  const message = { version: 1, type: "PLAYBACK_PLAYER_REVOKE" };
+  const respond = vi.fn();
+
+  for (const from of [
+    { ...sender, id: "other-extension" },
+    {
+      ...sender,
+      tab: {
+        id: 9,
+        index: 0,
+        pinned: false,
+        highlighted: true,
+        windowId: 1,
+        active: true,
+        frozen: false,
+        incognito: false,
+        selected: true,
+        discarded: false,
+        autoDiscardable: true,
+        groupId: -1,
+        lastAccessed: 0,
+      },
+    },
+    { ...sender, url: `chrome-extension://${extension}/sidepanel.html` },
+  ]) {
+    expect(listener(message, from, respond)).toBe(false);
+  }
+  expect(listener({ ...message, extra: true }, sender, respond)).toBe(false);
+  expect(fixture.pause).not.toHaveBeenCalled();
+  expect(respond).not.toHaveBeenCalled();
+
+  expect(listener(message, sender, respond)).toBe(false);
+  expect(respond).toHaveBeenCalledExactlyOnceWith({ ok: true });
+  expect(fixture.pause).toHaveBeenCalledOnce();
+  expect(fixture.control("resume").accepted).toBe(false);
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("accepts the KU resume prompt only while the bound player is active", async () => {
+  const fixture = setup();
+  document.body.append(fixture.video);
+  const prompt = document.createElement("div");
+  prompt.className = "confirm-msg-box";
+  prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 32:33부터 이어서 보시겠습니까?</div>
+    <div class="confirm-ok-btn" role="button">예</div>
+    <div class="confirm-cancel-btn" role="button">아니오</div>`;
+  const yes = prompt.querySelector(".confirm-ok-btn");
+  if (!yes) throw new Error("missing resume action");
+  const accepted = vi.fn();
+  yes.addEventListener("click", accepted);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 100, 40),
+  );
+  document.body.append(prompt);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  await Promise.resolve();
+  expect(accepted).toHaveBeenCalledOnce();
+
+  await fixture.control("pause").done;
+  prompt.style.display = "none";
+  await Promise.resolve();
+  prompt.style.display = "block";
+  await Promise.resolve();
+  expect(accepted).toHaveBeenCalledOnce();
+});
+
+it.each(
+  [0, 0.005].flatMap((remaining) =>
+    [
+      { position: "00:01", seekAgain: false, trusted: true, state: "ended" },
+      { position: "00:00", seekAgain: false, trusted: true, state: "paused" },
+      { position: "00:01", seekAgain: true, trusted: true, state: "paused" },
+      { position: "00:01", seekAgain: false, trusted: false, state: "paused" },
+    ].map((scenario) => ({ ...scenario, remaining })),
+  ),
+)(
+  "verifies a short resume end: $position, seek=$seekAgain, trusted=$trusted, remaining=$remaining",
+  async ({ position, seekAgain, trusted, state, remaining }) => {
+    const fixture = setup();
+    let source =
+      "https://kucom.korea.ac.kr/settings/viewer/uniplayer/intro.mp4";
+    let duration = 4;
+    let paused = false;
+    let ended = false;
+    let seeking = false;
+    Object.defineProperties(fixture.video, {
+      currentSrc: { get: () => source },
+      duration: { get: () => duration },
+      paused: { get: () => paused },
+      ended: { get: () => ended },
+      seeking: { get: () => seeking },
+    });
+    const handlers = new Map<string, Set<EventListener>>();
+    const add = fixture.video.addEventListener.bind(fixture.video);
+    const remove = fixture.video.removeEventListener.bind(fixture.video);
+    vi.spyOn(fixture.video, "addEventListener").mockImplementation(
+      (name, handler, options) => {
+        if (typeof handler === "function") {
+          const set = handlers.get(name) ?? new Set<EventListener>();
+          set.add(handler);
+          handlers.set(name, set);
+        }
+        add(name, handler, options);
+      },
+    );
+    vi.spyOn(fixture.video, "removeEventListener").mockImplementation(
+      (name, handler, options) => {
+        if (typeof handler === "function") handlers.get(name)?.delete(handler);
+        remove(name, handler, options);
+      },
+    );
+    const native = (name: string, isTrusted = true) => {
+      for (const handler of [...(handlers.get(name) ?? [])])
+        handler({ isTrusted } as Event);
+    };
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const prompt = document.createElement("div");
+    prompt.className = "confirm-msg-box";
+    prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 ${position}부터 이어서 보시겠습니까?</div>
+      <div class="confirm-ok-btn" role="button">예</div>
+      <div class="confirm-cancel-btn" role="button">아니오</div>`;
+    const yes = prompt.querySelector(".confirm-ok-btn");
+    if (!yes) throw new Error("missing resume action");
+    yes.addEventListener("click", () => {
+      source = "https://kucom.korea.ac.kr/lecture.mp4";
+      duration = 1 + remaining;
+      fixture.video.currentTime = 1;
+      seeking = true;
+      native("loadstart");
+      native("seeking");
+      seeking = false;
+      paused = remaining === 0;
+      ended = remaining === 0;
+      clock.mockReturnValue(1000);
+      native("playing", trusted);
+      if (seekAgain) {
+        native("seeking");
+        native("playing");
+      }
+      clock.mockReturnValue(1010);
+      fixture.video.currentTime = duration;
+      ended = true;
+      paused = true;
+      native("timeupdate");
+      native("pause");
+      native("ended");
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(0, 0, 100, 40),
+    );
+    document.body.append(fixture.video, prompt);
+    const playing = fixture.event("playing");
+    page.main();
+    await playing;
+    await Promise.resolve();
+
+    expect(
+      fixture.sendMessage.mock.calls
+        .filter(([message]) => message.type === "PLAYBACK_PLAYER_EVENT")
+        .map(([message]) => message.state),
+    ).toEqual(["starting", "playing", state]);
+  },
+);
 
 it("reports native autoplay denial after one muted retry without restarting", async () => {
   const fixture = setup();

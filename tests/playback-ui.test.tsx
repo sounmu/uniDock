@@ -624,21 +624,24 @@ it("preserves a login-blocked playlist and offers explicit session recovery", as
   });
 });
 
-it("offers explicit resume for a paused playlist", async () => {
-  setup({
-    ...idle,
-    status: "paused",
-    current: { id: "12:34", courseId: "12" },
-    queue: [{ id: "12:35", courseId: "12" }],
-  });
-  ui = await mount(<PlaybackPanel />);
-  expect(ui.host.textContent).toContain("재생목록이 멈췄습니다");
-  await click("자동 재생 재개");
-  expect(command).toHaveBeenCalledWith({
-    version: 1,
-    type: "PLAYBACK_RESUME",
-  });
-});
+it.each(["paused", "stopped"] as const)(
+  "offers explicit resume for a %s playlist",
+  async (status) => {
+    setup({
+      ...idle,
+      status,
+      current: { id: "12:34", courseId: "12" },
+      queue: [{ id: "12:35", courseId: "12" }],
+    });
+    ui = await mount(<PlaybackPanel />);
+    expect(ui.host.textContent).toContain("재생목록이 멈췄습니다");
+    await click("자동 재생 재개");
+    expect(command).toHaveBeenCalledWith({
+      version: 1,
+      type: "PLAYBACK_RESUME",
+    });
+  },
+);
 
 it("requires confirmation before deleting local playback data", async () => {
   setup();

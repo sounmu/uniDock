@@ -129,6 +129,89 @@ test("native play is physically rejected after an adapter pause", async ({
   expect(evidence.elapsed).toBeLessThan(0.05);
 });
 
+test("revocation stops native media recovered after a player failure", async ({
+  page,
+}, testInfo) => {
+  await page.goto("about:blank");
+  await page.setContent("<video muted playsinline></video>");
+  await installPlaybackPlayer(page);
+  const evidence = await page.evaluate(async () => {
+    const video = document.querySelector("video");
+    if (!video) throw new Error("missing video");
+    const canvas = document.createElement("canvas");
+    const paint = canvas.getContext("2d");
+    if (!paint) throw new Error("missing canvas context");
+    const timer = setInterval(() => paint.fillRect(0, 0, 64, 48), 40);
+    const stream = canvas.captureStream(24);
+    const invalidMedia = URL.createObjectURL(
+      new Blob(["invalid media"], { type: "video/webm" }),
+    );
+    try {
+      const metadata = new Promise<void>((resolve) =>
+        video.addEventListener("loadedmetadata", () => resolve(), {
+          once: true,
+        }),
+      );
+      video.srcObject = stream;
+      await metadata;
+      const player = new (window as any).PlaybackPlayer(video);
+      await player.start();
+      const failed = new Promise<boolean>((resolve) =>
+        video.addEventListener("error", (event) => resolve(event.isTrusted), {
+          once: true,
+        }),
+      );
+      video.srcObject = null;
+      video.src = invalidMedia;
+      video.load();
+      const trustedError = await failed;
+      const failedState = player.status.state;
+      const errorCode = video.error?.code;
+
+      video.srcObject = stream;
+      await video.play();
+      const recovered = !video.paused;
+      const paused = new Promise<void>((resolve) =>
+        video.addEventListener("pause", () => resolve(), { once: true }),
+      );
+      player.invalidate();
+      await paused;
+      const revoked = {
+        state: player.status.state,
+        paused: video.paused,
+      };
+      await video.play();
+      player.invalidate();
+      return {
+        trustedError,
+        errorCode,
+        failedState,
+        recovered,
+        revoked,
+        manualPlayback: !video.paused,
+      };
+    } finally {
+      video.pause();
+      clearInterval(timer);
+      stream.getTracks().forEach((track) => track.stop());
+      URL.revokeObjectURL(invalidMedia);
+    }
+  });
+  expect(evidence).toEqual({
+    trustedError: true,
+    errorCode: 4,
+    failedState: "failed",
+    recovered: true,
+    revoked: { state: "stopped", paused: true },
+    manualPlayback: true,
+  });
+  expect(page.isClosed()).toBe(false);
+  await testInfo.attach("failed-player-revocation", {
+    body: Buffer.from(JSON.stringify(evidence)),
+    contentType: "application/json",
+  });
+});
+
 test("finite native media keeps completion proof across only an unchanged pause", async ({
   page,
 }) => {
@@ -246,3 +329,98 @@ test("finite native media keeps completion proof across only an unchanged pause"
     endedStates: 0,
   });
 });
+
+for (const accepted of [false, true]) {
+  for (const remaining of [0, 0.005]) {
+    test(`a native near-end resume requires explicit acceptance: ${accepted}, remaining=${remaining}`, async ({
+      page,
+    }, testInfo) => {
+      await page.goto("about:blank");
+      await page.setContent("<video muted playsinline></video>");
+      await installPlaybackPlayer(page);
+      const media = (
+        await readFile(path.resolve("tests/fixtures/media/tail.mp4"))
+      ).toString("base64");
+      const evidence = await page.evaluate(
+        async ({ media, accepted, remaining }) => {
+          const video = document.querySelector("video");
+          if (!video) throw new Error("missing video");
+          const metadata = new Promise<void>((resolve) =>
+            video.addEventListener("loadedmetadata", () => resolve(), {
+              once: true,
+            }),
+          );
+          video.src = `data:video/mp4;base64,${media}`;
+          await metadata;
+          const states: string[] = [];
+          const player = new (window as any).PlaybackPlayer(video, {
+            onStateChange: ({ state }: { state: string }) => states.push(state),
+          });
+          await player.start();
+          const target = video.duration - remaining;
+          const playing: Array<{ time: number; trusted: boolean }> = [];
+          const seeked: Array<{
+            time: number;
+            trusted: boolean;
+            ended: boolean;
+          }> = [];
+          video.addEventListener("playing", (event) =>
+            playing.push({ time: video.currentTime, trusted: event.isTrusted }),
+          );
+          video.addEventListener("seeked", (event) =>
+            seeked.push({
+              time: video.currentTime,
+              trusted: event.isTrusted,
+              ended: video.ended,
+            }),
+          );
+          const ended = new Promise<boolean>((resolve) =>
+            video.addEventListener(
+              "ended",
+              (event) => resolve(event.isTrusted),
+              {
+                once: true,
+              },
+            ),
+          );
+          if (accepted) player.expectNativeResume(Math.floor(target));
+          video.currentTime = target;
+          const trustedEnd = await ended;
+          const result = {
+            status: player.status,
+            target,
+            duration: video.duration,
+            time: video.currentTime,
+            trustedEnd,
+            playing,
+            seeked,
+            endedSignals: states.filter((state) => state === "ended").length,
+          };
+          player.stop();
+          return result;
+        },
+        { media, accepted, remaining },
+      );
+      expect(evidence.status, JSON.stringify(evidence)).toEqual(
+        accepted
+          ? { state: "ended" }
+          : { state: "paused", reason: "unverified-end" },
+      );
+      expect(evidence.trustedEnd).toBe(true);
+      expect(
+        evidence.playing.some(
+          (event) => event.trusted && event.time >= evidence.target,
+        ) ||
+          (remaining === 0 &&
+            evidence.seeked.some(
+              (event) => event.trusted && event.time === evidence.duration,
+            )),
+      ).toBe(true);
+      expect(evidence.endedSignals).toBe(accepted ? 1 : 0);
+      await testInfo.attach("near-end-resume", {
+        body: Buffer.from(JSON.stringify(evidence)),
+        contentType: "application/json",
+      });
+    });
+  }
+}

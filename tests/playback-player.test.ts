@@ -150,7 +150,7 @@ it("does not let a late hidden play acceptance resurrect terminal failure", asyn
 });
 
 it("only a trusted native ended event with ended=true completes playback, never credit", async () => {
-  const { video, player } = fixture();
+  const { video, player, pause } = fixture();
   const notify = nativeSignals(video, ["ended", "playing", "timeupdate"]);
   await player.start();
   video.dispatchEvent(new Event("ended"));
@@ -162,6 +162,11 @@ it("only a trusted native ended event with ended=true completes playback, never 
   notify("ended");
   expect(player.status).toEqual({ state: "ended" });
   expect(await player.resume()).toEqual({ state: "ended" });
+  // A retained page can replace the ended lecture with another native asset.
+  Object.defineProperty(video, "ended", { configurable: true, value: false });
+  pause.mockClear();
+  expect(player.stop()).toEqual({ state: "stopped" });
+  expect(pause).toHaveBeenCalledOnce();
 });
 
 it("stops playback if the native player changes away from normal speed", async () => {
@@ -385,6 +390,57 @@ it("reports login, autoplay denial, play rejection and native media errors", asy
   expect(media.player.status.state).toBe("playing");
   error();
   expect(media.player.status).toEqual({ state: "failed", reason: "media" });
+});
+
+it.each([
+  { name: "unsupported intro", content: false, src: "intro.mp4", code: 4 },
+  { name: "cleared lecture", content: true, src: "", code: 4 },
+  { name: "intro decode failure", content: false, src: "", code: 3 },
+])("still fails on $name", async ({ content, src, code }) => {
+  const { video, player } = fixture({ isCompletionMedia: () => content });
+  video.setAttribute("src", src);
+  Object.defineProperty(video, "srcObject", { value: null });
+  const error = nativeSignal(video, "error");
+  await player.start();
+  Object.defineProperty(video, "error", { value: { code } });
+
+  error();
+
+  expect(player.status).toEqual({ state: "failed", reason: "media" });
+});
+
+it("revocation pauses media recovered by the page after an adapter failure", async () => {
+  const { video, player, play, pause } = fixture();
+  let paused = true;
+  Object.defineProperty(video, "paused", { get: () => paused });
+  play.mockImplementation(async () => {
+    paused = false;
+  });
+  pause.mockImplementation(() => {
+    paused = true;
+  });
+  const error = nativeSignal(video, "error");
+  await player.start();
+  Object.defineProperty(video, "error", {
+    configurable: true,
+    value: { code: 3 },
+  });
+  error();
+  expect(player.status).toEqual({ state: "failed", reason: "media" });
+
+  Object.defineProperty(video, "error", { configurable: true, value: null });
+  video.src = "https://kucom.korea.ac.kr/recovered.webm";
+  await video.play();
+  expect(video.paused).toBe(false);
+  expect(player.invalidate()).toEqual({ state: "stopped" });
+  expect(video.paused).toBe(true);
+  expect(pause).toHaveBeenCalledOnce();
+
+  // After revocation the page belongs to the user, not the retired adapter.
+  await video.play();
+  player.invalidate();
+  expect(video.paused).toBe(false);
+  expect(pause).toHaveBeenCalledOnce();
 });
 
 it("retries autoplay denial once muted and reports fixed diagnostic codes", async () => {

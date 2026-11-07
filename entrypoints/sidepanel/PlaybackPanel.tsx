@@ -27,6 +27,7 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
     "과목 확인 필요";
   const resumable = [
     "paused",
+    "stopped",
     "blocked-login",
     "blocked-autoplay",
     "failed",
@@ -44,7 +45,7 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
           title={`자동 재생 · ${status[snapshot?.status ?? "idle"]}`}
           action={
             <div className="header-actions">
-              {hasPlaylist ? (
+              {hasPlaylist && snapshot?.status !== "stopped" ? (
                 <button
                   className="btn-secondary"
                   disabled={stopPending}
@@ -108,7 +109,11 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
         )}
 
         {resumable && snapshot?.status !== "blocked-login" && hasPlaylist && (
-          <Notice error={snapshot?.status !== "paused"}>
+          <Notice
+            error={
+              snapshot?.status !== "paused" && snapshot?.status !== "stopped"
+            }
+          >
             <p>재생목록이 멈췄습니다. 강의 탭을 확인한 뒤 재개하세요.</p>
             <button
               className="btn-primary"
@@ -160,9 +165,7 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
         )}
 
         <details className="guidance">
-          <summary>
-            안내 및 로컬 데이터
-          </summary>
+          <summary>안내 및 로컬 데이터</summary>
           <p className="hint">
             정상 속도(1배속)로 재생하며, 강의 탭이 숨겨지면 안전하게 멈춥니다.
             브라우저가 소리 있는 자동 재생을 차단하면 무음으로 한 번

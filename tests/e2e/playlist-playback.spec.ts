@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PLAYBACK_SKIP_REASON, playbackBuild } from "./build-shape";
@@ -10,8 +10,8 @@ test.skip(!playbackBuild(), PLAYBACK_SKIP_REASON);
 const origin = "https://mylms.korea.ac.kr";
 const kuPlayer = "https://kucom.korea.ac.kr";
 
-function playerHtml(id: string): string {
-  return `<!doctype html><html><title>Synthetic Player ${id}</title><body>
+function playerHtml(id: string, withIntro = false): string {
+  return `<!doctype html><html><meta charset="utf-8"><title>Synthetic Player ${id}</title><body>
     <script>
       const video = document.createElement("video");
       for (let i = 0; i < 10; i++) {
@@ -29,8 +29,11 @@ function playerHtml(id: string): string {
       video.muted = true;
       video.playsInline = true;
       video.preload = "auto";
+      const isIntro = () => video.currentSrc.endsWith("/settings/viewer/uniplayer/intro.mp4");
       for (const type of ["playing", "pause", "ended", "ratechange", "error"])
-        video.addEventListener(type, () => console.log("UNIDOCK_QA_" + type.toUpperCase() + ":${id}"));
+        video.addEventListener(type, () => {
+          if (!isIntro()) console.log("UNIDOCK_QA_" + type.toUpperCase() + ":${id}");
+        });
       const canvas = document.createElement("canvas");
       canvas.width = 64; canvas.height = 48;
       const paint = canvas.getContext("2d");
@@ -46,10 +49,29 @@ function playerHtml(id: string): string {
         start.textContent = "Start lecture";
         start.onclick = () => {
           start.style.display = "none";
-          video.src = URL.createObjectURL(blob);
+          video.src = ${withIntro} ? "/settings/viewer/uniplayer/intro.mp4" : URL.createObjectURL(blob);
           video.load();
           void video.play();
         };
+        video.addEventListener("ended", () => {
+          if (!isIntro()) return;
+          const prompt = document.createElement("div");
+          prompt.className = "confirm-msg-box";
+          prompt.innerHTML = '<div class="confirm-msg-text">이전에 시청했던 00:00부터 이어서 보시겠습니까?</div><div class="confirm-ok-btn" role="button">예</div><div class="confirm-cancel-btn" role="button">아니오</div>';
+          const proceed = prompt.querySelector(".confirm-ok-btn");
+          proceed.onclick = () => {
+            video.dataset.resumeAccepted = "true";
+            prompt.remove();
+            video.addEventListener("error", () => {
+              video.src = URL.createObjectURL(blob);
+              video.load();
+              void video.play();
+            }, { once: true });
+            video.src = "";
+            video.load();
+          };
+          document.body.append(prompt);
+        });
         document.body.append(start);
         const helper = document.createElement("video");
         helper.className = "vc-sdvideo-video";
@@ -436,14 +458,14 @@ test("production HELLO rejects an LMS candidate made ambiguous in flight", async
       snapshot: { status: "failed" },
     });
     expect(mediaActions).toEqual([]);
-    expect(player!.isClosed()).toBe(true);
+    expect(player!.isClosed()).toBe(false);
     expect(
       context
         .pages()
         .filter((page) =>
           page.url().endsWith("/courses/101/modules/items/501"),
         ),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
 
     await worker.evaluate(() =>
       (
@@ -471,7 +493,11 @@ test("production HELLO rejects an LMS candidate made ambiguous in flight", async
       .toMatchObject({ entered: true, discoverCount: 4 });
     const resumed = context
       .pages()
-      .find((page) => page.url().endsWith("/courses/101/modules/items/501"));
+      .find(
+        (page) =>
+          page !== player &&
+          page.url().endsWith("/courses/101/modules/items/501"),
+      );
     expect(resumed).toBeDefined();
     const resumedActions: string[] = [];
     resumed!.on("console", (message) => {
@@ -1084,13 +1110,25 @@ test("production extension plays a click-ordered playlist and explicitly recover
       }
       await route.fulfill({ status: 404, body: "not found" });
     });
+    await context.route(
+      `${kuPlayer}/settings/viewer/uniplayer/intro.mp4`,
+      async (route) => {
+        await route.fulfill({
+          contentType: "video/mp4",
+          body: await readFile(path.resolve("tests/fixtures/media/tail.mp4")),
+        });
+      },
+    );
+    let firstPlayerFrame = true;
     await context.route(`${kuPlayer}/em/**`, async (route) => {
       const id = new URL(route.request().url()).searchParams.get("id") ?? "";
       actions.push(`PLAYER_FRAME:${id}`);
+      const withIntro = firstPlayerFrame;
+      firstPlayerFrame = false;
       await route.fulfill({
         status: 200,
         contentType: "text/html",
-        body: playerHtml(id),
+        body: playerHtml(id, withIntro),
       });
     });
 
@@ -1229,6 +1267,20 @@ test("production extension plays a click-ordered playlist and explicitly recover
       .pages()
       .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
     expect(secondPage).toBeDefined();
+    const lectureAfterResume = secondPage!
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture");
+    await expect(lectureAfterResume).toHaveAttribute(
+      "data-resume-accepted",
+      "true",
+    );
+    // Auto-accepting the prompt after the intro must not advance the playlist.
+    await expect(panel.locator(".playback-current")).toContainText(
+      "두 번째 합성 영상",
+    );
+    await expect(panel.locator(".playback-queue")).toContainText(
+      "첫 번째 합성 영상",
+    );
     await expect
       .poll(() =>
         secondPage!
@@ -1249,6 +1301,19 @@ test("production extension plays a click-ordered playlist and explicitly recover
         .locator("video#lecture")
         .evaluate((video: HTMLVideoElement) => video.playbackRate),
     ).toBe(1);
+
+    const beforeListingClose = await lectureAfterResume.evaluate(
+      (video: HTMLVideoElement) => video.currentTime,
+    );
+    await lms.close();
+    await expect
+      .poll(() =>
+        lectureAfterResume.evaluate(
+          (video: HTMLVideoElement) => video.currentTime,
+        ),
+      )
+      .toBeGreaterThan(beforeListingClose + 0.25);
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
 
     // Hold a real lease while a trusted native pause and an urgent panel pause
     // queue for the same run. The stale native event must still be acknowledged
@@ -1576,28 +1641,30 @@ test("production extension plays a click-ordered playlist and explicitly recover
     for (let attempt = 0; attempt < 2; attempt++) {
       const unauthorized = context.waitForEvent("response", {
         predicate: (response) =>
-          response.url() === `${origin}/api/v1/users/self` && response.status() === 401,
+          response.url() === `${origin}/api/v1/users/self` &&
+          response.status() === 401,
         timeout: 10_000,
       });
       await panel.getByRole("button", { name: "새로고침" }).click();
       await unauthorized;
-      await expect(panel.getByRole("button", { name: "새로고침" })).toBeEnabled();
+      await expect(
+        panel.getByRole("button", { name: "새로고침" }),
+      ).toBeEnabled();
       await expect(panel.locator(".playback-panel h1")).toContainText(
         "로그인 필요",
       );
       await expect(panel.locator(".playback-queue")).toContainText(
         "첫 번째 합성 영상",
       );
+      expect(secondPage!.isClosed()).toBe(false);
       await expect
-        .poll(
-          () =>
-            context!
-              .pages()
-              .filter((page) =>
-                /\/courses\/101\/modules\/items\//.test(page.url()),
-              ).length,
+        .poll(() =>
+          secondPage!
+            .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+            .locator("video#lecture")
+            .evaluate((video: HTMLVideoElement) => video.paused),
         )
-        .toBe(0);
+        .toBe(true);
     }
 
     loggedIn = true;
@@ -1607,17 +1674,70 @@ test("production extension plays a click-ordered playlist and explicitly recover
     });
     const replayPage = context
       .pages()
-      .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
+      .find(
+        (page) =>
+          page !== secondPage &&
+          /\/courses\/101\/modules\/items\/502$/.test(page.url()),
+      );
     expect(replayPage).toBeDefined();
     const replayVideo = replayPage!
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
       .locator("video#lecture");
     await expect(replayVideo).toBeAttached({ timeout: 20_000 });
+    let leaveDialogs = 0;
+    replayPage!.on("dialog", async (dialog) => {
+      leaveDialogs++;
+      await dialog.dismiss();
+    });
+    await replayPage!.evaluate(() => {
+      const button = document.createElement("button");
+      button.textContent = "Enable leave confirmation";
+      document.body.prepend(button);
+      window.addEventListener("beforeunload", (event) => {
+        event.preventDefault();
+        event.returnValue = "";
+      });
+    });
+    await replayPage!
+      .getByRole("button", { name: "Enable leave confirmation" })
+      .click();
+    const nextOpened = context.waitForEvent("page");
     // Let the native media run to completion: no seeking or synthetic ended.
     await expect(panel.locator(".playback-current")).toContainText(
       "첫 번째 합성 영상",
       { timeout: 30_000 },
     );
+    const nextPage = await nextOpened;
+    expect(nextPage).not.toBe(replayPage);
+    await expect(nextPage).toHaveURL(`${origin}/courses/101/modules/items/501`);
+    expect(replayPage!.isClosed()).toBe(false);
+    await expect(replayPage!).toHaveURL(
+      `${origin}/courses/101/modules/items/502`,
+    );
+    expect(leaveDialogs).toBe(0);
+    expect(
+      context
+        .pages()
+        .filter((page) =>
+          page.url().endsWith("/courses/101/modules/items/501"),
+        ),
+    ).toEqual([nextPage]);
+
+    // Closing an older released lecture must not revoke this new player.
+    const nextVideo = nextPage
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture");
+    const beforeOldClose = await nextVideo.evaluate(
+      (video: HTMLVideoElement) => video.currentTime,
+    );
+    await secondPage!.close();
+    await replayPage!.close();
+    await expect
+      .poll(() =>
+        nextVideo.evaluate((video: HTMLVideoElement) => video.currentTime),
+      )
+      .toBeGreaterThan(beforeOldClose + 0.25);
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
 
     await panel.screenshot({
       path: testInfo.outputPath("playback-running.png"),
@@ -1649,20 +1769,55 @@ test("production extension plays a click-ordered playlist and explicitly recover
     await expect(secondPanel.locator(".playback-panel h1")).toContainText(
       "중지됨",
     );
-    // The held LMS response is still gated: tab closure and the second panel's
-    // state are physical/message barriers, not fixed-sleep timing evidence.
+    // A held LMS lookup cannot delay revocation or remove the retained page.
     expect(identityRequests).toBe(beforeHeldRefresh + 1);
+    expect(nextPage.isClosed()).toBe(false);
     await expect
-      .poll(
-        () =>
-          context!
-            .pages()
-            .filter((page) =>
-              /\/courses\/101\/modules\/items\//.test(page.url()),
-            ).length,
+      .poll(() =>
+        nextPage
+          .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+          .locator("video#lecture")
+          .evaluate((video: HTMLVideoElement) => video.paused),
       )
-      .toBe(0);
+      .toBe(true);
+    await expect(secondPanel.locator(".playback-current")).toContainText(
+      "첫 번째 합성 영상",
+    );
     identityGate.release.resolve();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await secondPanel.emulateMedia({ colorScheme });
+      for (const width of [375, 640]) {
+        await secondPanel.setViewportSize({ width, height: 760 });
+        expect(
+          await secondPanel.evaluate(
+            () =>
+              document.documentElement.scrollWidth <=
+              document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+        await secondPanel.screenshot({
+          path: testInfo.outputPath(`stopped-${colorScheme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+    const finalOpened = context.waitForEvent("page");
+    await secondPanel.getByRole("button", { name: "자동 재생 재개" }).click();
+    const finalPage = await finalOpened;
+    await expect(finalPage).toHaveURL(
+      `${origin}/courses/101/modules/items/501`,
+    );
+    await expect(secondPanel.locator(".playback-panel h1")).toContainText(
+      "대기",
+      { timeout: 30_000 },
+    );
+    expect(finalPage.isClosed()).toBe(false);
+    expect(
+      await finalPage
+        .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+        .locator("video#lecture")
+        .evaluate((video: HTMLVideoElement) => video.ended && video.paused),
+    ).toBe(true);
     const consoleErrors = actions.filter(
       (entry) =>
         entry.startsWith("CONSOLE_ERROR:") ||

@@ -1,12 +1,14 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { PlaybackPlayer, type PlaybackStatus } from "../src/playback/player";
 import { initializeKuLecture } from "../src/playback/ku-player";
+import { observeKuResume } from "../src/playback/ku-resume";
 import {
   backgroundSender,
   isPlayerBinding,
   isPlayerControl,
   object,
   playerPage,
+  PLAYBACK_PLAYER_REVOKE,
   type PlayerBinding,
 } from "../src/playback/bridge";
 import { LMS_MATCHES } from "../src/security/policy";
@@ -35,6 +37,8 @@ export default defineContentScript({
     let closed = false,
       connecting = false;
     let expiry: ReturnType<typeof setTimeout> | undefined;
+    let leaseUntil = 0;
+    let stopResumeObserver: (() => void) | undefined;
     let heartbeat: ReturnType<typeof setTimeout> | undefined;
     let authorizationGeneration = 0;
     let dormant = false;
@@ -104,6 +108,7 @@ export default defineContentScript({
       clearTimeout(expiry);
       clearTimeout(heartbeat);
       clearTimeout(discoveryTimer);
+      stopResumeObserver?.();
       initialization?.abort();
       initialization = null;
       observer.disconnect();
@@ -180,6 +185,7 @@ export default defineContentScript({
       )
         return false;
       binding = value.binding;
+      leaseUntil = Math.min(value.leaseUntil, binding.deadline);
       dormant = false;
       const generation = ++authorizationGeneration;
       clearTimeout(expiry);
@@ -194,7 +200,7 @@ export default defineContentScript({
           void signal({ state: "failed", reason: "timeout" });
           stop();
         },
-        Math.max(0, Math.min(value.leaseUntil, binding.deadline) - Date.now()),
+        Math.max(0, leaseUntil - Date.now()),
       );
       clearTimeout(heartbeat);
       heartbeat = setTimeout(() => {
@@ -335,6 +341,15 @@ export default defineContentScript({
             onDiagnostic: diagnostic,
             isLoginPage: () => !playerPage(location.href),
             isVisible: () => document.visibilityState !== "hidden",
+            // KU plays these UI assets on the lecture's own primary element.
+            // Keep observing across their end and the optional resume prompt.
+            isCompletionMedia: () =>
+              ![
+                "/viewer/uniplayer/preloader.mp4",
+                "/settings/viewer/uniplayer/intro.mp4",
+              ].includes(
+                new URL(video?.currentSrc ?? "", originalUrl).pathname,
+              ),
             onStateChange: (status) => {
               diagnostic(
                 `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
@@ -374,6 +389,17 @@ export default defineContentScript({
           return;
         }
         await player.start();
+        if (kuPlayer && current()) {
+          stopResumeObserver = observeKuResume(
+            document,
+            () =>
+              current() &&
+              !dormant &&
+              leaseUntil > Date.now() &&
+              player?.status.state === "playing",
+            (position) => player?.expectNativeResume(position),
+          );
+        }
         visibleOnly();
       } catch {
         diagnostic("KU_INITIALIZATION_FAILED");
@@ -412,9 +438,17 @@ export default defineContentScript({
     document.addEventListener("visibilitychange", visibleOnly);
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        if (!backgroundSender(sender) || !object(message)) return false;
         if (
-          !backgroundSender(sender) ||
-          !object(message) ||
+          message.version === PLAYBACK_PLAYER_REVOKE.version &&
+          message.type === PLAYBACK_PLAYER_REVOKE.type &&
+          Object.keys(message).length === 2
+        ) {
+          stop();
+          respond({ ok: true });
+          return false;
+        }
+        if (
           !isPlayerControl(message) ||
           !binding ||
           message.runId !== binding.runId ||
