@@ -501,6 +501,7 @@ function commandBroadcastFixture() {
       },
     },
     tabs: {
+      query: vi.fn().mockResolvedValue([]),
       onRemoved: { addListener: vi.fn() },
       onActivated: { addListener: vi.fn() },
       onUpdated: { addListener: vi.fn() },
@@ -552,6 +553,24 @@ it("broadcasts settled mutating commands without delaying their reply and never 
   });
 });
 
+it("shows the state a failed playback command left behind in progress", async () => {
+  const f = commandBroadcastFixture();
+  const blocked = { courses: [], labels: {}, queue: [], status: "blocked-login", current: null };
+  f.command.mockImplementation(async (message) =>
+    (message.type === "PLAYBACK_STATUS"
+      ? { status: "success", snapshot: blocked }
+      : { status: "error", code: "LOGIN_REQUIRED" }) as never,
+  );
+  const deliver = (type: string) =>
+    new Promise<unknown>((resolve) => f.receive({ version: 1, type }, f.panel, resolve));
+  await deliver("PLAYBACK_REFRESH");
+  await f.command.mock.results.at(-1)?.value;
+  await Promise.resolve();
+  expect(await deliver("PROGRESS_GET")).toMatchObject({
+    items: [{ kind: "playback", status: "blocked-login" }],
+  });
+});
+
 it("does not broadcast rejected playback messages", () => {
   const f = commandBroadcastFixture();
   const respond = vi.fn();
@@ -583,8 +602,9 @@ it("discards unsent statistics and the popup opt-in before the existing clear-da
       order.push(`erase:${String(key)}`);
     },
   );
-  f.command.mockImplementation(async () => {
-    order.push("playback");
+  f.command.mockImplementation(async (message) => {
+    // The status read that refreshes progress afterwards is not part of the order.
+    if (message.type !== "PLAYBACK_STATUS") order.push("playback");
     return { status: "error", code: "STORAGE" };
   });
   await new Promise((resolve) => {

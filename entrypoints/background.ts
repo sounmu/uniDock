@@ -567,13 +567,13 @@ export default defineBackground(() => {
   chrome.permissions?.onRemoved?.addListener(() =>
     popupTask(() => syncPopupAutoClose(true)),
   );
-  // Reuses the snapshot a command already returned (an error changed nothing);
-  // reads status only after events that return no command result.
+  // Reuses the snapshot a command already returned; reads status otherwise,
+  // since a failed command may still have moved the runtime (blocked-login, failed).
   const notifyPlayback = (outcome?: unknown) => {
     const known = outcome as { status?: unknown; snapshot?: PlaybackSnapshot } | undefined;
     if (progress && playback) {
       if (known?.status === "success" && known.snapshot) progress.setPlayback(known.snapshot);
-      else if (known?.status !== "error")
+      else
         void playback
           .command({ version: 1, type: "PLAYBACK_STATUS" })
           .then((result) => {
