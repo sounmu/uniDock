@@ -167,9 +167,9 @@ export class PlaybackRuntime {
   ): Promise<PlaybackDiscovery> {
     const sourceKey = source
       ? `${source.sourceTabId}:${source.documentToken}`
-      : this.dedicatedTabId === null
-        ? "unbound"
-        : `player:${this.dedicatedTabId}`;
+      : this.run
+        ? `player:${this.run.runId}:${this.run.tabId}`
+        : "unbound";
     if (
       this.discoveryInFlight?.epoch === epoch &&
       this.discoveryInFlight.sourceKey === sourceKey
@@ -265,11 +265,12 @@ export class PlaybackRuntime {
   private commitDiscovery(
     discovery: PlaybackDiscovery,
     context: OperationContext,
-    run?: ActiveRun,
+    run?: ActiveRun | null,
   ): Promise<void> {
     return this.serial(async () => {
       this.assertCurrent(context);
-      if (run && this.run !== run) throw new SupersededOperationError();
+      if (run !== undefined && this.run !== run)
+        throw new SupersededOperationError();
       if (
         this.saved.accountKey &&
         this.saved.accountKey !== discovery.accountKey
@@ -392,6 +393,7 @@ export class PlaybackRuntime {
   private async blocked(
     error: unknown,
     context?: OperationContext,
+    run?: ActiveRun | null,
   ): Promise<PlaybackResult> {
     if (
       error instanceof SupersededOperationError ||
@@ -400,6 +402,8 @@ export class PlaybackRuntime {
       return { status: "error", code: "BUSY" };
     return this.serial(async () => {
       if (context && !this.current(context))
+        return { status: "error", code: "BUSY" } as PlaybackResult;
+      if (run !== undefined && this.run !== run)
         return { status: "error", code: "BUSY" } as PlaybackResult;
       const code =
         error instanceof PlaybackRuntimeError ? error.code : "NETWORK";
@@ -510,12 +514,14 @@ export class PlaybackRuntime {
 
       this.assertCurrent(context);
       if (command.type === "PLAYBACK_REFRESH") {
+        const run = this.run;
         try {
           const discovery = await this.discover(context.epoch);
           this.assertCurrent(context);
-          await this.commitDiscovery(discovery, context);
+          await this.commitDiscovery(discovery, context, run);
         } catch (error) {
           this.assertCurrent(context);
+          if (this.run !== run) throw new SupersededOperationError();
           if (
             error instanceof PlaybackRuntimeError &&
             error.code === "LOGIN_REQUIRED" &&
@@ -523,6 +529,7 @@ export class PlaybackRuntime {
           ) {
             return this.serial(async () => {
               this.assertCurrent(context);
+              if (this.run !== run) throw new SupersededOperationError();
               this.epoch++;
               this.saved.stopped = true;
               this.status = "blocked-login";
@@ -532,7 +539,7 @@ export class PlaybackRuntime {
               return this.success();
             });
           }
-          throw error;
+          return this.blocked(error, context, run);
         }
         return this.success();
       }
@@ -738,8 +745,7 @@ export class PlaybackRuntime {
         return this.authorization(run);
       });
     } catch (error) {
-      if (this.run !== run) return null;
-      await this.blocked(error, context);
+      await this.blocked(error, context, run);
       return null;
     }
   }
@@ -788,7 +794,9 @@ export class PlaybackRuntime {
           }
           await this.persist();
         });
-        await this.prepareAndStart(context);
+        // These selected IDs may open the next LMS page. Its HELLO still needs
+        // fresh account/candidate discovery before any playback is authorized.
+        await this.prepareAndStart(context, this.discovery ?? undefined);
       } else {
         await this.serial(async () => {
           this.assertCurrent(context);
@@ -860,8 +868,7 @@ export class PlaybackRuntime {
         return this.authorization(run);
       });
     } catch (error) {
-      if (this.run !== run) return null;
-      await this.blocked(error, context);
+      await this.blocked(error, context, run);
       return null;
     }
   }

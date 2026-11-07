@@ -1585,6 +1585,89 @@ it("resolves selection in its listing document and revalidates in the player tab
   expect(chrome.tabs.query).not.toHaveBeenCalled();
 });
 
+it("opens the next selected lecture after its last old LMS document closes during release", async () => {
+  const discovery = {
+    ...validDiscovery,
+    candidates: [
+      { id: "101:501", courseId: "101", title: "First" },
+      { id: "101:502", courseId: "101", title: "Second" },
+    ],
+  };
+  const f = playbackAdapterFixture({ response: null });
+  const tabs = new Map([[7, "https://mylms.korea.ac.kr/"]]);
+  let nextTabId = 9;
+  chrome.tabs.query = vi
+    .fn()
+    .mockImplementation(async () =>
+      [...tabs].map(([id, url]) => ({ id, url, active: true })),
+    );
+  chrome.tabs.get = vi.fn().mockImplementation(async (id: number) => {
+    const url = tabs.get(id);
+    if (!url) throw new Error("closed tab");
+    return { id, url, active: true };
+  });
+  chrome.tabs.create = vi.fn().mockImplementation(async () => {
+    const id = nextTabId++;
+    tabs.set(id, "about:blank");
+    return { id };
+  });
+  chrome.tabs.update = vi
+    .fn()
+    .mockImplementation(async (id: number, change: { url: string }) => {
+      tabs.set(id, change.url);
+    });
+  f.sendMessage.mockImplementation(
+    async (id: number, message: { type: string }) => {
+      if (message.type === "PLAYBACK_PLAYER_REVOKE") {
+        tabs.delete(id);
+        return { ok: true };
+      }
+      if (!tabs.has(id)) throw new Error("closed receiver");
+      return {
+        status: "success",
+        discovery,
+        ...(message.type === "PLAYBACK_RESOLVE_BATCH"
+          ? {
+              items: discovery.candidates.map(({ id, courseId }) => ({
+                id,
+                courseId,
+              })),
+            }
+          : { documentToken: "00000000-0000-4000-8000-000000000099" }),
+      };
+    },
+  );
+  expect(
+    await f.runtime.command({
+      version: 1,
+      type: "PLAYBACK_START",
+      handles: [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+      ],
+      sourceTabId: 7,
+      documentToken: "00000000-0000-4000-8000-000000000099",
+    }),
+  ).toMatchObject({ status: "success" });
+  const address = { tabId: 9, frameId: 2, documentId: "first" };
+  const first = await f.runtime.authorize(address);
+  if (!first) throw new Error("missing first authorization");
+  await f.runtime.signal(address, first.binding, "playing");
+  tabs.delete(7);
+  await f.runtime.sourceLost(7);
+  await f.runtime.signal(address, first.binding, "ended");
+  expect(f.runtime.dedicatedTabId).toBe(10);
+  expect(tabs.get(10)).toBe(
+    "https://mylms.korea.ac.kr/courses/101/modules/items/502",
+  );
+  const next = await f.runtime.authorize({
+    tabId: 10,
+    frameId: 2,
+    documentId: "next",
+  });
+  expect(next).not.toBeNull();
+});
+
 it("invalidates an adapter resolution when the source reloads at the same URL", async () => {
   const handle = "00000000-0000-4000-8000-000000000001";
   const documentToken = "00000000-0000-4000-8000-000000000099";
