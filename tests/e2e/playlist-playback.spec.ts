@@ -1302,6 +1302,19 @@ test("production extension plays a click-ordered playlist and explicitly recover
         .evaluate((video: HTMLVideoElement) => video.playbackRate),
     ).toBe(1);
 
+    const beforeListingClose = await lectureAfterResume.evaluate(
+      (video: HTMLVideoElement) => video.currentTime,
+    );
+    await lms.close();
+    await expect
+      .poll(() =>
+        lectureAfterResume.evaluate(
+          (video: HTMLVideoElement) => video.currentTime,
+        ),
+      )
+      .toBeGreaterThan(beforeListingClose + 0.25);
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+
     // Hold a real lease while a trusted native pause and an urgent panel pause
     // queue for the same run. The stale native event must still be acknowledged
     // so the dormant adapter remains available for an explicit resume.
@@ -1709,6 +1722,22 @@ test("production extension plays a click-ordered playlist and explicitly recover
           page.url().endsWith("/courses/101/modules/items/501"),
         ),
     ).toEqual([nextPage]);
+
+    // Closing an older released lecture must not revoke this new player.
+    const nextVideo = nextPage
+      .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
+      .locator("video#lecture");
+    const beforeOldClose = await nextVideo.evaluate(
+      (video: HTMLVideoElement) => video.currentTime,
+    );
+    await secondPage!.close();
+    await replayPage!.close();
+    await expect
+      .poll(() =>
+        nextVideo.evaluate((video: HTMLVideoElement) => video.currentTime),
+      )
+      .toBeGreaterThan(beforeOldClose + 0.25);
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
 
     await panel.screenshot({
       path: testInfo.outputPath("playback-running.png"),

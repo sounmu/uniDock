@@ -167,7 +167,9 @@ export class PlaybackRuntime {
   ): Promise<PlaybackDiscovery> {
     const sourceKey = source
       ? `${source.sourceTabId}:${source.documentToken}`
-      : "unbound";
+      : this.dedicatedTabId === null
+        ? "unbound"
+        : `player:${this.dedicatedTabId}`;
     if (
       this.discoveryInFlight?.epoch === epoch &&
       this.discoveryInFlight.sourceKey === sourceKey
@@ -263,9 +265,11 @@ export class PlaybackRuntime {
   private commitDiscovery(
     discovery: PlaybackDiscovery,
     context: OperationContext,
+    run?: ActiveRun,
   ): Promise<void> {
     return this.serial(async () => {
       this.assertCurrent(context);
+      if (run && this.run !== run) throw new SupersededOperationError();
       if (
         this.saved.accountKey &&
         this.saved.accountKey !== discovery.accountKey
@@ -379,6 +383,7 @@ export class PlaybackRuntime {
         throw new PlaybackRuntimeError("STALE_SELECTION");
       const created = this.newRun(item);
       this.run = created;
+      this.source = null;
       this.status = "starting";
       return created;
     });
@@ -572,7 +577,9 @@ export class PlaybackRuntime {
           await this.release();
           this.assertCurrent(context);
           this.discovery = latest;
-          this.source = source;
+          // The document-bound handles have been consumed. Ongoing discovery
+          // belongs to the player tab, not the listing that selected the items.
+          this.source = null;
           if (this.pendingSource?.context === context)
             this.pendingSource = null;
           this.saved = {
@@ -721,8 +728,9 @@ export class PlaybackRuntime {
     try {
       const discovery = await this.discover(context.epoch);
       this.assertCurrent(context);
+      if (this.run !== run) return null;
       if (!this.candidate(run.item, discovery)) return null;
-      await this.commitDiscovery(discovery, context);
+      await this.commitDiscovery(discovery, context, run);
       return this.serial(async () => {
         if (!this.current(context) || this.run !== run || run.address)
           return null;
@@ -730,6 +738,7 @@ export class PlaybackRuntime {
         return this.authorization(run);
       });
     } catch (error) {
+      if (this.run !== run) return null;
       await this.blocked(error, context);
       return null;
     }
@@ -829,8 +838,9 @@ export class PlaybackRuntime {
       // Every lease is based on a current in-flight/fresh discovery, never a cached result.
       const discovery = await this.discover(context.epoch);
       this.assertCurrent(context);
+      if (this.run !== run) return null;
       if (!this.candidate(run.item, discovery)) return null;
-      await this.commitDiscovery(discovery, context);
+      await this.commitDiscovery(discovery, context, run);
       return this.serial(async () => {
         if (
           !this.current(context) ||
@@ -850,6 +860,7 @@ export class PlaybackRuntime {
         return this.authorization(run);
       });
     } catch (error) {
+      if (this.run !== run) return null;
       await this.blocked(error, context);
       return null;
     }
@@ -869,6 +880,7 @@ export class PlaybackRuntime {
     await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
   }
   sourceLost(tabId: number): Promise<void> {
+    if (this.run?.address && this.run.tabId === tabId) return this.lost(tabId);
     if (
       this.pendingSource?.tabId !== tabId &&
       this.source?.sourceTabId !== tabId

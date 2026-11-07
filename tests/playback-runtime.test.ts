@@ -177,15 +177,71 @@ it("releases a lost player tab so its ownership record is dropped", async () => 
   expect(f.saved?.stopped).toBe(true);
   expect(f.saved?.playlist).toHaveLength(2);
 });
-it("keeps active-run discovery pinned to the listing source", async () => {
+it("keeps current playback authorized when the consumed listing tab closes", async () => {
+  const f = fixture();
+  const binding = await playing(f);
+  const renewal = deferred<PlaybackDiscovery>();
+  const renewing = deferred<void>();
+  vi.spyOn(f.ports, "discover").mockImplementationOnce(() => {
+    renewing.resolve();
+    return renewal.promise;
+  });
+  const lease = f.runtime.lease(address, binding);
+  await renewing.promise;
+  await f.runtime.sourceLost(7);
+  await f.runtime.lost(7);
+  renewal.resolve(discovery);
+  expect(
+    snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }))
+      .status,
+  ).toBe("playing");
+  expect(await lease).not.toBeNull();
+  expect(f.runtime.dedicatedTabId).toBe(9);
+  expect(f.released).toEqual([]);
+});
+it.each(["resolve", "reject"] as const)(
+  "isolates a released player's pending discovery that will %s",
+  async (settlement) => {
+    const f = fixture();
+    const binding = await playing(f);
+    vi.spyOn(f.ports, "open").mockImplementationOnce(async (url) => {
+      f.opened.push(url);
+      return 10;
+    });
+    const renewal = deferred<PlaybackDiscovery>();
+    const renewing = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(() => {
+      renewing.resolve();
+      return renewal.promise;
+    });
+    const oldLease = f.runtime.lease(address, binding);
+    await renewing.promise;
+    const completed = f.runtime.signal(address, binding, "ended");
+    await vi.waitFor(() => expect(f.runtime.dedicatedTabId).toBe(10));
+    const nextAddress = { ...address, tabId: 10, documentId: "next" };
+    const next = await f.runtime.authorize(nextAddress);
+    if (!next) throw new Error("next player was not authorized");
+    await f.runtime.signal(nextAddress, next.binding, "playing");
+    await f.runtime.sourceLost(9);
+    await f.runtime.lost(9);
+    if (settlement === "reject")
+      renewal.reject(new PlaybackRuntimeError("RELOAD_TAB"));
+    else renewal.resolve({ ...discovery, accountKey: "b".repeat(64) });
+    expect(await oldLease).toBeNull();
+    expect(await completed).toBe(true);
+    expect(
+      snapshot(
+        await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }),
+      ),
+    ).toMatchObject({ status: "playing", current: { id: "101:502" } });
+  },
+);
+it("detaches consumed listing proof from active-run discovery", async () => {
   const f = fixture();
   await start(f);
   const discover = vi.spyOn(f.ports, "discover");
   await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
-  expect(discover).toHaveBeenCalledExactlyOnceWith({
-    sourceTabId: 7,
-    documentToken: "00000000-0000-4000-8000-000000000099",
-  });
+  expect(discover).toHaveBeenCalledExactlyOnceWith(undefined);
 });
 
 it("invalidates a pending start when its source document is replaced", async () => {
@@ -288,9 +344,9 @@ it("replaces superseded start ownership with the explicit resume source", async 
     snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
       .status,
   ).toBe("starting");
-  expect(f.runtime.sourceTabId).toBe(8);
+  expect(f.runtime.sourceTabId).toBeNull();
   await f.runtime.sourceLost(7);
-  expect(f.runtime.sourceTabId).toBe(8);
+  expect(f.runtime.sourceTabId).toBeNull();
   oldResolution.resolve({
     discovery,
     items: [{ id: "101:502", courseId: "101" }],
@@ -298,10 +354,10 @@ it("replaces superseded start ownership with the explicit resume source", async 
   expect(await oldStart).toEqual({ status: "error", code: "BUSY" });
   await f.runtime.sourceLost(8);
   expect(f.runtime.sourceTabId).toBeNull();
-  expect(f.runtime.dedicatedTabId).toBeNull();
+  expect(f.runtime.dedicatedTabId).toBe(9);
 });
 
-it("invalidates the active source while a replacement start owns another pending source", async () => {
+it("invalidates the current player while a replacement start owns another pending source", async () => {
   const f = fixture();
   const binding = await playing(f);
   const replacementResolution = deferred<{
@@ -331,7 +387,7 @@ it("invalidates the active source while a replacement start owns another pending
   const lease = f.runtime.lease(address, binding);
   await renewing.promise;
 
-  const lost = f.runtime.sourceLost(7);
+  const lost = f.runtime.sourceLost(9);
   renewal.resolve(discovery);
   replacementResolution.resolve({
     discovery,
@@ -1397,7 +1453,7 @@ describe("immediate ordered playlist runtime", () => {
     expect(f.released).toEqual([]);
   });
 
-  it("does not grant a pending lease after the source document is replaced", async () => {
+  it("does not grant a pending lease after the player document is replaced", async () => {
     const f = fixture();
     const binding = await playing(f);
     const renewal = deferred<PlaybackDiscovery>();
@@ -1408,7 +1464,7 @@ describe("immediate ordered playlist runtime", () => {
     });
     const lease = f.runtime.lease(address, binding);
     await renewing.promise;
-    const lost = f.runtime.sourceLost(7);
+    const lost = f.runtime.sourceLost(9);
     renewal.resolve(discovery);
     await lost;
     expect(await lease).toBeNull();
@@ -1505,13 +1561,10 @@ describe("immediate ordered playlist runtime", () => {
     ).toBe("starting");
     expect(bind).toHaveBeenCalledOnce();
     expect(f.opened).toHaveLength(2);
-    expect(restarted.sourceTabId).toBe(7);
+    expect(restarted.sourceTabId).toBeNull();
     const discover = vi.spyOn(f.ports, "discover");
     expect(await restarted.authorize(address)).not.toBeNull();
-    expect(discover).toHaveBeenCalledExactlyOnceWith({
-      sourceTabId: 7,
-      documentToken: "00000000-0000-4000-8000-000000000099",
-    });
+    expect(discover).toHaveBeenCalledExactlyOnceWith(undefined);
   });
 
   it("rejects a restarted playlist rebound to another account without launching", async () => {

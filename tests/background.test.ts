@@ -1497,7 +1497,7 @@ it("does not retain an unverified source across independent refreshes", async ()
   expect(f.sendMessage).toHaveBeenCalledTimes(2);
 });
 
-it("resolves and revalidates a run only through its document-bound listing tab", async () => {
+it("resolves selection in its listing document and revalidates in the player tab", async () => {
   const handle = "00000000-0000-4000-8000-000000000001";
   const documentToken = "00000000-0000-4000-8000-000000000099";
   const discovery = {
@@ -1553,14 +1553,21 @@ it("resolves and revalidates a run only through its document-bound listing tab",
     discovery,
     documentToken,
   });
-  await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" });
+  chrome.tabs.get = vi.fn().mockResolvedValue({
+    id: 10,
+    url: "https://mylms.korea.ac.kr/courses/101/modules/items/501",
+    active: true,
+  });
+  await f.runtime.sourceLost(8);
+  expect(
+    await f.runtime.command({ version: 1, type: "PLAYBACK_REFRESH" }),
+  ).toMatchObject({ status: "success" });
   expect(f.sendMessage).toHaveBeenLastCalledWith(
-    8,
+    10,
     {
       version: 1,
       type: "PLAYBACK_DISCOVER",
       salt: expect.stringMatching(/^[a-f0-9]{64}$/),
-      documentToken,
     },
     { frameId: 0 },
   );

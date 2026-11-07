@@ -179,11 +179,14 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
     let pinned: chrome.tabs.Tab | undefined;
     if (source?.sourceTabId === runtime.dedicatedTabId)
       throw new PlaybackRuntimeError("RELOAD_TAB");
-    if (source && source.sourceTabId !== runtime.dedicatedTabId) {
+    // Selection handles stay pinned to their issuing document. Once selected,
+    // fresh authorization reads use the player's own top-level LMS document.
+    const targetTabId = source?.sourceTabId ?? runtime.dedicatedTabId;
+    if (targetTabId !== null) {
       try {
-        const known = await chrome.tabs.get(source.sourceTabId);
+        const known = await chrome.tabs.get(targetTabId);
         if (
-          known.id === source.sourceTabId &&
+          known.id === targetTabId &&
           known.url &&
           LMS_MATCHES.some((match) =>
             known.url?.startsWith(match.slice(0, -1)),
