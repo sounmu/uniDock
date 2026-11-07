@@ -1,0 +1,39 @@
+name: Capability isolation diagnosis
+
+on:
+  push:
+    branches:
+      - fix/capability-isolation-ci
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build the failing CI variant
+        run: npm run build
+        env:
+          UNIDOCK_RELEASE: "1"
+          UNIDOCK_CAPTION_SERVER: https://captions.test
+          UNIDOCK_PLAYBACK: "1"
+          UNIDOCK_AI_CAPTIONS: "1"
+      - name: Exercise independent browser schedules
+        run: npx playwright test tests/e2e/capability-isolation.spec.ts --repeat-each=40 --workers=2 --max-failures=1
+      - name: Preserve failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capability-diagnosis-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .wxt/e2e/
+          include-hidden-files: true
+          retention-days: 7
