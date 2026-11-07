@@ -55,6 +55,24 @@ it("keeps a closed card hidden until the work reaches its next stage", () => {
   expect(titles()).toEqual(["AI 자막이 준비됐어요"]);
 });
 
+it("shows the next playback after one closed while playing, without an empty state in between", () => {
+  const playback = (status: "playing" | "failed"): ProgressItem => ({
+    kind: "playback",
+    id: "playback",
+    status,
+    title: "1주차",
+    remaining: 0,
+  });
+  const toast = createProgressToast();
+  toast.update([playback("playing")]);
+  (root()!.querySelector("button") as HTMLButtonElement).click();
+  expect(root()).toBeNull();
+  toast.update([playback("failed")]);
+  vi.advanceTimersByTime(10_000);
+  toast.update([playback("playing")]);
+  expect(titles()).toEqual(["자동 재생 중"]);
+});
+
 it("renders page-supplied titles as text", () => {
   const toast = createProgressToast();
   toast.update([

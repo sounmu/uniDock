@@ -270,7 +270,10 @@ export function createProgressToast(doc: Document = document) {
         if (finished.get(item.id) === null) return [];
       }
       const stage = active ? "active" : "finished";
+      // A closed card stays closed only for the stage it was closed in, even when
+      // the empty state in between never reached this page (playback's id is fixed).
       if (dismissed.get(item.id) === stage) return [];
+      dismissed.delete(item.id);
       return [{ item, text, stage }] as const;
     });
 
