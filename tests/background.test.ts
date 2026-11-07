@@ -7,6 +7,7 @@ vi.mock("wxt/utils/define-background", () => ({
 import background, {
   createChromePlaybackRuntime,
 } from "../entrypoints/background";
+import { CaptionJobMonitor } from "../src/captions/job-monitor";
 import { PlaybackRuntime } from "../src/playback/runtime";
 import { emptyPlayback, PLAYBACK_STORAGE_KEY } from "../src/playback/storage";
 
@@ -472,6 +473,7 @@ function commandBroadcastFixture() {
   );
   const command = vi.spyOn(PlaybackRuntime.prototype, "command");
   const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const onStartup = vi.fn<(listener: () => void) => void>();
   vi.stubGlobal("chrome", {
     runtime: {
       id: "test-extension",
@@ -482,7 +484,8 @@ function commandBroadcastFixture() {
           receive = listener;
         },
       },
-      onStartup: { addListener: vi.fn() },
+      onConnect: { addListener: vi.fn() },
+      onStartup: { addListener: onStartup },
       onInstalled: { addListener: vi.fn() },
     },
     action: actionMocks(),
@@ -516,6 +519,7 @@ function commandBroadcastFixture() {
   return {
     command,
     sendMessage,
+    onStartup,
     receive,
     panel: {
       id: "test-extension",
@@ -569,6 +573,14 @@ it("shows the state a failed playback command left behind in progress", async ()
   expect(await deliver("PROGRESS_GET")).toMatchObject({
     items: [{ kind: "playback", status: "blocked-login" }],
   });
+});
+
+it("resumes saved caption jobs on browser startup even without their alarm", () => {
+  const resume = vi.spyOn(CaptionJobMonitor.prototype, "resume").mockResolvedValue();
+  const f = commandBroadcastFixture();
+  expect(resume).not.toHaveBeenCalled();
+  for (const [listener] of f.onStartup.mock.calls) listener();
+  expect(resume).toHaveBeenCalledOnce();
 });
 
 it("does not broadcast rejected playback messages", () => {

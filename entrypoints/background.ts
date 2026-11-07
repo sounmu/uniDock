@@ -499,11 +499,15 @@ export default defineBackground(() => {
       captionJobs.storageChanged(changes, area),
     );
     // The alarm exists only while a job is followed, so an idle worker boot
-    // reads no caption storage.
+    // reads no caption storage. An update clears alarms and a browser restart
+    // may drop them (builds without playback have none), so saved jobs are
+    // also resumed on those events.
     void chrome.alarms
       ?.get?.(CAPTION_JOB_ALARM)
       ?.then((alarm) => (alarm ? captionJobs.resume() : undefined))
       .catch(() => {});
+    chrome.runtime.onStartup?.addListener(() => void captionJobs.resume());
+    chrome.runtime.onInstalled?.addListener(() => void captionJobs.resume());
   }
   chrome.runtime.onInstalled?.addListener((details) => {
     void markUpdate(details);
