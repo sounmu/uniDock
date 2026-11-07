@@ -6,6 +6,8 @@ import { Rail, type Section } from "./ui/Rail";
 import { DetailView } from "./ui/DetailView";
 import { CoursesScreen } from "./screens/CoursesScreen";
 import { TasksScreen } from "./screens/TasksScreen";
+import { ProgressStrip } from "./ProgressStrip";
+import { useActivity } from "./progress-activity";
 import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { AnalyticsSettings } from "./AnalyticsSettings";
@@ -47,6 +49,7 @@ export function App() {
   const infoScroll = useRef(0);
   const [infoTarget, setInfoTarget] = useState<"analytics-title" | "caption-server-title" | null>(null);
   const [version] = useState(manifestVersion);
+  const activity = useActivity(__UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__);
   const restoreInfoFocus = useRef(false);
   // Runs after the list is unhidden, so a fallback heading can take focus.
   useLayoutEffect(() => {
@@ -114,8 +117,16 @@ export function App() {
         playbackAvailable={__UNIDOCK_PLAYBACK__}
         onInfo={() => showInfo()}
         info={info}
+        active={activity.map((entry) => entry.section)}
       />
       <main>
+        <ProgressStrip
+          activity={activity.filter((entry) => info || entry.section !== model.section)}
+          onOpen={(section) => {
+            setInfo(false);
+            select(section);
+          }}
+        />
         <UpdateNotice />
         {noticeOpen && !noticeDismissed && (
           <aside hidden={info} className="notice" aria-label="사용 통계 안내">

@@ -158,6 +158,15 @@ async function fakeServices(directory: string) {
         response.end(media.subarray(start, end + 1));
         return;
       }
+      if (host === "mylms.korea.ac.kr") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(
+          '<!doctype html><html lang="ko"><head><title>합성 LMS</title></head>' +
+            '<body style="margin:0;font-family:sans-serif"><header style="height:56px;background:#8b1e2f"></header>' +
+            '<main style="padding:24px"><h1>강의 목록</h1><p>합성 LMS 페이지</p></main></body></html>',
+        );
+        return;
+      }
       if (host === "captions.test") {
         response.setHeader("Access-Control-Allow-Origin", request.headers.origin ?? "*");
         response.setHeader(
@@ -317,7 +326,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
   test.beforeEach(async ({ playwright }) => {
     profile = await mkdtemp(path.join(tmpdir(), "unidock-ai-captions-"));
     services = await fakeServices(profile);
-    const map = ["kucom.korea.ac.kr", CDN_HOST, "captions.test"]
+    const map = ["kucom.korea.ac.kr", CDN_HOST, "captions.test", "mylms.korea.ac.kr"]
       .map((host) => `MAP ${host} 127.0.0.1:${services.port}`)
       .join(", ");
     context = await playwright.chromium.launchPersistentContext(profile, {
@@ -529,6 +538,35 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
       });
     }
   }
+
+  test("an LMS tab and the panel show an accepted job's progress until it finishes", async () => {
+    // Given an accepted job whose first status answer is held.
+    const { panel } = await openPanelOnPlayer();
+    const held = services.holdNextResponse("polling");
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await held.arrived;
+
+    // When an LMS page opens and the panel shows another screen.
+    const lms = await context.newPage();
+    await lms.goto("https://mylms.korea.ac.kr/courses");
+    const toast = lms.getByRole("region", { name: "uniDock 진행 상황" });
+    await expect(toast.getByText("AI 자막 대기 중")).toBeVisible();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+    const row = panel.locator(".progress-row");
+    await expect(row).toContainText("AI 자막 대기 중");
+    await expect(panel.locator(".rail-dot")).toHaveCount(1);
+    await row.click();
+    await expect(panel.getByRole("button", { name: "취소", exact: true })).toBeVisible();
+    await expect(row).toHaveCount(0);
+    held.release();
+
+    // Then the finished job is announced on the page and the panel marks clear.
+    await expect(toast.getByText("AI 자막이 준비됐어요")).toBeVisible();
+    await expectFinished(panel, []);
+    await expect(panel.locator(".rail-dot")).toHaveCount(0);
+    await toast.getByRole("button", { name: "알림 닫기" }).click();
+    await expect(toast).toHaveCount(0);
+  });
 
   const probe = (panel: import("@playwright/test").Page) =>
     panel.evaluate(async (url) => {

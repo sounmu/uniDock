@@ -9,30 +9,33 @@ import { mediaRangeReader } from "../../src/captions/media-fetch";
 import {
   cancelJob,
   createJob,
-  getJob,
-  getTranscript,
-  getWorkerStatus,
   uploadAudio,
   type JobProgress,
 } from "../../src/captions/job-client";
 import {
+  CAPTION_JOB_PORT,
+  type CaptionJobRequest,
+  type CaptionJobUpdate,
+} from "../../src/captions/job-monitor";
+import {
   captionJobKey,
   clearActiveJob,
-  loadActiveJob,
+  loadActiveJobs,
   saveActiveJob,
 } from "../../src/captions/job-record";
-import { isTerminal, serverPhase, type JobPhase } from "../../src/captions/job-state";
-import { projectServerSegments, type Transcript } from "../../src/captions/transcript";
+import { isTerminal, type JobPhase } from "../../src/captions/job-state";
+import type { Transcript } from "../../src/captions/transcript";
 import { safeLog } from "../../src/security/logger";
 import type { ErrorCode } from "../../src/analytics/report";
 import { startOperation, type OperationHandle } from "./analytics";
+import { publishCaptionActivity } from "./progress-activity";
+import { captionPercent } from "../../src/progress";
 import { CAPTION_SESSION_EPOCH_KEY } from "../../src/caption-server-settings";
 import {
   CAPTION_TRANSCRIPT_CACHE_KEY,
   hasCachedTranscripts,
   loadCachedTranscript,
   readCaptionCacheEpoch,
-  saveCachedTranscript,
 } from "../../src/captions/transcript-cache";
 
 export interface AiCaptionResult {
@@ -68,9 +71,7 @@ const IDLE: AiCaptionState = {
   durationS: null,
   restoredFromCache: false,
 };
-const POLL_QUEUED_MS = 10_000;
-const POLL_RUNNING_MS = 5_000;
-const POLL_VISIBLE_MS = 2_000;
+const MAX_RECONNECTS = 5;
 
 interface Run {
   epoch: string | null;
@@ -113,6 +114,7 @@ export function useAiCaptions() {
   const mounted = useRef(false);
   // Only a Generate started in this panel has an operation; a restored job does not.
   const operation = useRef<OperationHandle | null>(null);
+  const untrack = useRef<(() => void) | null>(null);
 
   const stopLocal = useCallback(() => {
     generation.current++;
@@ -120,22 +122,27 @@ export function useAiCaptions() {
     controller.current = null;
   }, []);
 
-  /** Cancel or source-document loss: stop local work and cancel the server job. */
-  const discard = useCallback(() => {
-    const id = jobId.current;
-    const active = !isTerminal(phase.current);
+  const forget = useCallback(() => {
     operation.current = null;
     jobId.current = null;
     jobTab.current = null;
     phase.current = "idle";
     stopLocal();
+    setState(IDLE);
+  }, [stopLocal]);
+
+  /** Cancel or source-document loss: stop local work and cancel the server job. */
+  const discard = useCallback(() => {
+    const id = jobId.current;
+    const active = !isTerminal(phase.current);
+    untrack.current?.();
+    forget();
     if (id) {
       if (active)
         void cancelJob(id).catch(() => safeLog("REQUEST_FAILED"));
-      void clearActiveJob();
+      void clearActiveJob(id);
     }
-    setState(IDLE);
-  }, [stopLocal]);
+  }, [forget]);
 
   const run = useCallback(async (body: (run: Run) => Promise<void>) => {
     stopLocal();
@@ -161,96 +168,109 @@ export function useAiCaptions() {
     } catch (error) {
       if (!live()) return;
       const code = errorCode(error);
-      if (code === "EXPIRED") void clearActiveJob();
+      const id = jobId.current;
+      if (code === "EXPIRED" && id) void clearActiveJob(id);
       set({ phase: "failed", errorCode: code });
     }
   }, [stopLocal]);
 
-  const poll = useCallback(async (id: string, { signal, live, set, epoch }: Run, key: string) => {
-    const current = async () => {
-      const latest = await readCaptionCacheEpoch();
-      if (!live()) return false;
-      if (latest !== epoch) {
-        discard();
-        return false;
-      }
-      return true;
-    };
-    while (live() && !signal.aborted) {
-      const status = await getJob(id, signal);
-      if (!live()) return;
-      const next = serverPhase(status.state);
-      if (!next) return set({ phase: "failed", errorCode: "RESPONSE" });
-      const workerOffline =
-        next === "queued" &&
-        (await getWorkerStatus(signal).catch(() => "online" as const)) === "offline";
-      if (!live()) return;
-      set({
-        phase: next === "succeeded" ? phase.current : next,
-        serverProgress: status.progress ?? null,
-        workerOffline,
-      });
-      if (next === "succeeded") {
-        if (!status.transcriptId)
-          return set({ phase: "failed", errorCode: "RESPONSE" });
-        if (!(await current())) return;
-        const server = await getTranscript(status.transcriptId, signal);
-        if (!(await current())) return;
-        const items = projectServerSegments(server.segments);
-        const extractedAt = new Date().toISOString();
-        await saveCachedTranscript(key, {
-          items,
-          engine: server.engine,
-          modelRevision: server.modelRevision,
-          expiresAt: server.expiresAt,
-          extractedAt,
-        }, epoch).catch(() => safeLog("REQUEST_FAILED"));
-        if (!(await current())) return;
+  /**
+   * Follows an accepted job through the worker's CaptionJobMonitor, which
+   * polls the server and caches the transcript. The port stays open only while
+   * the job is followed; a worker restart drops it and the job is re-tracked.
+   */
+  const follow = useCallback((id: string, { signal, live, set }: Run, key: string) =>
+    new Promise<void>((resolve) => {
+      let port: chrome.runtime.Port | null = null;
+      let reconnects = 0;
+      let showing = false;
+      let settled = false;
+      const post = (request: CaptionJobRequest) => {
+        try {
+          port?.postMessage(request);
+        } catch {
+          // A dropped port is reconnected by its onDisconnect handler.
+        }
+      };
+      const reveal = () =>
+        post({ type: "visible", visible: document.visibilityState === "visible" });
+      const leave = () => post({ type: "untrack", jobId: id });
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", done);
+        document.removeEventListener("visibilitychange", reveal);
+        if (untrack.current === leave) untrack.current = null;
+        const closing = port;
+        port = null;
+        closing?.disconnect();
+        resolve();
+      };
+      const show = async (update: CaptionJobUpdate) => {
+        const value = update.result ?? (await loadCachedTranscript(key).catch(() => null));
+        if (!value) return set({ phase: "failed", errorCode: "RESPONSE" });
         set({
           phase: "succeeded",
-          expiresAt: server.expiresAt || null,
+          serverProgress: update.snapshot?.serverProgress ?? null,
+          expiresAt: value.expiresAt || null,
           result: {
             transcript: {
               sourceUrl: "https://kucom.korea.ac.kr/",
               pageTitle: lectureTitle.current || "AI 자막",
-              extractedAt,
-              itemCount: items.length,
-              items,
+              extractedAt: value.extractedAt,
+              itemCount: value.items.length,
+              items: value.items,
             },
-            engine: server.engine,
-            modelRevision: server.modelRevision,
+            engine: value.engine,
+            modelRevision: value.modelRevision,
           },
         });
-        return;
-      }
-      if (next === "failed" || next === "cancelled") {
-        void clearActiveJob();
-        return set({
-          phase: next,
-          errorCode: next === "failed" ? status.errorCode || "FAILED" : null,
+      };
+      const receive = (message: unknown) => {
+        if (settled || showing) return;
+        if (!live()) return done();
+        const update = message as CaptionJobUpdate;
+        if (update.jobId !== id) return;
+        const snapshot = update.snapshot;
+        // The worker dropped this job: local data was deleted or the session ended.
+        if (!snapshot) return forget();
+        if (snapshot.phase === "succeeded") {
+          showing = true;
+          void show(update).finally(done);
+          return;
+        }
+        if (snapshot.phase === "failed" || snapshot.phase === "cancelled") {
+          set({ phase: snapshot.phase, errorCode: snapshot.errorCode });
+          return done();
+        }
+        set({
+          phase: snapshot.phase,
+          serverProgress: snapshot.serverProgress,
+          workerOffline: snapshot.workerOffline,
         });
-      }
-      const delay =
-        document.visibilityState === "visible" && !workerOffline
-          ? POLL_VISIBLE_MS
-          : next === "running" ? POLL_RUNNING_MS : POLL_QUEUED_MS;
-      await new Promise<void>((resolve) => {
-        const finish = () => {
-          clearTimeout(timer);
-          signal.removeEventListener("abort", finish);
-          document.removeEventListener("visibilitychange", reveal);
-          resolve();
-        };
-        const reveal = () => {
-          if (document.visibilityState === "visible") finish();
-        };
-        const timer = setTimeout(finish, delay);
-        signal.addEventListener("abort", finish, { once: true });
-        document.addEventListener("visibilitychange", reveal);
-        if (signal.aborted) finish();
-      });
-    }
-  }, [discard]);
+      };
+      const start = () => {
+        const current = chrome.runtime.connect({ name: CAPTION_JOB_PORT });
+        port = current;
+        current.onMessage.addListener(receive);
+        current.onDisconnect.addListener(() => {
+          void chrome.runtime.lastError;
+          if (port !== current) return;
+          port = null;
+          if (settled || showing) return;
+          if (reconnects++ < MAX_RECONNECTS) return start();
+          set({ phase: "failed", errorCode: "UNKNOWN" });
+          done();
+        });
+        reveal();
+        post({ type: "track", jobId: id, key });
+      };
+      if (signal.aborted) return done();
+      signal.addEventListener("abort", done, { once: true });
+      document.addEventListener("visibilitychange", reveal);
+      untrack.current = leave;
+      start();
+    }), [forget]);
 
   useEffect(() => {
     mounted.current = true;
@@ -298,10 +318,10 @@ export function useAiCaptions() {
       const restoreEpoch = await readCaptionCacheEpoch();
       if (stale()) return;
       const [saved, cached] = await Promise.all([
-        loadActiveJob(),
+        loadActiveJobs(),
         hasCachedTranscripts().catch(() => false),
       ]);
-      if ((!saved && !cached) || stale()) return;
+      if ((!saved.length && !cached) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
@@ -347,13 +367,14 @@ export function useAiCaptions() {
         });
         return;
       }
-      if (!saved || key !== saved.key) return;
-      const id = saved.jobId;
+      const job = saved.find((j) => j.key === key);
+      if (!job) return;
+      const id = job.jobId;
       jobId.current = id;
       void run(async (ctx) => {
         if (ctx.epoch !== restoreEpoch) return discard();
         ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
-        await poll(id, ctx, key);
+        await follow(id, ctx, key);
       });
     })().catch((error: unknown) => {
       if (stale()) return;
@@ -371,7 +392,7 @@ export function useAiCaptions() {
       // Closing the panel stops local capture only; accepted jobs keep running.
       stopLocal();
     };
-  }, [discard, poll, run, stopLocal]);
+  }, [discard, follow, run, stopLocal]);
 
   const generate = useCallback(async () => {
     const access = requestCaptionMediaAccess();
@@ -439,14 +460,29 @@ export function useAiCaptions() {
       if (!live()) return;
       await saveActiveJob({ jobId: id, key });
       set({ phase: "queued" });
-      await poll(id, ctx, key);
+      await follow(id, ctx, key);
     });
-  }, [discard, poll, run]);
+  }, [discard, follow, run]);
 
   const cancel = useCallback(() => {
     operation.current?.cancel();
     discard();
   }, [discard]);
+
+  useEffect(() => {
+    publishCaptionActivity(
+      state.phase === "idle"
+        ? null
+        : {
+            kind: "captions",
+            id: jobId.current ?? "local",
+            phase: state.phase,
+            percent: state.phase === "running" ? captionPercent(state.serverProgress) : null,
+            workerOffline: state.workerOffline,
+          },
+    );
+  }, [state]);
+  useEffect(() => () => publishCaptionActivity(null), []);
 
   return { state, generate, cancel };
 }

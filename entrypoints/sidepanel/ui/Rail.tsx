@@ -13,12 +13,15 @@ export function Rail({
   onInfo,
   playbackAvailable,
   info = false,
+  active = [],
 }: {
   readonly section: Section;
   readonly onSelect: (section: Section) => void;
   readonly onInfo: () => void;
   readonly playbackAvailable: boolean;
   readonly info?: boolean;
+  /** Sections with work in progress; marked with a dot. */
+  readonly active?: readonly Section[];
 }) {
   return (
     <header className="rail">
@@ -53,7 +56,10 @@ export function Rail({
               aria-current={!info && section === value ? "page" : undefined}
               onClick={() => onSelect(value)}
             >
-              <Icon name={value} />
+              <span className="rail-icon">
+                <Icon name={value} />
+                {active.includes(value) && <span className="rail-dot" aria-hidden="true" />}
+              </span>
               <span>{label}</span>
             </button>
           ),

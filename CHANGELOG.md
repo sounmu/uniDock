@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4 - 2026-11-06
+
+- Track AI caption jobs in the background worker, so progress keeps updating
+  while the side panel is closed and several lectures can be followed at once.
+- Show a Live Activity-style progress capsule on LMS pages for AI captions and
+  automatic playback, announced only on stage changes and closable per stage.
+- Mark the playback and caption tabs with a dot while work is in progress and
+  show a one-line progress row on other screens that opens the right tab.
+- Push progress only on change and skip LMS tabs entirely while nothing is running.
+- Update bundled release notes and the privacy-policy version.
+
 ## 0.5.3 - 2026-11-05
 
 - Redesign AI caption confirmation, progress, completion, and error cards with

@@ -393,6 +393,84 @@ p {
   color: var(--brand);
   background: var(--brand-wash);
 }
+.rail nav button > .rail-icon {
+  position: relative;
+  display: grid;
+  max-width: none;
+  overflow: visible;
+}
+.rail-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--brand);
+  box-shadow: 0 0 0 2px var(--glass-strong);
+}
+/* Work in progress outside the current screen: one glass row each, above the
+   screen content; the row opens that screen. */
+.progress-strip {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.progress-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--space-2) var(--space-3);
+  overflow: hidden;
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--r-md);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  color: var(--brand);
+  text-align: left;
+}
+.progress-row-text {
+  display: grid;
+  min-width: 0;
+}
+.progress-row strong {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.progress-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-row[data-tone="error"] strong {
+  color: var(--danger);
+}
+.progress-row-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--neutral-wash);
+}
+.progress-row-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  transition: width var(--motion-fast) ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-row-bar > i {
+    transition: none;
+  }
+}
 .rail-pending {
   position: relative;
   display: grid;

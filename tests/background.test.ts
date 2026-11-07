@@ -7,6 +7,7 @@ vi.mock("wxt/utils/define-background", () => ({
 import background, {
   createChromePlaybackRuntime,
 } from "../entrypoints/background";
+import { CaptionJobMonitor } from "../src/captions/job-monitor";
 import { PlaybackRuntime } from "../src/playback/runtime";
 import { emptyPlayback, PLAYBACK_STORAGE_KEY } from "../src/playback/storage";
 
@@ -476,6 +477,7 @@ function commandBroadcastFixture() {
   );
   const command = vi.spyOn(PlaybackRuntime.prototype, "command");
   const sendMessage = vi.fn().mockResolvedValue(undefined);
+  const onStartup = vi.fn<(listener: () => void) => void>();
   vi.stubGlobal("chrome", {
     runtime: {
       id: "test-extension",
@@ -486,7 +488,8 @@ function commandBroadcastFixture() {
           receive = listener;
         },
       },
-      onStartup: { addListener: vi.fn() },
+      onConnect: { addListener: vi.fn() },
+      onStartup: { addListener: onStartup },
       onInstalled: { addListener: vi.fn() },
     },
     action: actionMocks(),
@@ -505,6 +508,7 @@ function commandBroadcastFixture() {
       },
     },
     tabs: {
+      query: vi.fn().mockResolvedValue([]),
       onRemoved: { addListener: vi.fn() },
       onActivated: { addListener: vi.fn() },
       onUpdated: { addListener: vi.fn() },
@@ -519,6 +523,7 @@ function commandBroadcastFixture() {
   return {
     command,
     sendMessage,
+    onStartup,
     receive,
     panel: {
       id: "test-extension",
@@ -556,6 +561,32 @@ it("broadcasts settled mutating commands without delaying their reply and never 
   });
 });
 
+it("shows the state a failed playback command left behind in progress", async () => {
+  const f = commandBroadcastFixture();
+  const blocked = { courses: [], labels: {}, queue: [], status: "blocked-login", current: null };
+  f.command.mockImplementation(async (message) =>
+    (message.type === "PLAYBACK_STATUS"
+      ? { status: "success", snapshot: blocked }
+      : { status: "error", code: "LOGIN_REQUIRED" }) as never,
+  );
+  const deliver = (type: string) =>
+    new Promise<unknown>((resolve) => f.receive({ version: 1, type }, f.panel, resolve));
+  await deliver("PLAYBACK_REFRESH");
+  await f.command.mock.results.at(-1)?.value;
+  await Promise.resolve();
+  expect(await deliver("PROGRESS_GET")).toMatchObject({
+    items: [{ kind: "playback", status: "blocked-login" }],
+  });
+});
+
+it("resumes saved caption jobs on browser startup even without their alarm", () => {
+  const resume = vi.spyOn(CaptionJobMonitor.prototype, "resume").mockResolvedValue();
+  const f = commandBroadcastFixture();
+  expect(resume).not.toHaveBeenCalled();
+  for (const [listener] of f.onStartup.mock.calls) listener();
+  expect(resume).toHaveBeenCalledOnce();
+});
+
 it("does not broadcast rejected playback messages", () => {
   const f = commandBroadcastFixture();
   const respond = vi.fn();
@@ -587,8 +618,9 @@ it("discards unsent statistics and the popup opt-in before the existing clear-da
       order.push(`erase:${String(key)}`);
     },
   );
-  f.command.mockImplementation(async () => {
-    order.push("playback");
+  f.command.mockImplementation(async (message) => {
+    // The status read that refreshes progress afterwards is not part of the order.
+    if (message.type !== "PLAYBACK_STATUS") order.push("playback");
     return { status: "error", code: "STORAGE" };
   });
   await new Promise((resolve) => {

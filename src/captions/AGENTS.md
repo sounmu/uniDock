@@ -1,7 +1,7 @@
 # src/captions/ - caption extraction and AI caption jobs
 
 ## OVERVIEW
-Two pipelines: (1) read existing captions/VTT/media scripts from LMS + KU player frames; (2) AI captions - extract MP4 audio in the panel, upload to the caption server, poll a job, fetch the transcript.
+Two pipelines: (1) read existing captions/VTT/media scripts from LMS + KU player frames; (2) AI captions - extract MP4 audio in the panel and upload it to the caption server; the worker then polls the job, caches the transcript and pushes changes to subscribed panels.
 Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20+ dedicated tests) + distinct domain (AI path gated by `__UNIDOCK_AI_CAPTIONS__`).
 
 ## WHERE TO LOOK
@@ -19,7 +19,8 @@ Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20
 | Caption server HTTP | `server-http.ts` | `serverFetch`, `readJson`, `CaptionServerError`, `SERVER_CODES`; base from `__UNIDOCK_CAPTION_SERVER__` |
 | Job API | `job-client.ts` | `createJob`, `uploadAudio` (`UPLOAD_CHUNK_BYTES`), `getJob`, `cancelJob`, `getTranscript`, `deleteTranscript`, `getAccount` |
 | Job lifecycle rules | `job-state.ts` | `JobPhase`, `canTransition`, `isTerminal`, `serverPhase` |
-| Resume an in-flight job | `job-record.ts` | `loadActiveJob`/`saveActiveJob`/`clearActiveJob` in `chrome.storage`; `captionJobKey` |
+| Follow accepted jobs (worker) | `job-monitor.ts` `CaptionJobMonitor` | several jobs at once (one per lecture key); panel port `CAPTION_JOB_PORT` open only while following; each port gets only its tracked jobs' changed snapshots; per-job poll cadence `CAPTION_POLL_MS`; alarm `CAPTION_JOB_ALARM` exists only while a job is followed |
+| Resume in-flight jobs | `job-record.ts` | `loadActiveJobs`/`saveActiveJob`/`clearActiveJob(jobId)`: a list of at most `MAX_ACTIVE_JOBS`, edited under a Web Lock; a legacy single record reads as a list of one; `captionJobKey` |
 | Server auth/session | `../caption-server-settings.ts` | lives in root; `authorizedFetch` is what `job-client.ts` calls |
 
 ## CONVENTIONS

@@ -321,7 +321,7 @@ test("production HELLO rejects an LMS candidate made ambiguous in flight", async
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "자동 재생" }).click();
+    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
     await panel.getByRole("button", { name: "영상 선택" }).click();
     await panel
       .getByLabel("과목 선택")
@@ -865,7 +865,7 @@ test("the panel revokes consumed and failed recording drafts until a fresh list"
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "자동 재생" }).click();
+    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
     await panel.getByRole("button", { name: "영상 선택" }).click();
     await panel
       .getByLabel("과목 선택")
@@ -1227,8 +1227,8 @@ test("production extension plays a click-ordered playlist and explicitly recover
     const secondPanel = await context.newPage();
     await secondPanel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "자동 재생" }).click();
-    await secondPanel.getByRole("button", { name: "자동 재생" }).click();
+    await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
+    await secondPanel.getByRole("button", { name: "자동 재생", exact: true }).click();
     await secondPanel.getByRole("button", { name: "영상 선택" }).click();
     await expect(secondPanel.getByLabel("과목 선택")).toContainText(
       "합성 운영체제",

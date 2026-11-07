@@ -45,7 +45,7 @@ async function openPanels(context: BrowserContext, extensionId: string) {
   ]);
   await Promise.all(
     [first, second].map((panel) =>
-      panel.getByRole("button", { name: "자동 재생" }).click(),
+      panel.getByRole("button", { name: "자동 재생", exact: true }).click(),
     ),
   );
   await Promise.all(

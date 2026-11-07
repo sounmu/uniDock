@@ -48,17 +48,19 @@ async function openRecording(
   context: BrowserContext,
   title: string,
 ) {
-  await panel.locator("button.list-row", { hasText: title }).click();
-  const opened = context.waitForEvent("page");
-  await panel.getByRole("button", { name: "강의 열기 (새 탭)" }).click();
-  const page = await opened;
-  await page.waitForLoadState("domcontentloaded");
-  return page;
+  return test.step(`open recording: ${title}`, async () => {
+    await panel.locator("button.list-row", { hasText: title }).click();
+    const opened = context.waitForEvent("page");
+    await panel.getByRole("button", { name: "강의 열기 (새 탭)" }).click();
+    const page = await opened;
+    await page.waitForLoadState("domcontentloaded");
+    return page;
+  });
 }
 
 test("two production panel consumers retain independent capability catalogs", async ({
   playwright,
-}) => {
+}, testInfo) => {
   await stat(path.join(extensionPath, "manifest.json"));
   const profile = await mkdtemp(path.join(tmpdir(), "unidock-scoped-panels-"));
   const server = await syntheticServer(profile);
@@ -78,6 +80,7 @@ test("two production panel consumers retain independent capability catalogs", as
         "--ignore-certificate-errors",
       ],
     });
+    await context.tracing.start({ screenshots: true, snapshots: true });
     context.on("page", (page) => {
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("console", (message) => {
@@ -172,8 +175,10 @@ test("two production panel consumers retain independent capability catalogs", as
     // Release builds omit playback; its catalog isolation is covered by test:e2e:playback.
     if (playbackBuild()) {
       await lms.bringToFront();
-      const playbackRefresh = await panelB.evaluate(() =>
-        chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
+      const playbackRefresh = await test.step("refresh playback discovery", () =>
+        panelB.evaluate(() =>
+          chrome.runtime.sendMessage({ version: 1, type: "PLAYBACK_REFRESH" }),
+        ),
       );
       if (playbackRefresh.status === "error")
         throw new Error(`Playback refresh failed: ${playbackRefresh.code}`);
@@ -190,9 +195,11 @@ test("two production panel consumers retain independent capability catalogs", as
         panelB.getByRole("button", { name: "영상 선택" }),
       ).toBeEnabled();
       await panelB.getByRole("button", { name: "영상 선택" }).click();
-      await panelB
-        .getByLabel("과목 선택")
-        .selectOption({ label: "Synthetic Operating Systems" });
+      await test.step("select playback course after loading courses", () =>
+        panelB
+          .getByLabel("과목 선택")
+          .selectOption({ label: "Synthetic Operating Systems" }),
+      );
       await expect(
         panelB.getByText("Synthetic Lecture A", { exact: true }),
       ).toBeVisible();
@@ -214,8 +221,17 @@ test("two production panel consumers retain independent capability catalogs", as
     }
     expect(errors).toEqual([]);
   } finally {
-    if (context) await context.close();
-    await server.close();
-    await rm(profile, { recursive: true, force: true });
+    try {
+      if (context) {
+        try {
+          await context.tracing.stop({ path: testInfo.outputPath("trace.zip") });
+        } finally {
+          await context.close();
+        }
+      }
+    } finally {
+      await server.close();
+      await rm(profile, { recursive: true, force: true });
+    }
   }
 });
