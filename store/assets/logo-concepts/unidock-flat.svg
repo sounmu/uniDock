@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>uniDock flat icon</title>
+  <desc>Shared extension and favicon artwork: a burgundy tile with a transparent lowercase u cutout.</desc>
+  <path fill="#872038" fill-rule="evenodd" d="M132 32H380A100 100 0 0 1 480 132V380A100 100 0 0 1 380 480H132A100 100 0 0 1 32 380V132A100 100 0 0 1 132 32Z M144 140H212V260C212 284 230 302 256 302C282 302 300 284 300 260V140H368V372H300V360C286 368 271 372 256 372C194 372 144 322 144 260V140Z"/>
+</svg>
