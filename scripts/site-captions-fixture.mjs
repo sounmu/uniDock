@@ -51,6 +51,41 @@ export function installCaptionFixture() {
     ...JSON.parse(globalThis.sessionStorage.getItem("site-caption-storage") ?? "{}"),
   };
   const event = { addListener() {}, removeListener() {} };
+  const connect = ({ name }) => {
+    if (name !== "unidock-caption-job")
+      throw new Error(`Unexpected fixture port: ${name}`);
+    const listeners = () => ({ message: new Set(), disconnect: new Set() });
+    const panel = listeners();
+    const worker = listeners();
+    let open = true;
+    const endpoint = (own, peer) => ({
+      name,
+      onMessage: {
+        addListener: (listener) => own.message.add(listener),
+        removeListener: (listener) => own.message.delete(listener),
+      },
+      onDisconnect: {
+        addListener: (listener) => own.disconnect.add(listener),
+        removeListener: (listener) => own.disconnect.delete(listener),
+      },
+      postMessage: (message) => {
+        if (!open) throw new Error("Fixture port is closed");
+        const value = globalThis.structuredClone(message);
+        globalThis.queueMicrotask(() => {
+          if (open) for (const listener of peer.message) listener(value);
+        });
+      },
+      disconnect: () => {
+        if (!open) return;
+        open = false;
+        globalThis.queueMicrotask(() => {
+          for (const listener of peer.disconnect) listener();
+        });
+      },
+    });
+    globalThis.__siteCaptionMonitor.connect(endpoint(worker, panel));
+    return endpoint(panel, worker);
+  };
   // This mutable ledger records actual exported Blob bodies, not expected data.
   const evidence = { downloads: [], injections: [] };
   globalThis.__siteCaptionFixture = evidence;
@@ -66,7 +101,8 @@ export function installCaptionFixture() {
   };
   globalThis.chrome = {
     runtime: {
-      getManifest: () => ({ version: "0.5.2" }),
+      getManifest: () => ({ version: "0.5.5" }),
+      connect,
       sendMessage: async (message) => {
         if (message.type === "UPDATE_NOTICE_TAKE") return { updated: false };
         if (message.type === "ANALYTICS_STATUS")

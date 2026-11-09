@@ -25,6 +25,18 @@ export async function captureSiteCaptions(target) {
     await build({
       configFile: false,
       logLevel: "error",
+      plugins: [{
+        name: "site-caption-worker",
+        transform(code, id) {
+          if (id !== path.resolve("entrypoints/sidepanel/main.tsx")) return;
+          return {
+            code: `import { CaptionJobMonitor } from "../../src/captions/job-monitor";
+globalThis.__siteCaptionMonitor = new CaptionJobMonitor();
+${code}`,
+            map: null,
+          };
+        },
+      }],
       define: {
         __UNIDOCK_PLAYBACK__: "false",
         __UNIDOCK_AI_CAPTIONS__: "true",
@@ -78,7 +90,13 @@ export async function captureSiteCaptions(target) {
         url.pathname === "/v1/transcription-jobs/site-fixture-job" &&
         method === "GET"
       ) {
-        if (failRestoredJob) return route.abort("failed");
+        if (failRestoredJob) return route.fulfill({
+          json: {
+            id: "site-fixture-job",
+            state: "failed",
+            error_code: "INFERENCE_FAILED",
+          },
+        });
         polls++;
         return route.fulfill({
           json:
@@ -221,12 +239,13 @@ export async function captureSiteCaptions(target) {
       await page.emulateMedia({ colorScheme: width === 320 ? "light" : "dark" });
       await page.reload();
       await page.getByRole("button", { name: "자막 추출", exact: true }).click();
-      await expect(page.getByRole("alert")).toContainText("자막 서버에 연결하지 못했습니다.");
+      await expect(page.getByRole("alert")).toContainText("자막 생성에 실패했습니다. 이번 사용 횟수는 돌려받습니다.");
       await expect(page.getByRole("button", { name: "다시 시도", exact: true })).toBeVisible();
       await page.screenshot({ animations: "disabled", path: path.join(evidenceDir, `restore-error-${width}.png`) });
       await page.getByRole("button", { name: "다시 시도", exact: true }).click();
       await expect(page.getByRole("group", { name: "AI 자막 생성 확인" })).toBeVisible();
     }
+    assert.deepEqual(errors, []);
   } finally {
     if (browser) await browser.close();
     if (server)
