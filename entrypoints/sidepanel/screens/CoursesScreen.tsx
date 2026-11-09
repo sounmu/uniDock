@@ -7,9 +7,25 @@ import {
   type PanelModel,
 } from "./QueryResults";
 import { MaterialsTab } from "./MaterialsTab";
+import { AssignmentFreshness, AssignmentRefresh } from "../ui/AssignmentRefresh";
+const courseTabs = {
+  ASSIGNMENTS_LIST: "과제",
+  RECORDINGS_LIST: "녹화 강의",
+  DOCUMENTS_LIST: "강의 자료",
+} as const;
 export function CoursesScreen({ model }: { readonly model: PanelModel }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [courseFocus, setCourseFocus] = useState<CourseFocus | null>(null);
+  const tab =
+    model.course &&
+    (model.view === "ASSIGNMENTS_LIST" ||
+      model.view === "RECORDINGS_LIST" ||
+      model.view === "DOCUMENTS_LIST")
+      ? model.view
+      : null;
+  const ready =
+    Boolean(model.pendingResult) ||
+    (model.state.status === "success" && !("courses" in model.state));
   useLayoutEffect(() => {
     heading.current?.focus({ preventScroll: true });
   }, [model.selectedCourse?.courseSelector]);
@@ -17,23 +33,20 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
     <>
       {model.course && (
         <section className="course-context">
-          <button
-            className="btn-ghost"
-            onClick={model.showCourses}
-          >
-            ← 과목 선택
-          </button>
+          <div className="assignment-course-actions">
+            <button
+              className="btn-ghost"
+              onClick={model.showCourses}
+            >
+              ← 과목 선택
+            </button>
+            {tab && <AssignmentRefresh model={model} label={courseTabs[tab]} />}
+          </div>
           <h2 ref={heading} tabIndex={-1}>
             {model.course}
           </h2>
-          <nav className="subviews" aria-label="과목 메뉴">
-            {(
-              [
-                ["ASSIGNMENTS_LIST", "과제"],
-                ["RECORDINGS_LIST", "녹화 강의"],
-                ["DOCUMENTS_LIST", "강의 자료"],
-              ] as const
-            ).map(([type, label]) => (
+          <nav className="subviews assignment-course-tabs" aria-label="과목 메뉴">
+            {(Object.keys(courseTabs) as (keyof typeof courseTabs)[]).map((type) => (
               <button
                 key={type}
                 className="btn-ghost"
@@ -48,54 +61,34 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
                     });
                 }}
               >
-                {label}
+                {courseTabs[type]}
               </button>
             ))}
           </nav>
         </section>
       )}
-      {model.view === "DOCUMENTS_LIST" ? (
-        <MaterialsTab
-          key={`${model.selectedCourse?.courseSelector ?? "none"}:${
-            model.state.status === "success" && "documents" in model.state
-              ? (model.state.documents[0]?.lmsHandle ?? "empty")
-              : model.state.status
-          }`}
-          model={model}
-        />
+      {tab ? (
+        !ready && (
+          <>
+            <ScreenHeader title={courseTabs[tab]} />
+            <AssignmentFreshness
+              updatedAt={model.updatedAt}
+              pending={model.state.status === "loading"}
+            />
+          </>
+        )
       ) : (
-        <>
-          <ScreenHeader
-            title={
-              model.course
-                ? model.view === "RECORDINGS_LIST"
-                  ? "녹화 강의"
-                  : "과제"
-                : "내 과목"
-            }
-            action={<Refresh model={model} />}
-          />
-          {model.course && (
-            <details className="guidance">
-              <summary>
-                {model.view === "RECORDINGS_LIST"
-                  ? "강의 열기 안내"
-                  : "표시 기준"}
-              </summary>
-              <p className="hint">
-                {model.view === "RECORDINGS_LIST"
-                  ? "주차학습 외부 도구와 LearningX 게시판의 KU 플레이어 영상을 표시합니다. 게시판 영상은 LMS에서 게시판을 연 뒤 약 4시간 동안 보입니다. 열린 탭에서 직접 재생하세요. LMS 재생으로 시청·출석 기록이 반영될 수 있습니다."
-                  : "기본으로 미제출·잠금 해제·마감 전인 과제만 표시합니다. 실제 제출 가능 여부는 LMS에서 확인하세요."}
-              </p>
-            </details>
-          )}
-          <QueryResults
-            key={model.view}
-            model={model}
-            courseFocus={courseFocus}
-            onCourseFocus={setCourseFocus}
-          />
-        </>
+        <ScreenHeader title="내 과목" action={<Refresh model={model} />} />
+      )}
+      {model.view === "DOCUMENTS_LIST" ? (
+        <MaterialsTab model={model} />
+      ) : (
+        <QueryResults
+          key={model.view}
+          model={model}
+          courseFocus={courseFocus}
+          onCourseFocus={setCourseFocus}
+        />
       )}
     </>
   );

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Select } from "./ui/Select";
 import {
   filterDeadlines,
   scheduleKind,
@@ -21,6 +22,8 @@ import { StatusChip } from "./ui/StatusChip";
 import { useDetail } from "./ui/DetailView";
 import { rowKey } from "./ui/a11y";
 import { ItemDetail, isAssignment } from "./ItemDetail";
+import { AssignmentControls, defaultAssignmentFilters, type AssignmentFilters } from "./ui/AssignmentControls";
+import type { AssignmentFreshnessState } from "./ui/AssignmentRefresh";
 type Item = Deadline | Upcoming | Todo;
 type SortOrder = "original" | "due" | "due-desc";
 export { dateLabel } from "./ItemDetail";
@@ -42,6 +45,22 @@ const dayFormatter = new Intl.DateTimeFormat("ko-KR", {
   dateStyle: "short",
   timeZone: "Asia/Seoul",
 });
+const assignmentTime = new Intl.DateTimeFormat("ko-KR", {
+  hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Seoul",
+});
+const assignmentDay = new Intl.DateTimeFormat("ko-KR", {
+  month: "long", day: "numeric", timeZone: "Asia/Seoul",
+});
+function assignmentDue(item: Deadline, now: number): string {
+  const due = isoTime(item.due_at);
+  if (!Number.isFinite(due)) return item.due_at ? "마감일 확인 필요" : "마감일 없음";
+  const offset = 9 * 3600000;
+  const delta = Math.floor((due + offset) / 86400000) - Math.floor((now + offset) / 86400000);
+  const date = delta === 0 ? "오늘" : delta === 1 ? "내일" : delta === -1 ? "어제"
+    : new Date(due + offset).getUTCFullYear() === new Date(now + offset).getUTCFullYear()
+      ? assignmentDay.format(due) : dayFormatter.format(due);
+  return `${date} ${assignmentTime.format(due)}${due <= now ? " 마감" : "까지"}`;
+}
 function scheduleChip(item: Upcoming, now: number): string {
   const time = isoTime(item.date);
   if (!Number.isFinite(time)) return item.submitted ? "제출됨" : "예정";
@@ -117,19 +136,38 @@ export function ItemResults({
   deadlines,
   todo = false,
   course = "",
+  freshness,
 }: {
   readonly items: Item[];
   readonly deadlines: boolean;
   readonly todo?: boolean;
   readonly course?: string;
+  readonly freshness?: AssignmentFreshnessState;
 }) {
   const [remainingOnly, setRemainingOnly] = useState(true);
+  const sortId = useId();
   const [period, setPeriod] = useState<DeadlinePeriod>("all");
   const [sort, setSort] = useState<SortOrder>(todo ? "due-desc" : "due");
   // Schedule rows mix announcements with graded work; "all" keeps LMS order.
   const [kind, setKind] = useState<ScheduleKind | "all">("all");
   const [now, setNow] = useState(Date.now);
   const { detail, open, back } = useDetail<Item>();
+  const previousItems = useRef(items);
+  useEffect(() => {
+    if (previousItems.current !== items) {
+      previousItems.current = items;
+      if (freshness && detail) back();
+    }
+  }, [items, freshness, detail, back]);
+  const assignments = useMemo(
+    () => items.filter((item): item is Deadline => "remaining_candidate" in item),
+    [items],
+  );
+  function applyFilters(filters: AssignmentFilters) {
+    setRemainingOnly(filters.remainingOnly);
+    setPeriod(filters.period);
+    setSort(filters.sort);
+  }
   useEffect(() => {
     const update = () => setNow(Date.now());
     const timer = window.setInterval(update, 1000);
@@ -141,10 +179,7 @@ export function ItemResults({
   }, []);
   const ordered = useMemo(() => {
     if (deadlines) {
-      const rows = items.filter(
-        (item): item is Deadline => "remaining_candidate" in item,
-      );
-      return sort === "original" ? rows : sortByDue(rows);
+      return sort === "original" ? assignments : sortByDue(assignments, sort === "due-desc");
     }
     if (todo) {
       const rows = items.filter((item): item is Todo => "ignore" in item);
@@ -158,7 +193,7 @@ export function ItemResults({
           (kind === "all" || scheduleKind(item.type) === kind),
       ),
     );
-  }, [items, deadlines, todo, sort, kind]);
+  }, [items, assignments, deadlines, todo, sort, kind]);
   const visible = useMemo(
     () =>
       deadlines
@@ -202,7 +237,9 @@ export function ItemResults({
       <ListRow
         title={item.title}
         course={
-          "date" in item
+          deadlines && "remaining_candidate" in item
+            ? assignmentDue(item, now)
+            : "date" in item
             ? [item.course, scheduleTypeLabel(item.type)]
                 .filter(Boolean)
                 .join(" · ")
@@ -219,45 +256,20 @@ export function ItemResults({
   return (
     <>
       <div hidden={detail !== null}>
-        {(deadlines || todo) && (
+        {deadlines && (
+          <AssignmentControls items={assignments}
+            filters={{ remainingOnly, period, sort }} now={now}
+            onApply={applyFilters} freshness={freshness} />
+        )}
+        {todo && (
           <details className="view-settings">
             <summary>보기 설정</summary>
             <div className="view-settings-body">
-              {deadlines && (
-                <label className="remaining-toggle">
-                  <input
-                    type="checkbox"
-                    checked={remainingOnly}
-                    onChange={(e) => setRemainingOnly(e.target.checked)}
-                  />
-                  남은 과제만
-                </label>
-              )}
               <div className="date-fields">
-                {deadlines && (
-                  <label className="field">
-                    마감 기간
-                    <select
-                      value={period}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (
-                          value === "all" ||
-                          value === "week" ||
-                          value === "day"
-                        )
-                          setPeriod(value);
-                      }}
-                    >
-                      <option value="all">전체 기간</option>
-                      <option value="week">이번 주</option>
-                      <option value="day">24시간 이내</option>
-                    </select>
-                  </label>
-                )}
-                <label className="field">
-                  정렬
-                  <select
+                <div className="field">
+                  <label htmlFor={sortId}>정렬</label>
+                  <Select
+                    id={sortId}
                     value={sort}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -272,15 +284,9 @@ export function ItemResults({
                     <option value="original">LMS 순서</option>
                     <option value="due">마감 빠른 순</option>
                     {todo && <option value="due-desc">마감 늦은 순</option>}
-                  </select>
-                </label>
+                  </Select>
+                </div>
               </div>
-              {deadlines && (
-                <p className="hint">
-                  이번 주는 한국 시간 월요일부터 일요일까지입니다. 제출 상태는
-                  마지막 조회 시점 기준입니다. 새로고침하면 갱신됩니다.
-                </p>
-              )}
             </div>
           </details>
         )}
@@ -313,12 +319,12 @@ export function ItemResults({
               ))}
           </nav>
         )}
-        <p className="count">
+        {!deadlines && <p className="count">
           조회 완료 · {items.length}개 항목
           {(deadlines || (schedule && kind !== "all")) &&
             ` 중 ${visible.length}개 표시`}{" "}
           · 한국 시간
-        </p>
+        </p>}
         {current.length === 0 ? (
           <div className="notice">
             {items.length === 0
@@ -333,6 +339,14 @@ export function ItemResults({
           <PagedList items={current} resetKey={resetKey}>
             {row}
           </PagedList>
+        )}
+        {deadlines && items.length > 0 && (
+          <button className="btn-ghost assignment-all-link" onClick={() => {
+            applyFilters({ ...defaultAssignmentFilters, remainingOnly: !remainingOnly });
+          }}>
+            {remainingOnly ? `전체 과제 ${items.length.toLocaleString()}개 보기` : "남은 과제만 보기"}
+            <span aria-hidden="true">{remainingOnly ? " →" : " ←"}</span>
+          </button>
         )}
         {overdue.length > 0 && (
           <details className="overdue-group">

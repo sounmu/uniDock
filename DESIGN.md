@@ -1,5 +1,51 @@
 # uniDock Design System
 
+## Course resources and shared navigation
+
+Recordings and materials follow the assignment list's count heading, contextual
+view-change popover, upper-right refresh and successful-update timestamp.
+Recording choices describe the available lecture data, never an invented
+unwatched state. Materials retain selection, batch download, progress, detail
+and LMS actions; refresh must never revive consumed one-use handles.
+
+Layout: the document remains the only page scroller at 320–420px. Course
+resources use the existing assignment heading/popover arrangement. The fixed
+five-entry main navigation reuses the course `.subviews` capsule surface and
+raised neutral selected state; its existing icons, labels, activity markers,
+44px targets and disabled-feature explanation remain.
+
+Priority is the resource list, then its count/freshness, then contextual view
+options. The main action remains opening a lecture or downloading materials.
+Extra persistent help and duplicated refresh controls move into their relevant
+context rather than taking space above the list.
+
+## Assignment list workflow
+
+The course assignment view starts with remaining work, ordered by nearest due
+date. The heading gives the visible count. Rows show the due time instead of
+repeating the course name. The existing assignment detail and focus-return
+behavior remain the next step when opening a row.
+
+`보기 변경` opens a local, non-modal popover next to the list heading. Scope,
+period and sort are draft values until the primary action applies them. The
+preview count reflects all draft conditions. Escape, outside click and focus
+leaving the popover dismiss without applying; Escape returns focus to the
+trigger. The original display criteria live inside its contextual help. A
+list-end shortcut switches between all assignments and remaining work.
+
+Refresh is a 32px icon at the upper right of the course context, with the same
+`--r-md` as `보기 변경`. The last successful query time is shown below the list
+heading. Refresh keeps the current rows only while the same course/source query
+is pending, preserving filters and avoiding a collapsed list. Every failure
+clears the rows. Transient failures retain only the last successful time;
+authentication, permission and source invalidation clear it. A failed refresh
+never repopulates the LMS cache. Reduced-motion users get the same state text
+without a rotating icon.
+
+Use existing glass, spacing, typography, focus and color tokens. The approved
+visual target for this change is the light-mode demo; no separate dark layout or
+theme switch is introduced. Data examples in tests and captures are synthetic.
+
 ## 1. Atmosphere & Identity
 
 A quiet Korean study desk with TickTick-style translucent cards on a neutral gray background. Five permanently labelled bottom tabs provide navigation; crimson remains the brand accent. No colored background blobs, gradients, new fonts or icon packages.
@@ -18,7 +64,7 @@ The panel follows the browser/OS theme through `prefers-color-scheme`; there is 
 | `--page` | `#f1f1f3` | `#161618` | Document background |
 | `--surface` | `#fff` | `#222225` | Solid surfaces |
 | `--glass` | `rgba(255,255,255,.62)` | `rgba(255,255,255,.07)` | Cards |
-| `--glass-strong` | `rgba(255,255,255,.82)` | `rgba(255,255,255,.11)` | Navigation and hover surfaces |
+| `--glass-strong` | `rgba(255,255,255,.82)` | `rgba(255,255,255,.11)` | Hover surfaces |
 | `--glass-brd` | `rgba(255,255,255,.9)` | `rgba(255,255,255,.14)` | Card highlight border |
 | `--check` | `#3a3a3f` | `#d9d9de` | Neutral selection checkboxes |
 | `--brand` | `#872038` | `#f0a6b6` | Primary fill, links, focus, selected text |
@@ -45,7 +91,9 @@ Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for but
 
 ## 5. Components
 
-- **Bottom navigation:** five native buttons: 내 과목, 할 일·일정, 자동 재생, 자막 추출, 설정. `aria-current="page"` plus brand wash marks selection. LMS 열기 lives in 설정 > uniDock 정보 alongside the existing information links. Existing callbacks and keyboard behavior remain.
+- **Select:** every dropdown uses the shared native `Select` wrapper. Its chevron sits `--space-3` (12px) from the right edge, with `--control-h` text padding. The decorative arrow ignores pointer events; labels, keyboard operation, options and disabled state remain native.
+
+- **Bottom navigation:** five native buttons: 내 과목, 할 일·일정, 자동 재생, 자막 추출, 설정. `aria-current="page"` plus the same raised neutral capsule as course menus marks selection. The surface, inset, border, radius and shadow are shared through `.subviews`. LMS 열기 lives in 설정 > uniDock 정보 alongside the existing information links. Existing callbacks and keyboard behavior remain.
 - **Pending navigation entry:** in release builds (`__UNIDOCK_PLAYBACK__` false) 자동 재생 keeps its grid slot as an `aria-disabled="true"` button (not `disabled`, so it stays focusable) at disabled opacity .5 with a default cursor and no hover wash. Clicking does nothing. A sibling `role="tooltip"` above the button, wired through `aria-describedby`, reads “현재 검토 중인 기능입니다.” on hover and `:focus-visible`: ink background, surface text, 12px type, `--r-sm`, max 12rem, no pointer events, and its fade is removed under reduced motion.
 - **ScreenHeader:** title with one primary action and at most one muted subtitle. Longer policy copy lives in native 안내 details.
 - **ListRow:** full-row native glass-card button, two-line title, secondary course label and trailing StatusChip. At least 48px with 12px horizontal padding and 8px between cards. Assignment states have a decorative leading status icon: clock, check, exclamation or lock. StatusChip text remains the accessible meaning. Square neutral checkboxes are reserved for actual selection and remain separate labelled inputs, never nested inside buttons.
@@ -64,7 +112,8 @@ Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for but
 | Screen | Sole primary action |
 | --- | --- |
 | Courses / tasks | 새로고침 |
-| Course assignments / recordings | 새로고침 |
+| Course assignments | 보기 변경 |
+| Course recordings | 강의 열기 |
 | Materials | 자료 전체 다운로드 / 선택 다운로드 |
 | Playback (playback builds only) | 자동 재생 켜기 / 끄기 |
 | Captions | 자막 감지; when no provided captions exist, the AI offer card's 자막 생성/로그인 action, with 자막 감지 demoted to secondary |

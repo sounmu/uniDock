@@ -1,4 +1,6 @@
 import type { PlaybackModel } from "../usePlaybackPanel";
+import { useId } from "react";
+import { Select } from "../ui/Select";
 
 export function PlaybackConfirmation({
   model: m,
@@ -7,6 +9,7 @@ export function PlaybackConfirmation({
   readonly model: PlaybackModel;
   readonly onComplete?: () => void;
 }) {
+  const courseId = useId();
   const selected = m.recordings
     .filter((item) => item.order !== null)
     .sort((a, b) => a.order! - b.order!);
@@ -16,9 +19,10 @@ export function PlaybackConfirmation({
         체크한 순서대로 바로 재생합니다. 재생 중에는 전용 강의 탭을 활성 상태로
         유지하세요.
       </p>
-      <label className="field">
-        과목 선택
-        <select
+      <div className="field">
+        <label htmlFor={courseId}>과목 선택</label>
+        <Select
+          id={courseId}
           value={m.course}
           disabled={m.pending}
           onChange={(event) => m.setCourse(event.target.value)}
@@ -29,8 +33,8 @@ export function PlaybackConfirmation({
               {item.name}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </div>
       <button
         className="btn-secondary"
         disabled={m.pending || !m.course}

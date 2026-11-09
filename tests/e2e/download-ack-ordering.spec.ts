@@ -80,7 +80,7 @@ test("a completed native PDF is not overwritten by a late timeout acknowledgemen
       .click();
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panel.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
 
     // Delay only the content-script result seen by the panel. Chrome's native

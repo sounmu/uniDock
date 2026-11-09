@@ -25,7 +25,7 @@ export function Rail({
 }) {
   return (
     <header className="rail">
-      <nav aria-label="주 메뉴">
+      <nav className="subviews" aria-label="주 메뉴">
         {entries.map(([value, label]) =>
           value === "playback" && !playbackAvailable ? (
             // Stays focusable (aria-disabled, not disabled) so keyboard users

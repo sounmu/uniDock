@@ -1,3 +1,5 @@
+@import "./course-resources.css";
+
 /* uniDock side panel: TickTick-style glass UI on a neutral gray page.
    Every color, radius and spacing value comes from the token blocks below;
    component rules never carry raw values. Cards are translucent without blur;
@@ -353,20 +355,18 @@ p {
   right: var(--tabbar-gap);
   bottom: calc(var(--tabbar-gap) + env(safe-area-inset-bottom, 0px));
   z-index: 20;
-  padding: var(--space-1);
-  border: 1px solid var(--glass-brd);
   border-radius: var(--r-full);
-  background: var(--glass-strong);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
-  box-shadow: var(--glass-shadow);
 }
 .rail nav {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
+  margin-bottom: 0;
 }
 .rail nav button {
+  overflow: visible;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -388,10 +388,6 @@ p {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.rail nav button[aria-current="page"] {
-  color: var(--brand);
-  background: var(--brand-wash);
 }
 .rail nav button > .rail-icon {
   position: relative;
@@ -573,7 +569,9 @@ main:has(.detail-view) > div > .view-settings {
   text-overflow: ellipsis;
 }
 .subviews [aria-pressed="true"],
-.subviews [aria-pressed="true"]:hover {
+.subviews [aria-pressed="true"]:hover,
+.rail .subviews [aria-current="page"],
+.rail .subviews [aria-current="page"]:hover {
   color: var(--ink);
   background: var(--raised);
   box-shadow: var(--seg-shadow);
@@ -591,6 +589,138 @@ main:has(.detail-view) > div > .view-settings {
 }
 .course-context h2 {
   margin-top: var(--space-2);
+}
+.assignment-course-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--control-h);
+}
+.course-context .assignment-course-tabs {
+  margin-bottom: var(--space-5);
+}
+.assignment-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.assignment-toolbar h1 {
+  min-width: 0;
+  word-break: keep-all;
+}
+.assignment-refresh,
+.assignment-view-toggle {
+  border-radius: var(--r-md);
+  min-height: var(--control-h);
+}
+.assignment-refresh {
+  width: var(--control-h);
+  padding: 0;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.assignment-refresh .icon {
+  width: 18px;
+  height: 18px;
+}
+.assignment-refresh.is-loading {
+  color: var(--brand);
+}
+.assignment-refresh.is-error {
+  color: var(--danger);
+}
+.assignment-view-toggle {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-meta);
+}
+.assignment-view-anchor {
+  position: relative;
+  margin-bottom: var(--space-2);
+}
+.assignment-freshness {
+  min-height: var(--control-h);
+  display: flex;
+  align-items: center;
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+}
+.assignment-view-summary {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.assignment-view-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  inset-inline: 0;
+  z-index: 20;
+  max-height: min(440px, calc(100dvh - 260px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow);
+}
+.assignment-view-panel h2 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+.assignment-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: var(--space-4);
+}
+.assignment-view-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.assignment-view-fields label {
+  font-size: var(--fs-meta);
+}
+.assignment-view-panel .hint {
+  margin: var(--space-3) 0;
+}
+.assignment-criteria {
+  margin: var(--space-3) 0 var(--space-4);
+  font-size: var(--fs-meta);
+}
+.assignment-criteria summary {
+  padding: var(--space-1) 0;
+  font-size: var(--fs-meta);
+}
+.assignment-criteria p {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+.assignment-view-actions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+}
+.assignment-view-actions button {
+  min-height: var(--control-h-lg);
+}
+.assignment-all-link {
+  display: flex;
+  margin: var(--space-4) auto 0;
+  color: var(--muted);
+}
+@keyframes assignment-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .assignment-refresh.is-loading .icon {
+    animation: assignment-refresh-spin .8s linear infinite;
+  }
 }
 .hint,
 .count {
@@ -863,6 +993,26 @@ dd {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
   gap: var(--space-2);
+}
+.select-field {
+  display: block;
+  position: relative;
+}
+.select-field select {
+  appearance: none;
+  padding-right: var(--control-h);
+}
+.select-field::after {
+  content: "";
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  transform: translateY(-75%) rotate(45deg);
+  pointer-events: none;
 }
 .remaining-toggle {
   display: flex;

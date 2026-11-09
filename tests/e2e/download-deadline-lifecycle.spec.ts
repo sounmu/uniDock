@@ -73,7 +73,7 @@ test("production downloads expire during tab lookup and reject a same-URL replac
       .click();
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panel.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
 
     await panel.evaluate(() => {
@@ -311,10 +311,10 @@ test("production downloads expire during tab lookup and reject a same-URL replac
       race.armed = true;
     });
     await panel
-      .getByRole("button", { name: "목록 새로고침", exact: true })
+      .getByRole("button", { name: "강의 자료 새로고침", exact: true })
       .click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panel.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
     await panel.getByRole("checkbox", { name: "lecture.pdf 선택" }).check();
     await panel.getByRole("button", { name: "선택 다운로드 (1)" }).click();

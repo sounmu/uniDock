@@ -62,7 +62,7 @@ test("shows weekly and board materials of every format as one list in the produc
       .click();
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 4개", exact: true }),
+      panel.getByRole("heading", { name: "강의 자료 4개", exact: true }),
     ).toBeVisible();
     await expect(
       panel.getByRole("heading", { name: "게시판 · 수업 자료 게시판" }),

@@ -1,38 +1,63 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../src/documents";
 import { copyPromptAndOpen } from "../../../src/pdf/handoff";
 import { PagedList } from "../PagedList";
 import { downloadLabels } from "../useDocumentDownloads";
 import { messages } from "../query-messages";
 import { DetailView, useDetail } from "../ui/DetailView";
-import { ScreenHeader } from "../ui/ScreenHeader";
 import { ListRow } from "../ui/ListRow";
 import { StatusChip } from "../ui/StatusChip";
 import { Notice } from "../ui/Notice";
 import { newTab } from "../ui/a11y";
+import {
+  ResourceControls,
+  defaultResourceFilters,
+  filterResources,
+  resolveResourceFilters,
+} from "../ui/ResourceControls";
 import { Skeleton, type PanelModel } from "./QueryResults";
 import { startOperation } from "../analytics";
+const none: readonly Document[] = [];
 export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const { state, course, downloads, recordingAction } = model;
-  const items =
-    state.status === "success" && "documents" in state ? state.documents : [];
+  const refreshing = state.status === "loading";
+  const result = model.pendingResult ?? state;
+  const ready = result.status === "success" && "documents" in result;
+  const items = ready ? result.documents : none;
+  const [filters, setFilters] = useState(defaultResourceFilters);
+  const applied = resolveResourceFilters(items, filters);
+  const visible = useMemo(
+    () => filterResources(items, applied),
+    [items, applied],
+  );
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState("");
   const handoffInFlight = useRef(false);
   const handoffGeneration = useRef(0);
   const [handoffPending, setHandoffPending] = useState(false);
   const { detail, open, back } = useDetail<Document>();
-  useEffect(() => {
-    setSelection(new Set());
-    handoffInFlight.current = false;
-    setHandoffPending(false);
-    setNotice("");
-    return () => {
+  useEffect(
+    () => () => {
       handoffGeneration.current++;
       handoffInFlight.current = false;
-    };
-  }, [course, model.selectedCourse?.courseSelector]);
-  const available = items.filter(
+    },
+    [],
+  );
+  // Every query transition (a refresh starting, a response arriving) drops
+  // the selection, detail and hand-off state: one-use handles from the rows
+  // shown before never apply to the rows shown after.
+  const previousState = useRef(state);
+  useLayoutEffect(() => {
+    if (previousState.current === state) return;
+    previousState.current = state;
+    setSelection(new Set());
+    setNotice("");
+    handoffGeneration.current++;
+    handoffInFlight.current = false;
+    setHandoffPending(false);
+    if (detail) back();
+  }, [state, detail, back]);
+  const available = visible.filter(
     (item) =>
       item.downloadHandle &&
       (!downloads.statuses[item.downloadHandle] ||
@@ -41,6 +66,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const selected = available.filter((item) =>
     selection.has(item.downloadHandle),
   );
+  const locked = downloads.progress.running || refreshing;
   const label = (item: Document) => {
     const status = downloads.statuses[item.downloadHandle];
     return !item.downloadHandle
@@ -57,59 +83,17 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   return (
     <>
       <div hidden={detail !== null}>
-        <ScreenHeader
-          title={`강의 자료 · ${items.length}개`}
-          action={
-            downloads.progress.running ? (
-              <button
-                className="btn-secondary"
-                onClick={downloads.cancel}
-              >
-                취소
-              </button>
-            ) : (
-              <button
-                className="btn-primary"
-                disabled={!available.length || recordingAction.pending}
-                onClick={() => download(selected.length ? selected : available)}
-              >
-                {selected.length
-                  ? `선택 다운로드 (${selected.length})`
-                  : "자료 전체 다운로드"}
-              </button>
-            )
-          }
-        />
-        <button
-          className="btn-ghost"
-          disabled={downloads.progress.running || state.status === "loading"}
-          onClick={() => void model.load(model.query, { refresh: true })}
-        >
-          목록 새로고침
-        </button>
-        <details className="guidance">
-          <summary>자료 다운로드 안내</summary>
-          <p className="hint">
-            주차학습 모듈과 게시판·공지에 첨부된 강의 자료를 표시합니다.
-            LearningX 게시판(과목 메뉴의 Board) 자료는 LMS에서 게시판을 연 뒤 약
-            4시간 동안 함께 표시됩니다. 선택한 자료는 브라우저 다운로드 폴더에
-            저장합니다. 확장은 파일 내용을 읽거나 업로드하지 않습니다.
-          </p>
-        </details>
-        {state.status === "loading" && (
-          <>
-            <Notice>목록을 불러오고 있습니다…</Notice>
-            <Skeleton />
-          </>
+        {ready && (
+          <ResourceControls
+            kind="materials"
+            items={items}
+            filters={applied}
+            onApply={setFilters}
+            freshness={{ updatedAt: model.updatedAt, pending: refreshing }}
+          />
         )}
-        {state.status === "error" && (
-          <Notice error>{messages[state.code]}</Notice>
-        )}
-        {state.status === "success" && !items.length && (
-          <Notice>주차학습·게시판에서 확인 가능한 강의 자료가 없습니다.</Notice>
-        )}
-        {items.length > 0 && (
-          <>
+        <div className="material-actions">
+          {items.length > 0 && (
             <label className="remaining-toggle">
               <input
                 type="checkbox"
@@ -119,7 +103,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                       selected.length > 0 && selected.length < available.length;
                 }}
                 aria-label="전체 선택"
-                disabled={!available.length || downloads.progress.running}
+                disabled={!available.length || locked}
                 checked={
                   available.length > 0 && selected.length === available.length
                 }
@@ -133,54 +117,85 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
               />
               전체 선택 · {selected.length}개 선택됨
             </label>
-            <PagedList items={items}>
-              {(item, index) => (
-                <li key={item.lmsHandle} className="material-item">
-                  {(index % 100 === 0 ||
-                    items[index - 1]?.module !== item.module) && (
-                    <h3 className="module-heading">
-                      {item.module || "모듈 이름 없음"}
-                    </h3>
-                  )}
-                  <div className="selectable-row">
-                    <label className="check-hit">
-                      <input
-                        type="checkbox"
-                        aria-label={`${item.title} 선택`}
-                        disabled={
-                          !available.includes(item) ||
-                          downloads.progress.running
-                        }
-                        checked={selection.has(item.downloadHandle)}
-                        onChange={(e) =>
-                          setSelection((previous) => {
-                            const next = new Set(previous);
-                            if (e.target.checked) next.add(item.downloadHandle);
-                            else next.delete(item.downloadHandle);
-                            return next;
-                          })
-                        }
-                      />
-                    </label>
-                    <ListRow
-                      title={item.title}
-                      course={
-                        item.filename !== item.title ? item.filename : course
-                      }
-                      chip={
-                        <StatusChip
-                          done={label(item) === downloadLabels.complete}
-                        >
-                          {label(item)}
-                        </StatusChip>
-                      }
-                      onClick={() => open(item)}
-                    />
-                  </div>
-                </li>
-              )}
-            </PagedList>
+          )}
+          {downloads.progress.running ? (
+            <button className="btn-secondary" onClick={downloads.cancel}>
+              취소
+            </button>
+          ) : (
+            <button
+              className="btn-primary"
+              disabled={
+                !available.length || recordingAction.pending || refreshing
+              }
+              onClick={() => download(selected.length ? selected : available)}
+            >
+              {selected.length
+                ? `선택 다운로드 (${selected.length})`
+                : "자료 전체 다운로드"}
+            </button>
+          )}
+        </div>
+        {refreshing && !model.pendingResult && (
+          <>
+            <Notice>목록을 불러오고 있습니다…</Notice>
+            <Skeleton />
           </>
+        )}
+        {state.status === "error" && (
+          <Notice error>{messages[state.code]}</Notice>
+        )}
+        {ready && !items.length && (
+          <Notice>주차학습·게시판에서 확인 가능한 강의 자료가 없습니다.</Notice>
+        )}
+        {items.length > 0 && visible.length === 0 && (
+          <div className="notice">조건에 맞는 강의 자료가 없습니다.</div>
+        )}
+        {visible.length > 0 && (
+          <PagedList items={visible}>
+            {(item, index) => (
+              <li key={item.lmsHandle} className="material-item">
+                {(index % 100 === 0 ||
+                  visible[index - 1]?.module !== item.module) && (
+                  <h3 className="module-heading">
+                    {item.module || "모듈 이름 없음"}
+                  </h3>
+                )}
+                <div className="selectable-row">
+                  <label className="check-hit">
+                    <input
+                      type="checkbox"
+                      aria-label={`${item.title} 선택`}
+                      disabled={!available.includes(item) || locked}
+                      checked={selection.has(item.downloadHandle)}
+                      onChange={(e) =>
+                        setSelection((previous) => {
+                          const next = new Set(previous);
+                          if (e.target.checked) next.add(item.downloadHandle);
+                          else next.delete(item.downloadHandle);
+                          return next;
+                        })
+                      }
+                    />
+                  </label>
+                  <ListRow
+                    title={item.title}
+                    course={
+                      item.filename !== item.title ? item.filename : course
+                    }
+                    chip={
+                      <StatusChip
+                        done={label(item) === downloadLabels.complete}
+                      >
+                        {label(item)}
+                      </StatusChip>
+                    }
+                    onClick={() => open(item)}
+                  />
+                </div>
+              </li>
+            )}
+          </PagedList>
         )}
       </div>
       {detail && (
@@ -201,7 +216,9 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 }
                 disabled={
                   !downloads.progress.running &&
-                  (!available.includes(detail) || recordingAction.pending)
+                  (!available.includes(detail) ||
+                    recordingAction.pending ||
+                    refreshing)
                 }
                 onClick={() =>
                   downloads.progress.running
@@ -216,7 +233,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
               className="btn-secondary"
               disabled={
                 recordingAction.pending ||
-                downloads.progress.running ||
+                locked ||
                 recordingAction.used.has(detail.lmsHandle)
               }
               onClick={() => void model.openDocument(detail.lmsHandle)}
