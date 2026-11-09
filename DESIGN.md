@@ -4,7 +4,7 @@
 
 A quiet Korean study desk with TickTick-style translucent cards on a neutral gray background. Five permanently labelled bottom tabs provide navigation; crimson remains the brand accent. No colored background blobs, gradients, new fonts or icon packages.
 
-Extension icons and the website favicon share `store/assets/logo-concepts/unidock-flat.svg`: a solid `#872038` tile with a transparent lowercase u cutout and transparent outer corners. The background shows through the letter; it is not painted white. Generate extension PNGs with `node scripts/brand-assets.mjs`. The glass artwork remains available for larger brand presentations.
+Extension icons use `store/assets/logo-concepts/unidock-icon.svg`, preserving the original glass tile with a transparent lowercase u cutout. This artwork matches the website favicon's `public/brand/unidock-favicon.svg`. Generate extension PNGs with `node scripts/brand-assets.mjs`. The original pearl-white letter remains available in `unidock-glass.svg` for larger brand presentations.
 
 ## 2. Color
 

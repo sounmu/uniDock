@@ -2,9 +2,9 @@ import console from "node:console";
 import fs from "node:fs";
 import { chromium } from "@playwright/test";
 
-// Keep the editable flat SVG as the source for extension and favicon artwork.
+// Keep the editable glass SVG as the source for extension artwork.
 const svg = fs.readFileSync(
-  "store/assets/logo-concepts/unidock-flat.svg",
+  "store/assets/logo-concepts/unidock-icon.svg",
   "utf8",
 );
 const browser = await chromium.launch({
@@ -30,4 +30,4 @@ try {
 } finally {
   await browser.close();
 }
-console.log("Generated uniDock flat icons from the editable SVG.");
+console.log("Generated uniDock glass icons from the editable SVG.");
