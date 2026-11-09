@@ -481,6 +481,19 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         await panel.getByRole("button", { name: "음성 보내기" }).click();
         await held.arrived;
         expect(services.idempotencyKeys).toHaveLength(1);
+        // Another extension context may own the active-job storage lock while
+        // cancellation is clearing its record. A reload must not restore that
+        // not-yet-deleted job into a replacement AI card.
+        if (sourceChange === "reload" && stage === "polling") {
+          await worker.evaluate(() => new Promise<void>((acquired) => {
+            void navigator.locks.request("unidock-caption-active-jobs", async () => {
+              acquired();
+              await new Promise<void>((release) => {
+                Object.assign(globalThis, { releaseCaptionRecordLock: release });
+              });
+            });
+          }));
+        }
         const aborted = context.waitForEvent("requestfailed", {
           predicate: (request) => {
             switch (stage) {
@@ -518,9 +531,18 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         const [failedRequest, cancelResponse] = await Promise.all([aborted, cancelled]);
         expect(failedRequest.failure()).not.toBeNull();
         expect(cancelResponse.status()).toBe(200);
-        // CaptionsPanel clears the source offer; useAiCaptions must cancel the
-        // already-created job before that child unmounts (even during extraction).
-        await expect(panel.locator(".ai-offer")).toHaveCount(0);
+        // The source offer is cleared while the same hook cancels its job.
+        // An idle card must not remount and restore the cancelled record.
+        try {
+          await expect(panel.locator(".ai-offer")).toHaveCount(0);
+        } finally {
+          if (sourceChange === "reload" && stage === "polling") {
+            await worker.evaluate(() => {
+              const release = Reflect.get(globalThis, "releaseCaptionRecordLock");
+              if (typeof release === "function") release();
+            });
+          }
+        }
         held.release();
 
         // Then even the held success response cannot advance the aborted run.
