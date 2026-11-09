@@ -67,6 +67,13 @@ const chips = () =>
   [...document.querySelectorAll(".status-chip")].map(
     (item) => item.textContent,
   );
+async function refreshMaterials() {
+  const button = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="강의 자료 새로고침"]',
+  );
+  if (!button) throw new Error("Missing materials refresh");
+  await act(async () => button.click());
+}
 it("exposes native mixed selection and clears it for all or no available files", async () => {
   // Given
   await materials();
@@ -230,6 +237,12 @@ it("continues a running batch in settings and retains the materials list on retu
   ).toEqual([documents[0]?.downloadHandle]);
 
   // When
+  const refresh = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="강의 자료 새로고침"]',
+  );
+  expect(refresh?.getAttribute("aria-disabled")).toBe("true");
+  await refreshMaterials();
+  expect(query.mock.calls.filter(([request]) => request.type === "DOCUMENTS_LIST")).toHaveLength(1);
   await click("설정");
   await act(async () => first.resolve({ status: "success", downloaded: true }));
 
@@ -291,7 +304,7 @@ it("downloads only the checked subset and keeps selection when returning from de
   ]);
   expect(chips()).toEqual(["대기", "요청됨", "LMS에서 확인"]);
 });
-it.each(["할 일·일정", "취소"])(
+it.each(["할 일·일정", "취소", "녹화 강의"])(
   "stops unsent downloads when %s is selected",
   async (action) => {
     // Given
@@ -299,7 +312,9 @@ it.each(["할 일·일정", "취소"])(
     const first = deferred<Result>();
     query
       .mockReturnValueOnce(first.promise)
-      .mockResolvedValue({ status: "success", todo: [] });
+      .mockResolvedValue(action === "녹화 강의"
+        ? { status: "success", recordings: [] }
+        : { status: "success", todo: [] });
     await click("자료 전체 다운로드");
     // When
     await click(action);
@@ -314,6 +329,14 @@ it.each(["할 일·일정", "취소"])(
     ).toHaveLength(1);
     if (action === "취소")
       expect(chips()).toEqual(["요청됨", "취소됨", "LMS에서 확인"]);
+    if (action === "녹화 강의") {
+      const refresh = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="녹화 강의 새로고침"]',
+      );
+      expect(refresh?.getAttribute("aria-disabled")).not.toBe("true");
+      await act(async () => refresh?.click());
+      expect(query.mock.calls.filter(([request]) => request.type === "RECORDINGS_LIST")).toHaveLength(2);
+    }
   },
 );
 it("does not offer a restart until a cancelled request has drained", async () => {
@@ -347,7 +370,7 @@ it("requires refresh when the download capability has expired", async () => {
   // Then
   expect(chips()).toEqual(["실패", "실패", "LMS에서 확인"]);
   expect(
-    document.querySelector<HTMLButtonElement>(".screen-header .btn-primary")
+    document.querySelector<HTMLButtonElement>(".material-actions .btn-primary")
       ?.disabled,
   ).toBe(true);
   expect(document.querySelector(".notice")?.getAttribute("role")).toBe(
@@ -586,7 +609,7 @@ it("does not bind a stale download search to a refreshed matching row", async ()
     options.onTarget(target);
     return { status: "success", documents };
   });
-  await click("목록 새로고침");
+  await refreshMaterials();
   await click("자료 전체 다운로드");
   await act(async () => {
     heldSearch.resolve([

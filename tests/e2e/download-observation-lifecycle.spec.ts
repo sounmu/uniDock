@@ -76,7 +76,7 @@ test("a stale native download lookup cannot complete a refreshed matching row", 
       .click();
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panel.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
 
     // Hold every hook lookup for the first real Chrome download ID. Calls to
@@ -158,7 +158,7 @@ test("a stale native download lookup cannot complete a refreshed matching row", 
     // Reset the list, request the same destination again, and keep that new
     // transfer open while the stale completed lookup is released.
     await panel
-      .getByRole("button", { name: "목록 새로고침", exact: true })
+      .getByRole("button", { name: "강의 자료 새로고침", exact: true })
       .click();
     releaseSecond = server.holdNextDownload();
     await panel.getByRole("checkbox", { name: "lecture.pdf 선택" }).check();

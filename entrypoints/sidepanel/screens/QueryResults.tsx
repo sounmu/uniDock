@@ -21,7 +21,9 @@ export function QueryResults({
   readonly courseFocus?: CourseFocus | null;
   readonly onCourseFocus?: (focus: CourseFocus | null) => void;
 }) {
-  const { state, recordingAction } = model;
+  const { recordingAction } = model;
+  const state = model.pendingResult ?? model.state;
+  const refreshing = model.state.status === "loading";
   const selectCourse = (course: Course) => {
     model.setCourse(course);
     model.setView("ASSIGNMENTS_LIST");
@@ -34,7 +36,7 @@ export function QueryResults({
   return (
     <section
       aria-live="polite"
-      aria-busy={state.status === "loading" || recordingAction.pending}
+      aria-busy={model.state.status === "loading" || recordingAction.pending}
     >
       {recordingAction.notice && <Notice>{recordingAction.notice}</Notice>}
       {state.status === "idle" && (
@@ -79,9 +81,14 @@ export function QueryResults({
           course={model.course}
           onCourse={selectCourse}
           onRecording={(handle) => void model.openRecording(handle)}
-          recordingPending={recordingAction.pending}
+          recordingPending={recordingAction.pending || refreshing}
           usedRecordingHandles={recordingAction.used}
           openedRecordingHandles={recordingAction.opened}
+          freshness={
+            model.view === "ASSIGNMENTS_LIST" || model.view === "RECORDINGS_LIST"
+              ? { updatedAt: model.updatedAt, pending: refreshing }
+              : undefined
+          }
         />
       ) : null}
     </section>

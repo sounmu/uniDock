@@ -49,9 +49,8 @@ it("states urgency in words and marks submitted rows with the done tone", async 
       onCourse={() => {}}
     />,
   );
-  await click("보기 설정");
   await act(async () =>
-    document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
+    document.querySelector<HTMLButtonElement>(".assignment-all-link")?.click(),
   );
   // Due-date order: the submitted row is due first.
   expect(chips()).toEqual([
@@ -72,9 +71,8 @@ it("keeps focus on a pagination button that reaches the last page", async () => 
       onCourse={() => {}}
     />,
   );
-  await click("보기 설정");
   await act(async () =>
-    document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
+    document.querySelector<HTMLButtonElement>(".assignment-all-link")?.click(),
   );
   const next = [...document.querySelectorAll("button")].find(
     (button) => button.textContent === "다음",

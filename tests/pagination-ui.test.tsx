@@ -21,12 +21,9 @@ it("bounds rendered rows and preserves all deadline rows and API order across pa
       onCourse={() => {}}
     />,
   );
-  await click("보기 설정");
-  await act(async () => {
-    (
-      document.querySelector('input[type="checkbox"]') as HTMLInputElement
-    ).click();
-  });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>(".assignment-all-link")?.click(),
+  );
   const titles = () =>
     [...document.querySelectorAll("li strong")].map((node) => node.textContent);
   expect(titles()).toEqual(deadlines.slice(0, 100).map((row) => row.title));
@@ -133,12 +130,9 @@ it.each(["assignments", "deadlines", "upcoming", "todo"] as const)(
             : { status: "success", todo: values };
     ui = await mount(<ResultList result={result} onCourse={() => {}} />);
     if (key === "assignments" || key === "deadlines") {
-      await click("보기 설정");
-      await act(async () => {
-        (
-          document.querySelector('input[type="checkbox"]') as HTMLInputElement
-        ).click();
-      });
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>(".assignment-all-link")?.click(),
+      );
     }
     expect(document.querySelectorAll("li")).toHaveLength(100);
     expect(document.body.textContent).toContain("1–100 / 10000개");

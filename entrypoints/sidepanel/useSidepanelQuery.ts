@@ -20,6 +20,24 @@ const queryOperations: Partial<
   UPCOMING_LIST: ["tasks_load", "tasks_shown"],
 };
 
+type CourseSnapshot = Extract<
+  Result,
+  | { assignments: unknown }
+  | { deadlines: unknown }
+  | { recordings: unknown }
+  | { documents: unknown }
+>;
+function isCourseSnapshot(
+  result: Extract<Result, { status: "success" }>,
+): result is CourseSnapshot {
+  return (
+    "assignments" in result ||
+    "deadlines" in result ||
+    "recordings" in result ||
+    "documents" in result
+  );
+}
+
 export function useSidepanelQuery(sharedGate?: QueryGate) {
   const localGate = useRef(new QueryGate()).current;
   const gate = sharedGate ?? localGate;
@@ -44,6 +62,26 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   const inFlight = useRef<Promise<Result> | null>(null);
   const recordingTarget = useRef<QueryTarget | null>(null);
   const courseTarget = useRef<QueryTarget | null>(null);
+  // One course list query (assignments, recordings or materials from the same
+  // course-list source) keeps its rows while a refresh is pending and its last
+  // successful time across transient failures.
+  const [courseRefresh, setCourseRefresh] = useState<{
+    key: string;
+    updatedAt?: number;
+    result?: CourseSnapshot;
+  } | null>(null);
+  function courseKey(query: Request): string | null {
+    return query.type === "ASSIGNMENTS_LIST" ||
+      query.type === "DEADLINES_LIST" ||
+      query.type === "RECORDINGS_LIST" ||
+      query.type === "DOCUMENTS_LIST"
+      ? JSON.stringify([
+          query.type,
+          "courseSelector" in query ? query.courseSelector : query.course,
+          courseTarget.current,
+        ])
+      : null;
+  }
   const downloads = useDocumentDownloads({
     gate,
     generation,
@@ -72,6 +110,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     generation.current++;
     downloads.cancel();
     resetRecordingAction();
+    setCourseRefresh(null);
     setState({ status: "idle" });
   }
   useEffect(
@@ -100,15 +139,20 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       !courseTarget.current
     ) {
       generation.current++;
+      setCourseRefresh(null);
       setState({ status: "error", code: "STALE_SELECTION" });
       op?.failure("STALE_SELECTION");
       return;
     }
     const current = ++generation.current;
+    const key = courseKey(query);
     if (query.type === "COURSES_LIST") courseTarget.current = null;
     downloads.cancel();
     if (query.type === "DOCUMENTS_LIST") downloads.reset();
     resetRecordingAction();
+    setCourseRefresh((previous) =>
+      key !== null && previous?.key === key ? previous : null,
+    );
     setState({ status: "loading" });
     // Finish the active LMS request, then execute only the latest selected view.
     const lease = await gate.acquire();
@@ -161,6 +205,20 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
         // Never retry them against another document or fall back to a name.
         courseTarget.current = null;
         setCourse(null);
+      }
+      if (key !== null) {
+        if (result.status === "success" && isCourseSnapshot(result)) {
+          setCourseRefresh({ key, updatedAt: Date.now(), result });
+        } else {
+          // A failed response never restores rows, selectors, or the LMS cache.
+          setCourseRefresh((previous) =>
+            previous?.key === key &&
+            result.status === "error" &&
+            ["NETWORK", "TIMEOUT", "RATE_LIMITED", "BUSY"].includes(result.code)
+              ? { key, updatedAt: previous.updatedAt }
+              : null,
+          );
+        }
       }
       setState(result);
       // A superseded load has no final outcome: it was abandoned, not failed.
@@ -259,6 +317,8 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
           type:
             view === "CAPTIONS" || view === "PLAYBACK" ? "COURSES_LIST" : view,
         };
+  const snapshot =
+    courseRefresh?.key === courseKey(query) ? courseRefresh : null;
   return {
     section,
     tasksMode,
@@ -274,6 +334,14 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     end,
     setEnd,
     state,
+    ...(snapshot?.updatedAt !== undefined
+      ? { updatedAt: snapshot.updatedAt }
+      : {}),
+    // Rows retained for display only while the same query is pending; their
+    // one-use handles stay unusable until the fresh list replaces them.
+    ...(state.status === "loading" && snapshot?.result
+      ? { pendingResult: snapshot.result }
+      : {}),
     recordingAction,
     clear,
     showCourses,

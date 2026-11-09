@@ -141,17 +141,24 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await expect(
       panel.getByText("Synthetic Final Project", { exact: true }),
     ).toBeVisible();
-    await panel.getByText("보기 설정", { exact: true }).click();
+    await panel.getByRole("button", { name: "보기 변경", exact: true }).click();
+    const assignmentView = panel.getByRole("dialog", {
+      name: "과제 보기 변경",
+    });
     await expect(
-      panel.getByRole("checkbox", { name: "남은 과제만" }),
-    ).toBeChecked();
+      assignmentView.getByRole("button", { name: "남은 과제", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(
-      panel.getByRole("combobox", { name: "마감 기간" }),
+      assignmentView.getByRole("combobox", { name: "마감 기간" }),
     ).toHaveValue("all");
     await expect(
-      panel.getByRole("combobox", { name: "정렬", exact: true }),
+      assignmentView.getByRole("combobox", { name: "정렬", exact: true }),
     ).toHaveValue("due");
     await capture(panel, "assignments-settings");
+    await assignmentView
+      .getByRole("button", { name: /^(?:\d+개 과제 보기|결과 확인하기)$/ })
+      .click();
+    await expect(assignmentView).not.toBeVisible();
     await panel
       .getByRole("button", { name: /Synthetic Final Project/ })
       .click();
@@ -160,7 +167,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await panel.getByRole("button", { name: "← 목록" }).click();
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panel.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
     await capture(panel, "materials-ready");
     await panel
@@ -375,15 +382,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     if (playbackBuild()) {
       await playbackMenu.click();
       await expect(playbackMenu).toHaveAttribute("aria-current", "page");
-      // Selection is a brand wash with brand text (DESIGN.md), light theme.
+      // Main navigation shares the course menu's raised neutral selection.
       await expect(playbackMenu).toHaveCSS(
         "background-color",
-        "rgb(244, 234, 236)",
+        "rgb(255, 255, 255)",
       );
-      await expect(playbackMenu).toHaveCSS("color", "rgb(135, 32, 56)");
+      await expect(playbackMenu).toHaveCSS("color", "rgb(28, 27, 31)");
       await expect(playbackMenu.locator("svg")).toHaveCSS(
         "color",
-        "rgb(135, 32, 56)",
+        "rgb(28, 27, 31)",
       );
       await capture(panel, "playback");
     } else {

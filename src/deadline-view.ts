@@ -1,6 +1,6 @@
 import { isoTime, type Deadline } from "./domain-items";
 
-export type DeadlinePeriod = "all" | "week" | "day";
+export type DeadlinePeriod = "all" | "today" | "week" | "day" | "next7";
 const day = 86400000;
 const koreaOffset = 9 * 3600000;
 
@@ -29,20 +29,22 @@ export function sortByDateDesc<T extends { date: string }>(items: T[]): T[] {
 }
 
 export function filterDeadlines<T extends Deadline>(
-  items: T[],
+  items: readonly T[],
   options: { remainingOnly: boolean; period: DeadlinePeriod; sort: boolean },
   now: number,
 ): T[] {
   const korea = new Date(now + koreaOffset);
-  const monday =
+  const today =
     Date.UTC(korea.getUTCFullYear(), korea.getUTCMonth(), korea.getUTCDate()) -
-    koreaOffset -
-    ((korea.getUTCDay() + 6) % 7) * day;
+    koreaOffset;
+  const monday = today - ((korea.getUTCDay() + 6) % 7) * day;
   const filtered = items.filter((item) => {
     const due = isoTime(item.due_at);
     if (options.remainingOnly && !(item.remaining_candidate && due > now))
       return false;
     if (options.period === "day") return due > now && due <= now + day;
+    if (options.period === "today") return due >= today && due < today + day;
+    if (options.period === "next7") return due > now && due <= now + 7 * day;
     if (options.period === "week")
       return due >= monday && due < monday + 7 * day;
     return true;

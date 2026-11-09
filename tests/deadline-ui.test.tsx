@@ -5,6 +5,13 @@ import { ResultList } from "../entrypoints/sidepanel/ResultList";
 import { mount, click } from "./ui-helpers";
 import * as deadlineView from "../src/deadline-view";
 let ui: Awaited<ReturnType<typeof mount>>;
+async function openAssignmentView() {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="보기 변경"]',
+  );
+  expect(trigger).not.toBeNull();
+  await act(async () => trigger?.click());
+}
 afterEach(async () => {
   await ui?.unmount();
   vi.useRealTimers();
@@ -58,27 +65,25 @@ it("resets pagination on filter changes, preserves it on ticks, and expires cand
       onCourse={() => {}}
     />,
   );
-  await click("보기 설정");
+  await openAssignmentView();
   expect(
-    (document.querySelector('input[type="checkbox"]') as HTMLInputElement)
-      .checked,
-  ).toBe(true);
+    [...document.querySelectorAll("button")]
+      .find((button) => button.textContent === "남은 과제")
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
+  await click("105개 과제 보기");
   await click("다음");
   await act(async () => {
     vi.advanceTimersByTime(1000);
   });
   expect(document.body.textContent).toContain("101–105 / 105개");
-  await act(async () => {
-    (
-      document.querySelector('input[type="checkbox"]') as HTMLInputElement
-    ).click();
-  });
+  await openAssignmentView();
+  await click("전체");
+  await click("105개 과제 보기");
   expect(document.body.textContent).toContain("1–100 / 105개");
-  await act(async () => {
-    (
-      document.querySelector('input[type="checkbox"]') as HTMLInputElement
-    ).click();
-  });
+  await openAssignmentView();
+  await click("남은 과제");
+  await click("105개 과제 보기");
   await act(async () => {
     vi.advanceTimersByTime(59000);
   });
@@ -98,23 +103,25 @@ it("sorts the whole response before pagination and returns to LMS order", async 
     />,
   );
   expect(document.querySelectorAll("li")).toHaveLength(0);
-  await click("보기 설정");
-  await act(async () => {
-    (
-      document.querySelector('input[type="checkbox"]') as HTMLInputElement
-    ).click();
-  });
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>(".assignment-all-link")?.click(),
+  );
   expect(document.querySelectorAll("li")).toHaveLength(100);
+  await openAssignmentView();
   const select = document.querySelectorAll("select")[1]!;
   await act(async () => {
     select.value = "due";
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  await click("105개 과제 보기");
   expect(document.querySelector("li strong")?.textContent).toBe("과제 104");
+  await openAssignmentView();
   await act(async () => {
-    select.value = "original";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const order = document.querySelectorAll("select")[1]!;
+    order.value = "original";
+    order.dispatchEvent(new Event("change", { bubbles: true }));
   });
+  await click("105개 과제 보기");
   expect(document.querySelector("li strong")?.textContent).toBe("과제 0");
 });
 it("sorts Todo latest due first by default and offers other orders", async () => {

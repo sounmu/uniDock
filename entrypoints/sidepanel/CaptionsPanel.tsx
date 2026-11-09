@@ -216,7 +216,6 @@ export function CaptionsPanel({
           )}
           {__UNIDOCK_AI_CAPTIONS__ && (aiOffer || state.status === "idle") && (
               <AiCaptionsSection
-                key={generation.current}
                 reason={aiOffer ?? undefined}
                 restoreOnly={!aiOffer}
                 onSettings={onConnectionSettings}

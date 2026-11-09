@@ -75,7 +75,7 @@ test("production transport accepts 1001 PDF items over two real API pages", asyn
     await panel.getByRole("button", { name: "강의 자료", exact: true }).click();
 
     await expect(
-      panel.getByRole("heading", { name: "강의 자료 · 1001개" }),
+      panel.getByRole("heading", { name: "강의 자료 1,001개" }),
     ).toBeVisible();
     await expect(panel.getByText("1–100 / 1001개")).toBeVisible();
     const result = await panel.evaluate(

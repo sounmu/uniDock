@@ -1,0 +1,31 @@
+/* Course resource tabs (녹화 강의, 강의 자료). They share the assignment
+   toolbar, refresh, freshness and popover rules from style.css, which imports
+   this file; every selector here is specific enough to win regardless of the
+   import position, and every value is a style.css token. */
+.assignment-scope.resource-scope {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.assignment-view-fields.resource-view-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Materials keep their sole primary (전체/선택 다운로드) beside the selection
+   summary; the button drops under the summary before the row would overflow
+   at 320px. */
+.material-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.material-actions .remaining-toggle {
+  flex: 1 1 auto;
+  margin: 0 var(--space-1);
+}
+.material-actions > button {
+  flex: 0 0 auto;
+  margin-left: auto;
+  max-width: 100%;
+  word-break: keep-all;
+}

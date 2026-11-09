@@ -1,12 +1,10 @@
 import { PagedList } from "./PagedList";
 import type { Result } from "../../src/protocol";
 import { ItemResults } from "./ItemResults";
+import { RecordingResults } from "./RecordingResults";
+import type { AssignmentFreshnessState } from "./ui/AssignmentRefresh";
 import { ListRow } from "./ui/ListRow";
-import { StatusChip } from "./ui/StatusChip";
-import { DetailView, useDetail } from "./ui/DetailView";
 import type { Course } from "../../src/domain";
-import { newTab } from "./ui/a11y";
-import { Icon } from "./ui/icons";
 export { dateLabel } from "./ItemResults";
 export function ResultList({
   result,
@@ -16,6 +14,7 @@ export function ResultList({
   usedRecordingHandles,
   openedRecordingHandles,
   course = "",
+  freshness,
 }: {
   readonly result: Extract<Result, { status: "success" }>;
   readonly onCourse: (course: Course) => void;
@@ -24,112 +23,23 @@ export function ResultList({
   readonly usedRecordingHandles?: ReadonlySet<string>;
   readonly openedRecordingHandles?: ReadonlySet<string>;
   readonly course?: string;
+  readonly freshness?: AssignmentFreshnessState;
 }) {
-  const { detail, open, back } = useDetail<number>();
   if ("opened" in result || "downloaded" in result || "documents" in result)
     return null;
-  if ("recordings" in result) {
-    const item = detail === null ? undefined : result.recordings[detail];
+  if ("recordings" in result)
     return (
-      <>
-        <div hidden={item !== undefined}>
-          <p className="count">
-            조회 완료 · {result.recordings.length}개 강의 후보
-          </p>
-          {result.boardsUnavailable && (
-            <div className="notice" role="status">
-              게시판 영상을 불러오지 못해 주차학습 녹화 강의만 표시합니다. 잠시
-              후 새로고침해 보세요.
-            </div>
-          )}
-          {result.recordings.length === 0 ? (
-            <div className="notice">조회 가능한 녹화 강의 후보가 없습니다.</div>
-          ) : (
-            <PagedList items={result.recordings}>
-              {(row, index) => (
-                <li key={row.lmsHandle} className="action-row">
-                  <ListRow
-                    title={row.title}
-                    course={course || row.module}
-                    chip={
-                      !row.launchHandle ? (
-                        <StatusChip>LMS에서 확인</StatusChip>
-                      ) : row.source === "board" ? (
-                        <StatusChip>게시판 영상</StatusChip>
-                      ) : undefined
-                    }
-                    onClick={() => open(index)}
-                  />
-                  {row.launchHandle && (
-                    <RowLaunch
-                      title={row.title}
-                      state={
-                        openedRecordingHandles?.has(row.launchHandle)
-                          ? "opened"
-                          : usedRecordingHandles?.has(row.launchHandle)
-                            ? "expired"
-                            : "ready"
-                      }
-                      disabled={!onRecording || recordingPending}
-                      onClick={() => onRecording?.(row.launchHandle)}
-                    />
-                  )}
-                </li>
-              )}
-            </PagedList>
-          )}
-        </div>
-        {item && (
-          <DetailView
-            title={item.title}
-            onBack={back}
-            meta={[
-              [
-                item.source === "board" ? "출처" : "모듈",
-                item.module || "모듈 이름 없음",
-              ],
-              [
-                "설명",
-                item.source === "board"
-                  ? "게시판의 강의 플레이어를 새 탭에서 엽니다."
-                  : item.launchHandle
-                    ? "LMS를 거쳐 강의 플레이어를 새 탭에서 엽니다."
-                    : "개별 항목 주소를 확인할 수 없습니다. LMS 모듈에서 열어주세요.",
-              ],
-            ]}
-          >
-            <div className="tools">
-              <button
-                className="btn-primary"
-                disabled={
-                  !item.launchHandle ||
-                  !onRecording ||
-                  recordingPending ||
-                  usedRecordingHandles?.has(item.launchHandle)
-                }
-                onClick={() => onRecording?.(item.launchHandle)}
-                {...newTab("강의 열기")}
-              />
-              <button
-                className="btn-secondary"
-                disabled={
-                  !onRecording ||
-                  recordingPending ||
-                  usedRecordingHandles?.has(item.lmsHandle)
-                }
-                onClick={() => onRecording?.(item.lmsHandle)}
-                {...newTab(
-                  item.source === "board"
-                    ? "LMS 게시판에서 보기"
-                    : "LMS 모듈에서 보기",
-                )}
-              />
-            </div>
-          </DetailView>
-        )}
-      </>
+      <RecordingResults
+        recordings={result.recordings}
+        boardsUnavailable={result.boardsUnavailable === true}
+        course={course}
+        onRecording={onRecording}
+        recordingPending={recordingPending}
+        usedRecordingHandles={usedRecordingHandles}
+        openedRecordingHandles={openedRecordingHandles}
+        freshness={freshness}
+      />
     );
-  }
   if ("courses" in result)
     return (
       <>
@@ -165,49 +75,7 @@ export function ResultList({
       deadlines={"assignments" in result || "deadlines" in result}
       todo={"todo" in result}
       course={course}
+      freshness={freshness}
     />
-  );
-}
-// A sibling of the row button, since buttons cannot nest. Launch handles are
-// one-use: a consumed row says whether it opened or now needs a fresh list
-// (expired, timed out or failed to open), instead of looking merely disabled.
-function RowLaunch({
-  title,
-  state,
-  disabled,
-  onClick,
-}: {
-  readonly title: string;
-  readonly state: "ready" | "opened" | "expired";
-  readonly disabled: boolean;
-  readonly onClick: () => void;
-}) {
-  const name = title || "제목 없음";
-  const label = {
-    ready: "강의 열기",
-    opened: "열었음",
-    expired: "새로고침 필요",
-  }[state];
-  return (
-    <button
-      className={`row-action${state === "ready" ? "" : ` ${state}`}`}
-      disabled={state !== "ready" || disabled}
-      onClick={onClick}
-      aria-label={
-        state === "ready"
-          ? `${name} 강의 열기 (새 탭)`
-          : state === "opened"
-            ? `${name} 강의 열었음`
-            : `${name} 강의 열 수 없음, 목록을 새로고침하세요`
-      }
-    >
-      {label}
-      {state === "ready" && (
-        <>
-          {" "}
-          <Icon name="external" />
-        </>
-      )}
-    </button>
   );
 }

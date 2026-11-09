@@ -40,7 +40,7 @@ async function openCourseRecordings(panel: Page, lms: Page) {
     .getByRole("button", { name: /Synthetic Operating Systems/ })
     .click();
   await panel.getByRole("button", { name: "녹화 강의", exact: true }).click();
-  await expect(panel.getByText("조회 완료 · 2개 강의 후보")).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "녹화 강의 2개", exact: true })).toBeVisible();
 }
 
 async function openRecording(
@@ -139,13 +139,13 @@ test("two production panel consumers retain independent capability catalogs", as
       .getByRole("button", { name: "강의 자료", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panelB.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
     await panelB
-      .getByRole("button", { name: "목록 새로고침", exact: true })
+      .getByRole("button", { name: "강의 자료 새로고침", exact: true })
       .click();
     await expect(
-      panelB.getByRole("heading", { name: "강의 자료 · 2개" }),
+      panelB.getByRole("heading", { name: "강의 자료 2개" }),
     ).toBeVisible();
 
     await panelA.getByRole("button", { name: "← 목록" }).click();
