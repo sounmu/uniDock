@@ -2,6 +2,12 @@
 
 ## 0.5.6 - 2026-11-10
 
+- Save materials directly in `uniDock/<course>/`, dropping the per-board folder
+  and stripping the term code, parenthesized tags and section suffix from the
+  LMS course title.
+- Keep each download's completion status correct when boards share a file name.
+- Reserve side panel scrollbar space so content and button widths stay stable
+  when the list starts or stops scrolling.
 - Fetch audio in groups of up to 256 byte ranges, with two groups in flight
   and a 1 MiB audio payload limit per group.
 - Preserve audio ordering and cancel sibling requests when extraction fails.
