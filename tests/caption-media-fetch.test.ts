@@ -251,7 +251,7 @@ it("requires known size and delegates a single range to the existing request", a
 });
 
 it.each([
-  { name: "too many ranges", ranges: Array.from({ length: 65 }, (_, i) => ({ start: i * 2, end: i * 2 + 1 })), code: "TOO_LARGE" },
+  { name: "too many ranges", ranges: Array.from({ length: 257 }, (_, i) => ({ start: i * 2, end: i * 2 + 1 })), code: "TOO_LARGE" },
   { name: "too much payload", ranges: [{ start: 0, end: 1024 * 1024 + 1 }], code: "TOO_LARGE" },
   { name: "overlap", ranges: [{ start: 1, end: 4 }, { start: 3, end: 5 }], code: "UNSUPPORTED_MEDIA" },
   { name: "duplicate", ranges: [pair[0]!, pair[0]!], code: "UNSUPPORTED_MEDIA" },
@@ -441,20 +441,20 @@ it("aborts fallback siblings immediately when one range fails", async () => {
   expect(aborted).toBe(3);
 });
 
-it("accepts exactly 64 ranges and one MiB of total payload", async () => {
-  const ranges = Array.from({ length: 64 }, (_, index) => ({
-    start: index * 20000, end: index * 20000 + 16384,
+it("accepts exactly 256 ranges and one MiB of total payload", async () => {
+  const ranges = Array.from({ length: 256 }, (_, index) => ({
+    start: index * 5000, end: index * 5000 + 4096,
   }));
   const bytes = multipart(ranges.toReversed().map((range, index) => ({
     range: `bytes ${range.start}-${range.end - 1}/2000000`,
-    body: new Uint8Array(16384).fill(63 - index),
+    body: new Uint8Array(4096).fill(255 - index),
   })));
   const { reader } = await preparedReader(respond(206, bytes, {
     "content-type": "multipart/byteranges; boundary=audio-boundary",
     "content-length": String(bytes.length),
   }), 2000000);
   const bodies = await reader.fetchRanges(ranges);
-  // Summarize each 16 KiB part instead of deep-comparing 1 MiB element by
+  // Summarize each 4 KiB part instead of deep-comparing 1 MiB element by
   // element, which is slow under coverage instrumentation. Each part is filled
   // with a distinct byte and sent in reverse, so order and content still count.
   const summary = bodies.map((body) => {
@@ -462,7 +462,7 @@ it("accepts exactly 64 ranges and one MiB of total payload", async () => {
     const first = bytes[0] ?? -1;
     return [bytes.length, bytes.every((value) => value === first) ? first : -1];
   });
-  expect(summary).toEqual(ranges.map((_, index) => [16384, index]));
+  expect(summary).toEqual(ranges.map((_, index) => [4096, index]));
 });
 
 it.each([2, 4])("rejects an exact Content-Range with %s payload bytes instead of three", async (size) => {

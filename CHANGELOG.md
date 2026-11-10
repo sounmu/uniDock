@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6 - 2026-11-10
+
+- Fetch audio in groups of up to 256 byte ranges, with two groups in flight
+  and a 1 MiB audio payload limit per group.
+- Preserve audio ordering and cancel sibling requests when extraction fails.
+- Update the extension version and privacy-policy version labels.
+
 ## 0.5.4 - 2026-11-06
 
 - Track AI caption jobs in the background worker, so progress keeps updating
