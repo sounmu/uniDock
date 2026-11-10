@@ -9,6 +9,7 @@ export default ts.config(
       ".store-build/**",
       ".store-v052-build/**",
       "release/**",
+      "output/**",
     ],
   },
   js.configs.recommended,
