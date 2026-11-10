@@ -44,20 +44,25 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
   const capture = async (page: Page, name: string) => {
     for (const width of [320, 420]) {
       await page.setViewportSize({ width, height: 800 });
-      expect(
-        await page.evaluate(
-          () =>
-            document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth,
-        ),
-      ).toBe(true);
+      // `scrollbar-gutter: stable` reserves the root scrollbar track. Neither
+      // documentElement.clientWidth nor a scrolling probe reports that
+      // reservation in headless Linux Chromium, so take the margin-free body
+      // box as the content width the engine actually laid out.
+      const layout = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        content: document.body.getBoundingClientRect().width,
+      }));
+      expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
+      expect(width - layout.content).toBeGreaterThanOrEqual(0);
+      expect(width - layout.content).toBeLessThanOrEqual(20);
       const main = await page.getByRole("main").boundingBox();
       const navigation = page.getByRole("navigation", { name: "주 메뉴" });
       const menu = await navigation.boundingBox();
       expect(main).not.toBeNull();
       expect(menu).not.toBeNull();
       expect(main!.x).toBe(0);
-      expect(main!.width).toBe(width);
+      expect(main!.width).toBe(layout.content);
       expect(menu!.y).toBeGreaterThan(700);
       expect(menu!.y + menu!.height).toBeLessThanOrEqual(800);
       const buttons = await navigation.getByRole("button").all();
