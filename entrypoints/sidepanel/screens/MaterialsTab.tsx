@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../src/documents";
 import { copyPromptAndOpen } from "../../../src/pdf/handoff";
+import { courseFolderName } from "../../../src/security/download";
 import { PagedList } from "../PagedList";
 import { downloadLabels } from "../useDocumentDownloads";
 import { messages } from "../query-messages";
@@ -308,7 +309,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
                 </button>
               </div>
               <p className="hint">
-                다운로드/uniDock/{course}/의 자료를 ChatGPT 창에 끌어다
+                다운로드/uniDock/{courseFolderName(course)}/의 자료를 ChatGPT 창에 끌어다
                 첨부하세요. uniDock은 파일을 업로드하지 않습니다.
               </p>
             </>

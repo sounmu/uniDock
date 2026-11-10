@@ -2163,7 +2163,7 @@ it("routes document handles through the background LMS boundary and consumes the
     type: "DOWNLOAD_LMS_FILE",
     deadline: downloadEnvelope.deadline,
     url: `${origin}/courses/101/files/777/download?download_frd=1`,
-    filename: "uniDock/Course/Week/file.pdf",
+    filename: "uniDock/Course/file.pdf",
   });
   const second = response();
   listener(downloadEnvelope, sender, second.respond);

@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import {
+  courseFolderName,
   lmsFileDownloadUrl,
   safeDownloadPath,
   validDownloadPath,
@@ -49,42 +50,61 @@ it("rejects cross-LMS and unapproved source documents", () => {
   expect(lmsFileDownloadUrl(url, "https://evil.invalid/")).toBeNull();
 });
 it.each([
-  ["Course", "Week", "slides", "uniDock/Course/Week/slides.pdf"],
-  ["..", ".", "", "uniDock/_/_/_.pdf"],
-  ["/abs", "C:\\", 'a/b\\c:*?"<>|.pdf', "uniDock/_abs/C__/a_b_c_______.pdf"],
-  [" \u0000 ", "Week\nName", "slides.PDF", "uniDock/_/Week Name/slides.PDF"],
-  [". Course .", "Week", "file.pdf", "uniDock/Course/Week/file.pdf"],
+  ["Course", "slides", "uniDock/Course/slides.pdf"],
+  ["..", "", "uniDock/_/_.pdf"],
+  ["/abs", 'a/b\\c:*?"<>|.pdf', "uniDock/_abs/a_b_c_______.pdf"],
+  [" \u0000 ", "Week\nName.PDF", "uniDock/_/Week Name.PDF"],
+  [". Course .", "file.pdf", "uniDock/Course/file.pdf"],
 ])(
-  "normalizes unsafe filename segments when inputs are %j / %j / %j",
-  (course, module, title, expected) => {
+  "normalizes unsafe filename segments when inputs are %j / %j",
+  (course, title, expected) => {
     // Given / When
-    const result = safeDownloadPath(course, module, title);
+    const result = safeDownloadPath(course, title);
     // Then
     expect(result).toBe(expected);
     expect(validDownloadPath(result)).toBe(true);
   },
 );
-it("bounds segments and rejects an overlong combined path", () => {
+it("bounds each segment to 80 characters", () => {
   // Given
   const long = "a".repeat(200);
   // When / Then
   expect(
-    safeDownloadPath("Course", "Week", long)?.split("/").at(-1),
+    safeDownloadPath("Course", long)?.split("/").at(-1),
   ).toHaveLength(80);
-  expect(safeDownloadPath(long, long, long)).toBeNull();
+  expect(safeDownloadPath(long, "file.pdf")?.split("/")[1]).toHaveLength(80);
 });
 it.each([
-  "/uniDock/A/B/file.pdf",
-  "uniDock/../B/file.pdf",
-  "uniDock/A/./file.pdf",
-  "uniDock/A/B/../../file.pdf",
-  "uniDock/A/B/C:\\file.pdf",
-  "uniDock/A/B/file\u0001.pdf",
-  "uniDock/A/B/.pdf",
-  "uniDock/A//file.pdf",
-  "uniDock/A/B/file.exe",
-  "uniDock/A/B/file.pdf ",
-  "uniDock/A/B/" + "x".repeat(81) + ".pdf",
+  ["262R (서울-학부)자료구조(영강)(Data Structures)-00분반", "자료구조"],
+  ["262R (서울-학부)운영체제(Operating Systems (I)) - 02분반", "운영체제"],
+  ["Synthetic Operating Systems", "Synthetic Operating Systems"],
+  ["(영강)", "(영강)"],
+])("keeps only the course name of %j", (course, expected) => {
+  // Given / When / Then
+  expect(courseFolderName(course)).toBe(expected);
+});
+it("saves every file of a course directly in the course folder", () => {
+  // Given / When / Then
+  expect(
+    safeDownloadPath(
+      "262R (서울-학부)자료구조(영강)(Data Structures)-00분반",
+      "07_Heap.pdf",
+    ),
+  ).toBe("uniDock/자료구조/07_Heap.pdf");
+});
+it.each([
+  "/uniDock/A/file.pdf",
+  "uniDock/../file.pdf",
+  "uniDock/./file.pdf",
+  "uniDock/A/B/file.pdf",
+  "uniDock/A/../file.pdf",
+  "uniDock/A/C:\\file.pdf",
+  "uniDock/A/file\u0001.pdf",
+  "uniDock/A/.pdf",
+  "uniDock//file.pdf",
+  "uniDock/A/file.exe",
+  "uniDock/A/file.pdf ",
+  "uniDock/A/" + "x".repeat(81) + ".pdf",
 ])("rejects caller-supplied unsafe path %j", (value) => {
   // Given / When / Then
   expect(validDownloadPath(value)).toBe(false);

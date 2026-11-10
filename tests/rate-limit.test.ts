@@ -84,7 +84,7 @@ it("refuses downloads beyond the per-tab budget without starting one", async () 
     type: "DOWNLOAD_LMS_FILE",
     deadline: Date.now() + 23_000,
     url: `${origin}/courses/101/files/501/download?download_frd=1`,
-    filename: "uniDock/Course/Week/slides.pdf",
+    filename: "uniDock/Course/slides.pdf",
   });
   for (let count = 0; count < 240; count++)
     expect((await downloadLmsFile(message(), sender)).status).toBe("success");

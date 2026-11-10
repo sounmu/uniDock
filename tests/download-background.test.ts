@@ -6,7 +6,7 @@ const message = {
   type: "DOWNLOAD_LMS_FILE",
   deadline: Date.now() + 23_000,
   url: `${origin}/courses/101/files/501/download?download_frd=1`,
-  filename: "uniDock/Course/Week/slides.pdf",
+  filename: "uniDock/Course/slides.pdf",
 };
 const sender: chrome.runtime.MessageSender = {
   id: "fixture",
@@ -99,7 +99,7 @@ it.each([
   { ...message, url: null },
   { ...message, filename: "uniDock/../x.pdf" },
   { ...message, filename: "/tmp/x.pdf" },
-  { ...message, filename: "uniDock/A/B/C:\\x.pdf" },
+  { ...message, filename: "uniDock/A/C:\\x.pdf" },
 ])("rejects URL or filename tampering", async (value) => {
   // Given
   const { download } = setup();

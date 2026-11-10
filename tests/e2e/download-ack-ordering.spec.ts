@@ -172,7 +172,7 @@ test("a completed native PDF is not overwritten by a late timeout acknowledgemen
     );
     expect(nativeDownloads).toHaveLength(1);
     expect(nativeDownloads[0]?.filename).toContain(
-      "/uniDock/Synthetic Operating Systems/Week 1/lecture.pdf",
+      "/uniDock/Synthetic Operating Systems/lecture.pdf",
     );
     expect(await readFile(nativeDownloads[0]!.filename)).toEqual(server.pdf);
     expect(server.downloads).toEqual(["/courses/101/files/501/download"]);
