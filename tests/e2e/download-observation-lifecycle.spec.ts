@@ -217,7 +217,7 @@ test("a stale native download lookup cannot complete a refreshed matching row", 
         byExtensionId: extensionId,
         mime: "application/pdf",
         filename: expect.stringMatching(
-          /\/uniDock\/Synthetic Operating Systems\/Week 1\/lecture\.pdf$/,
+          /\/uniDock\/Synthetic Operating Systems\/lecture\.pdf$/,
         ),
       });
     await expect(
