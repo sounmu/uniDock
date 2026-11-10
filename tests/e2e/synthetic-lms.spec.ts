@@ -44,21 +44,30 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
   const capture = async (page: Page, name: string) => {
     for (const width of [320, 420]) {
       await page.setViewportSize({ width, height: 800 });
-      const layout = await page.evaluate(() => ({
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      }));
+      const layout = await page.evaluate(() => {
+        // `scrollbar-gutter: stable` reserves the track even without overflow,
+        // and documentElement.clientWidth does not report that reservation.
+        // Measure the platform scrollbar (0 for overlay scrollbars) directly.
+        const probe = document.createElement("div");
+        probe.style.cssText =
+          "position:absolute;visibility:hidden;overflow:scroll;width:100px;height:100px";
+        document.body.append(probe);
+        const gutter = probe.offsetWidth - probe.clientWidth;
+        probe.remove();
+        return {
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          gutter,
+        };
+      });
       expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth);
-      // `scrollbar-gutter: stable` reserves the scrollbar track, so the page
-      // content box is the viewport minus the platform scrollbar width.
-      expect(layout.clientWidth).toBeLessThanOrEqual(width);
       const main = await page.getByRole("main").boundingBox();
       const navigation = page.getByRole("navigation", { name: "주 메뉴" });
       const menu = await navigation.boundingBox();
       expect(main).not.toBeNull();
       expect(menu).not.toBeNull();
       expect(main!.x).toBe(0);
-      expect(main!.width).toBe(layout.clientWidth);
+      expect(main!.width).toBe(width - layout.gutter);
       expect(menu!.y).toBeGreaterThan(700);
       expect(menu!.y + menu!.height).toBeLessThanOrEqual(800);
       const buttons = await navigation.getByRole("button").all();
