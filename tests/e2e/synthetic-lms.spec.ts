@@ -241,7 +241,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       expect(item.state).toBe("complete");
       expect(item.mime).toBe("application/pdf");
       expect(item.filename).toContain(
-        "/uniDock/Synthetic Operating Systems/Week 1/",
+        "/uniDock/Synthetic Operating Systems/",
       );
       expect(item.filename.startsWith(downloadDirectory)).toBe(true);
       expect(await readFile(item.filename)).toEqual(server.pdf);

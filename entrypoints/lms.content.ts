@@ -412,11 +412,7 @@ export default defineContentScript({
         return { status: "error", code: "TIMEOUT" };
       const entry = catalog.takeDownload(message.handle, location.origin);
       if (!entry) return { status: "error", code: "STALE_SELECTION" };
-      const filename = safeDownloadPath(
-        message.course,
-        entry.module,
-        entry.title,
-      );
+      const filename = safeDownloadPath(message.course, entry.title);
       if (!filename) return { status: "error", code: "POLICY" };
       try {
         const dispatched = chrome.runtime.sendMessage({

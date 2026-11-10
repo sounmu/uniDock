@@ -18,7 +18,6 @@ it("preserves presentation extensions, including long filenames, and checks MIME
     ).toBe(true);
     const path = safeDownloadPath(
       "Course",
-      "Week",
       `${"a".repeat(150)}.${extension}`,
     )!;
     expect(path.endsWith(`.${extension}`)).toBe(true);
@@ -26,9 +25,9 @@ it("preserves presentation extensions, including long filenames, and checks MIME
   }
   expect(documentCandidate({ type: "File", title: "file.pptm" })).toBe(false);
   expect(
-    safeDownloadPath("Course", "Week", `${"a".repeat(76)}.pdf-long.pptx`),
+    safeDownloadPath("Course", `${"a".repeat(76)}.pdf-long.pptx`),
   ).toMatch(/\.pptx$/);
-  expect(validDownloadPath("uniDock/a/b/file.exe")).toBe(false);
+  expect(validDownloadPath("uniDock/a/file.exe")).toBe(false);
   expect(documentMimeMatches("file.ppt", "application/vnd.ms-powerpoint")).toBe(
     true,
   );

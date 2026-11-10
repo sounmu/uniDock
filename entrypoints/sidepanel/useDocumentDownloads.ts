@@ -70,9 +70,14 @@ export function useDocumentDownloads(context: {
       const path = item.filename.replace(/\\/g, "/");
       // conflictAction "uniquify" saves a repeated file as "name (1).pdf".
       const paths = [path, path.replace(/ \(\d+\)(?=(?:\.[^./]*)?$)/, "")];
+      // Files from every module share one course folder, so a name can repeat;
+      // a handle already bound to another download is not a candidate.
       const matches = expected.current.filter(
         (entry) =>
           new URL(item.url).origin === entry.origin &&
+          ![...bindings.current].some(
+            ([id, value]) => id !== item.id && value === entry.handle,
+          ) &&
           paths.some(
             (candidate) =>
               candidate === entry.path || candidate.endsWith(`/${entry.path}`),
@@ -213,7 +218,7 @@ export function useDocumentDownloads(context: {
       }
       const handle = item.downloadHandle;
       used.current.add(handle);
-      const path = safeDownloadPath(course, item.module, item.filename);
+      const path = safeDownloadPath(course, item.filename);
       if (path)
         expected.current.push({
           handle,

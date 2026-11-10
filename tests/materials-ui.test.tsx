@@ -390,7 +390,7 @@ it.each([
       id: 42,
       byExtensionId: "test",
       url: `${target.url}courses/101/files/501/download?download_frd=1`,
-      filename: "/Downloads/uniDock/Course/Week/one.pdf",
+      filename: "/Downloads/uniDock/Course/one.pdf",
       state: "in_progress",
       mime,
     };
@@ -423,7 +423,7 @@ it("tracks a download that Chrome saved under a uniquified filename", async () =
       id: 42,
       byExtensionId: "test",
       url: `${target.url}courses/101/files/501/download?download_frd=1`,
-      filename: "/Downloads/uniDock/Course/Week/one (1).pdf",
+      filename: "/Downloads/uniDock/Course/one (1).pdf",
       state: "complete",
       mime: "application/pdf",
     });
@@ -450,7 +450,7 @@ it.each([
         id: 42,
         byExtensionId: "test",
         url: `${target.url}courses/101/files/501/download?download_frd=1`,
-        filename: "/Downloads/uniDock/Course/Week/one.pdf",
+        filename: "/Downloads/uniDock/Course/one.pdf",
         state: "complete",
         mime,
       });
@@ -476,7 +476,7 @@ it("keeps tracking an observed in-progress download after an acknowledgement tim
     id: 42,
     byExtensionId: "test",
     url: `${target.url}courses/101/files/501/download?download_frd=1`,
-    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    filename: "/Downloads/uniDock/Course/one.pdf",
     state: "in_progress",
     mime: "application/pdf",
   };
@@ -529,7 +529,7 @@ it("does not preserve an old list observation for a new acknowledgement", async 
       id: 42,
       byExtensionId: "test",
       url: `${target.url}courses/101/files/501/download?download_frd=1`,
-      filename: "/Downloads/uniDock/Course/Week/one.pdf",
+      filename: "/Downloads/uniDock/Course/one.pdf",
       state: "complete",
       mime: "application/pdf",
     });
@@ -563,7 +563,7 @@ it("leaves unassociated and foreign download events unconfirmed", async () => {
       id: 42,
       byExtensionId: "foreign",
       url: `${target.url}courses/101/files/501/download?download_frd=1`,
-      filename: "/Downloads/uniDock/Course/Week/one.pdf",
+      filename: "/Downloads/uniDock/Course/one.pdf",
       state: "complete",
       mime: "application/pdf",
     });
@@ -585,7 +585,7 @@ it("does not bind a stale download search to a refreshed matching row", async ()
     id: 42,
     byExtensionId: "test",
     url: `${target.url}courses/101/files/501/download?download_frd=1`,
-    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    filename: "/Downloads/uniDock/Course/one.pdf",
     state: "in_progress",
     mime: "application/pdf",
   };
@@ -642,7 +642,7 @@ it("continues tracking a started download after cancelling pending batch items",
     id: 42,
     byExtensionId: "test",
     url: `${target.url}courses/101/files/501/download?download_frd=1`,
-    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    filename: "/Downloads/uniDock/Course/one.pdf",
     state: "in_progress",
     mime: "application/pdf",
   };
@@ -675,7 +675,7 @@ it("ignores a held download search after unmount", async () => {
     id: 42,
     byExtensionId: undefined,
     url: `${target.url}courses/101/files/501/download?download_frd=1`,
-    filename: "/Downloads/uniDock/Course/Week/one.pdf",
+    filename: "/Downloads/uniDock/Course/one.pdf",
     state: "in_progress",
     mime: "application/pdf",
   };
