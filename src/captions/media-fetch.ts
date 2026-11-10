@@ -143,7 +143,7 @@ export function mediaRangeReader(mediaUrl: string, signal: AbortSignal) {
   ): Promise<ArrayBuffer[]> {
     if (signal.aborted || requestSignal?.aborted) throw new AudioExtractError("ABORTED");
     if (knownTotal === null) throw new AudioExtractError("UNSUPPORTED_MEDIA");
-    if (ranges.length > 64) throw new AudioExtractError("TOO_LARGE");
+    if (ranges.length > 256) throw new AudioExtractError("TOO_LARGE");
     const requested = ranges.map(({ start, end }) => ({ start, end }));
     let payload = 0;
     const sorted = [...requested].sort((a, b) => a.start - b.start);

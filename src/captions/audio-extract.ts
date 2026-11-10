@@ -43,6 +43,7 @@ const MAX_MOOV_BYTES = 64 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 const SAMPLES_PER_SEGMENT = 500;
 const AUDIO_FETCH_CONCURRENCY = 4;
+const AUDIO_BATCH_CONCURRENCY = 2;
 
 interface WalkedBox extends TopLevelBox {
   header: Uint8Array;
@@ -196,20 +197,26 @@ async function extract(
   let done = 0;
   for (let index = 0; index < layout.ranges.length;) {
     stop();
-    const ranges: ByteRange[] = [];
-    let size = 0;
-    const limit = options.fetchRanges ? 64 : AUDIO_FETCH_CONCURRENCY;
-    while (index < layout.ranges.length && ranges.length < limit) {
-      const range = layout.ranges[index];
-      if (!range) break;
-      const bytes = range.end - range.start;
-      if (options.fetchRanges && size + bytes > 1024 * 1024) break;
-      ranges.push(range);
-      size += bytes;
-      index++;
+    const batches: ByteRange[][] = [];
+    const batchLimit = options.fetchRanges ? AUDIO_BATCH_CONCURRENCY : 1;
+    while (index < layout.ranges.length && batches.length < batchLimit) {
+      const ranges: ByteRange[] = [];
+      let size = 0;
+      const limit = options.fetchRanges ? 256 : AUDIO_FETCH_CONCURRENCY;
+      while (index < layout.ranges.length && ranges.length < limit) {
+        const range = layout.ranges[index];
+        if (!range) break;
+        const bytes = range.end - range.start;
+        if (options.fetchRanges && size + bytes > 1024 * 1024) break;
+        ranges.push(range);
+        size += bytes;
+        index++;
+      }
+      if (!ranges.length) break;
+      batches.push(ranges);
     }
     // A single contiguous audio run can exceed the multipart payload cap.
-    if (!ranges.length) {
+    if (!batches.length) {
       const range = layout.ranges[index];
       if (!range) break;
       const bytes = await fetchBytes(fetchRange, range.start, range.end, signal);
@@ -220,21 +227,25 @@ async function extract(
       index++;
       continue;
     }
-    // Bound prefetch to one batch and append in file order.
-    const buffers = options.fetchRanges
-      ? (await options.fetchRanges(ranges, signal)).map((bytes, offset) => {
+    // At most two multipart payloads (2 MiB) are prefetched. Promise.all
+    // preserves file order and rejects immediately if either batch fails.
+    const buffers = (await Promise.all(batches.map(async (ranges) => {
+      stop();
+      if (options.fetchRanges) {
+        const payloads = await options.fetchRanges(ranges, signal);
+        if (payloads.length !== ranges.length) throw new Mp4Error("BAD_MP4");
+        return payloads.map((bytes, offset) => {
           const range = ranges[offset];
           if (!range || bytes.byteLength !== range.end - range.start)
             throw new Mp4Error("BAD_MP4");
           return { range, bytes: new Uint8Array(bytes) };
-        })
-      : await Promise.all(
-      ranges.map(async (range) => ({
+        });
+      }
+      return Promise.all(ranges.map(async (range) => ({
         range,
         bytes: await fetchBytes(fetchRange, range.start, range.end, signal),
-      })),
-    );
-    if (buffers.length !== ranges.length) throw new Mp4Error("BAD_MP4");
+      })));
+    }))).flat();
     for (const { range, bytes } of buffers) {
       stop();
       append(bytes, range.start);
