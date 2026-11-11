@@ -28,8 +28,8 @@ export interface PlaybackOptions {
   ) => void;
   /** The caller identifies login pages; a video element cannot identify an SSO redirect. */
   isLoginPage?: () => boolean;
-  /** The caller supplies frame visibility so native controls cannot bypass visible-only playback. */
-  isVisible?: () => boolean;
+  /** A native pause/play gesture requests fresh authorization from the caller. */
+  onNativeResume?: () => void;
   /** Intermediary media can end on the same element before the actual content starts. */
   isCompletionMedia?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
@@ -47,6 +47,11 @@ export class PlaybackPlayer {
   private cancelPending = new Set<() => void>();
   private detachEvents?: () => void;
   private pendingResumePosition?: number;
+  private nativePause?: {
+    source: string;
+    src: string;
+    sourceObject: HTMLVideoElement["srcObject"];
+  };
   private completionEvidence?: {
     progressSeconds: number;
     minimumProgressSeconds: number;
@@ -84,12 +89,10 @@ export class PlaybackPlayer {
     );
   }
 
-  private visible(): boolean {
-    return this.options.isVisible?.() !== false;
-  }
-
   private set(status: PlaybackStatus): PlaybackStatus {
     this.statusValue = status;
+    if (status.state !== "paused" || status.reason)
+      this.nativePause = undefined;
     if (status.state !== "playing" && status.state !== "starting")
       this.pendingResumePosition = undefined;
     this.options.onStateChange?.(status);
@@ -175,17 +178,31 @@ export class PlaybackPlayer {
       observedPlaying = false;
       this.clearCompletionEvidence();
     };
-    const rejectUnauthorizedNativePlay = (event: Event): boolean => {
-      if (
-        !event.isTrusted ||
-        !current() ||
-        (this.status.state !== "paused" && this.visible())
-      )
+    const rejectUnauthorizedNativePlay = (
+      event: Event,
+      requestResume = false,
+    ): boolean => {
+      if (!event.isTrusted || !current() || this.status.state !== "paused")
         return false;
-      // A paused playlist remains stopped until its authorized control path
-      // calls resume(); native controls provide neither consent nor visibility.
+      // Hold native playback until the caller obtains a fresh lease. Explicit
+      // adapter pauses and unverified ends never request native resumption.
       this.video.pause();
-      if (this.status.state === "playing") this.set({ state: "paused" });
+      if (
+        requestResume &&
+        this.nativePause &&
+        this.nativePause.source === this.video.currentSrc &&
+        this.nativePause.src === this.video.src &&
+        this.nativePause.sourceObject === this.video.srcObject &&
+        !this.video.ended &&
+        !this.video.seeking &&
+        this.video.playbackRate === 1
+      ) {
+        // Native playback can advance before this trusted event is delivered.
+        // Re-freeze without crediting that interval; seeking already clears
+        // the old evidence, and authorization must still precede resume().
+        this.freezeCompletionEvidence();
+        this.options.onNativeResume?.();
+      }
       return true;
     };
     const nativePlaying = (event: Event) => {
@@ -242,7 +259,7 @@ export class PlaybackPlayer {
       this.options.onDiagnostic?.("NATIVE_PLAYING");
     };
     const nativePlay = (event: Event) => {
-      rejectUnauthorizedNativePlay(event);
+      rejectUnauthorizedNativePlay(event, true);
     };
     // The KU start control can begin playback before this adapter is attached.
     // Seed only the baseline; completion still requires measured time progress.
@@ -273,7 +290,7 @@ export class PlaybackPlayer {
         (this.video.paused && !this.video.ended)
       )
         return;
-      if (!this.visible() || this.video.playbackRate !== 1) {
+      if (this.video.playbackRate !== 1) {
         resetEvidence();
         return;
       }
@@ -319,7 +336,6 @@ export class PlaybackPlayer {
           !evidence ||
           evidence.progressSeconds < evidence.minimumProgressSeconds ||
           this.video.seeking ||
-          !this.visible() ||
           this.video.playbackRate !== 1 ||
           evidence.source !== this.video.currentSrc ||
           evidence.sourceObject !== this.video.srcObject ||
@@ -367,6 +383,11 @@ export class PlaybackPlayer {
         this.status.state === "playing"
       ) {
         this.freezeCompletionEvidence();
+        this.nativePause = {
+          source: this.video.currentSrc,
+          src: this.video.src,
+          sourceObject: this.video.srcObject,
+        };
         this.set({ state: "paused" });
       }
     };
@@ -459,11 +480,6 @@ export class PlaybackPlayer {
               this.video.pause();
               return;
             }
-            if (this.status.state === "starting" && !this.visible()) {
-              this.video.pause();
-              finish(this.set({ state: "paused" }));
-              return;
-            }
             if (this.status.state === "starting")
               finish(this.set({ state: "playing" }));
             else finish(this.status);
@@ -498,7 +514,8 @@ export class PlaybackPlayer {
   }
 
   pause(): PlaybackStatus {
-    // An invalidated player must still silence media it owns (visible-tab only).
+    this.nativePause = undefined;
+    // An invalidated player must still silence media it owns.
     if (!this.valid()) return this.stop();
     this.freezeCompletionEvidence();
     this.video.pause();

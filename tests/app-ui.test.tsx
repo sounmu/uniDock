@@ -107,7 +107,7 @@ it("waits for the pending request then loads the last selected menu automaticall
   await click("할 일·일정");
   await click("할 일");
   expect(query).toHaveBeenCalledTimes(1);
-  expect(document.body.textContent).toContain("조회 중…");
+  expect(ui.host.querySelector('button[aria-label="새로고침"]')?.getAttribute("aria-busy")).toBe("true");
   await act(async () => first.resolve({ status: "success", todo: [] }));
   // Then
   expect(query).toHaveBeenCalledTimes(2);

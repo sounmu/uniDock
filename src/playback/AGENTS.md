@@ -21,7 +21,8 @@ Earned its file: score ~8.7 (6 files, 48 exports, `runtime.ts` is the largest fi
 - Authorization is lease-based: invalidate before entering the state lane; a superseded event from a still-retained run is acknowledged without applying state; a released/replaced run fails closed.
 - Panel sends opaque one-use handles in click order plus an ephemeral proof of the issuing document; `bridge.ts` never accepts endpoints, URLs, or accounts.
 - Stored state is a recovery pointer only; any worker interruption requires an explicit user resume. Scheduled v1 state is never migrated or auto-run; legacy alarms are exported only so they can be cleared.
-- Completion requires measured `currentTime` progress; native controls provide neither consent nor visibility.
+- Completion requires measured `currentTime` progress, including authorized playback in hidden documents. Visibility alone never pauses, cancels, or invalidates playback evidence.
+- Native pause retains the exact run without a watchdog. A native play gesture may resume only that native-paused player after fresh account/candidate discovery and lease authorization; explicit extension pause/stop, revocation, replacement, worker recovery, and unverified ends require their existing explicit recovery path.
 - Tests: `tests/playback-runtime.test.ts`, `playback-player.test.ts`, `playback-playlist.test.ts`, `ku-player.test.ts`, `player-content.test.ts`.
 
 ## ANTI-PATTERNS
@@ -29,5 +30,5 @@ Earned its file: score ~8.7 (6 files, 48 exports, `runtime.ts` is the largest fi
 - Never store authorization tokens, handles, or URLs in `chrome.storage`.
 - Never call page-owned KU player methods or read LMS APIs from `ku-player.ts`/`player.ts`.
 - Never auto-resume after a worker restart, rewind, or change playback speed.
-- Never play in a hidden frame; an invalidated player must still silence media it owns.
+- Never spoof document visibility or LMS attendance/progress; an invalidated player must still silence media it owns.
 - Do not import `playback/` from always-on code paths without the `__UNIDOCK_PLAYBACK__` guard (exception: the pure `object` guard used by `download-tab.ts`).

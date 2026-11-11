@@ -25,6 +25,41 @@ type Listener = (
   respond: (response: unknown) => void,
 ) => boolean;
 
+// jsdom cannot emit trusted media events; deliver them to the real adapter's
+// registered native handlers, as in playback-player.test.ts.
+function nativeSignals(video: HTMLVideoElement) {
+  const handlers = new Map<string, Set<EventListener>>();
+  vi.spyOn(video, "addEventListener").mockImplementation(
+    (name, handler, options) => {
+      if (typeof handler === "function") {
+        if (!handlers.has(name)) handlers.set(name, new Set());
+        handlers.get(name)?.add(handler);
+      }
+      EventTarget.prototype.addEventListener.call(
+        video,
+        name,
+        handler,
+        options,
+      );
+    },
+  );
+  vi.spyOn(video, "removeEventListener").mockImplementation(
+    (name, handler, options) => {
+      if (typeof handler === "function") handlers.get(name)?.delete(handler);
+      EventTarget.prototype.removeEventListener.call(
+        video,
+        name,
+        handler,
+        options,
+      );
+    },
+  );
+  return (name: string) => {
+    for (const handler of [...(handlers.get(name) ?? [])])
+      handler({ isTrusted: true } as Event);
+  };
+}
+
 function setup(
   options: {
     authorization?: unknown;
@@ -539,14 +574,13 @@ it.each(["lecture", "intro"] as const)(
   },
 );
 
-it("blocks hidden autoplay and hidden resume without invoking native play", async () => {
+it("starts and resumes authorized playback while hidden without visibility-triggered pause", async () => {
   const hidden = setup({ hidden: true });
   document.body.append(hidden.video);
-  const blocked = hidden.event("blocked-autoplay");
+  const started = hidden.event("playing");
   page.main();
-  await blocked;
-  expect(hidden.play).not.toHaveBeenCalled();
-  expect(hidden.control("resume").accepted).toBe(false);
+  await started;
+  expect(hidden.play).toHaveBeenCalledOnce();
   window.dispatchEvent(new Event("pagehide"));
   document.body.replaceChildren();
 
@@ -555,17 +589,120 @@ it("blocks hidden autoplay and hidden resume without invoking native play", asyn
   const playing = fixture.event("playing");
   page.main();
   await playing;
-  const paused = fixture.event("paused");
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     value: "hidden",
   });
   document.dispatchEvent(new Event("visibilitychange"));
-  await paused;
+  expect(fixture.pause).not.toHaveBeenCalled();
+  await fixture.control("pause").done;
   const resume = fixture.control("resume");
-  expect(resume.respond).toHaveBeenCalledWith({ ok: false });
-  expect(fixture.play).toHaveBeenCalledOnce();
+  expect(await resume.done).toEqual({ ok: true });
+  expect(fixture.play).toHaveBeenCalledTimes(2);
 });
+
+it("renews native-paused playback after dormancy before updating autoplay to playing", async () => {
+  vi.useFakeTimers();
+  const lease = Promise.withResolvers<unknown>();
+  const fixture = setup({ lease: lease.promise });
+  const native = nativeSignals(fixture.video);
+  document.body.append(fixture.video);
+  const started = fixture.event("playing");
+  page.main();
+  await started;
+  Object.defineProperty(fixture.video, "paused", {
+    configurable: true,
+    value: true,
+  });
+  const paused = fixture.event("paused");
+  native("pause");
+  await paused;
+  await vi.advanceTimersByTimeAsync(80000);
+  expect(
+    fixture.sendMessage.mock.calls.filter(
+      ([m]) => m.type === "PLAYBACK_PLAYER_LEASE",
+    ),
+  ).toHaveLength(0);
+
+  const resumed = fixture.event("playing");
+  Object.defineProperty(fixture.video, "paused", {
+    configurable: true,
+    value: false,
+  });
+  native("play");
+  expect(fixture.play).toHaveBeenCalledOnce();
+  expect(
+    fixture.sendMessage.mock.calls.filter(
+      ([m]) => m.type === "PLAYBACK_PLAYER_LEASE",
+    ),
+  ).toHaveLength(1);
+  lease.resolve({
+    ok: true,
+    authorization: {
+      binding: { ...fixture.activeBinding, deadline: Date.now() + 70000 },
+      leaseUntil: Date.now() + 60000,
+    },
+  });
+  await resumed;
+  expect(fixture.play).toHaveBeenCalledTimes(2);
+});
+
+it.each(["pause", "stop", "source", "revoke", "refuse"] as const)(
+  "does not resume a native-paused player after a pending lease and %s",
+  async (change) => {
+    const lease = Promise.withResolvers<unknown>();
+    const fixture = setup({ lease: lease.promise });
+    const native = nativeSignals(fixture.video);
+    document.body.append(fixture.video);
+    const started = fixture.event("playing");
+    page.main();
+    await started;
+    Object.defineProperty(fixture.video, "paused", {
+      configurable: true,
+      value: true,
+    });
+    const paused = fixture.event("paused");
+    native("pause");
+    await paused;
+    Object.defineProperty(fixture.video, "paused", {
+      configurable: true,
+      value: false,
+    });
+    native("play");
+    expect(
+      fixture.sendMessage.mock.calls.some(
+        ([m]) => m.type === "PLAYBACK_PLAYER_LEASE",
+      ),
+    ).toBe(true);
+    if (change === "pause" || change === "stop")
+      await fixture.control(change).done;
+    else if (change === "source")
+      fixture.video.src = "https://kucom.korea.ac.kr/replaced.webm";
+    else if (change === "revoke")
+      fixture.listeners[0]?.(
+        { version: 1, type: "PLAYBACK_PLAYER_REVOKE" },
+        sender,
+        () => {},
+      );
+    lease.resolve(
+      change === "refuse"
+        ? { ok: false }
+        : {
+            ok: true,
+            authorization: {
+              binding: fixture.activeBinding,
+              leaseUntil: Date.now() + 45000,
+            },
+          },
+    );
+    const leaseCall = fixture.sendMessage.mock.calls.findIndex(
+      ([message]) => message.type === "PLAYBACK_PLAYER_LEASE",
+    );
+    await fixture.sendMessage.mock.results[leaseCall]?.value;
+    await Promise.resolve();
+    expect(fixture.play).toHaveBeenCalledOnce();
+  },
+);
 
 it("revokes owned playback only for an exact background revocation", async () => {
   const fixture = setup();

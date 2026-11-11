@@ -415,7 +415,6 @@ export function createChromePlaybackRuntime(): PlaybackRuntime {
 async function playerAddress(
   sender: chrome.runtime.MessageSender,
   runtime: PlaybackRuntime,
-  allowInactive = false,
 ): Promise<PlayerAddress | null> {
   if (
     sender.id !== chrome.runtime.id ||
@@ -436,7 +435,7 @@ async function playerAddress(
     sender.tab.url,
     sender.tab.pendingUrl,
   ].find((url): url is string => typeof url === "string" && playerPage(url));
-  if (!topUrl || (!allowInactive && !tab.active)) return null;
+  if (!topUrl) return null;
   const item = runtime.dedicatedItem;
   if (!item) return null;
   if (
@@ -738,12 +737,7 @@ export default defineBackground(() => {
       ].includes(String(message.type))
     ) {
       void (async () => {
-        const inactiveSignal =
-          message.type === "PLAYBACK_PLAYER_EVENT" &&
-          ["paused", "blocked-login", "blocked-autoplay", "failed"].includes(
-            String(message.state),
-          );
-        const address = await playerAddress(sender, playback, inactiveSignal);
+        const address = await playerAddress(sender, playback);
         if (!address) return { ok: false };
         if (
           message.type === "PLAYBACK_PLAYER_HELLO" &&
@@ -796,7 +790,6 @@ export default defineBackground(() => {
     return true;
   });
   if (__UNIDOCK_PLAYBACK__ && playback) {
-    const activationVersions = new Map<number, number>();
     // Recreate alarms on every worker boot as well as browser startup: Chrome does not guarantee persistence.
     const recover = () => {
       void playback.startup().then(notifyPlayback);
@@ -811,30 +804,6 @@ export default defineBackground(() => {
       void Promise.all([playback.sourceLost(tabId), playback.lost(tabId)]).then(
         notifyPlayback,
       );
-    });
-    chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
-      const version = (activationVersions.get(windowId) ?? 0) + 1;
-      activationVersions.set(windowId, version);
-      const dedicatedTabId = playback.dedicatedTabId;
-      if (dedicatedTabId === null || tabId === dedicatedTabId) return;
-      void (async () => {
-        let dedicatedTab: chrome.tabs.Tab;
-        try {
-          dedicatedTab = await chrome.tabs.get(dedicatedTabId);
-        } catch {
-          return;
-        }
-        if (
-          activationVersions.get(windowId) !== version ||
-          playback.dedicatedTabId !== dedicatedTabId ||
-          dedicatedTab.id !== dedicatedTabId ||
-          dedicatedTab.windowId !== windowId ||
-          dedicatedTab.active !== false
-        )
-          return;
-        await playback.command({ version: 1, type: "PLAYBACK_PAUSE" });
-        notifyPlayback();
-      })();
     });
     chrome.tabs.onUpdated.addListener((tabId, change) => {
       if (change.status === "loading")

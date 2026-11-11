@@ -20,7 +20,7 @@ export function observeKuResume(
   const check = () => {
     if (!active) return;
     if (handled && !visible(handled)) handled = null;
-    if (document.visibilityState === "hidden" || !authorized()) return;
+    if (!authorized()) return;
     const boxes = Array.from(
       document.querySelectorAll<HTMLElement>(".confirm-msg-box"),
     ).filter(visible);

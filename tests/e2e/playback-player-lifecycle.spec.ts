@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { nativeVisibilityTest } from "./native-visibility";
 
 async function installPlaybackPlayer(page: Page) {
   const source = await readFile(path.resolve("src/playback/player.ts"), "utf8");
@@ -129,6 +130,54 @@ test("native play is physically rejected after an adapter pause", async ({
   expect(evidence.elapsed).toBeLessThan(0.05);
 });
 
+nativeVisibilityTest("authorized native media survives a real hidden-tab transition", async ({
+  context,
+  page,
+}) => {
+  await page.goto("about:blank");
+  await page.setContent("<video muted playsinline></video>");
+  await installPlaybackPlayer(page);
+  await page.evaluate(async () => {
+    const video = document.querySelector("video");
+    if (!video) throw new Error("missing video");
+    const canvas = document.createElement("canvas");
+    const paint = canvas.getContext("2d");
+    if (!paint) throw new Error("missing canvas context");
+    (window as any).paint = setInterval(() => paint.fillRect(0, 0, 64, 48), 40);
+    const metadata = new Promise<void>((resolve) =>
+      video.addEventListener("loadedmetadata", () => resolve(), { once: true }),
+    );
+    video.srcObject = canvas.captureStream(24);
+    await metadata;
+    (window as any).states = [];
+    (window as any).player = new (window as any).PlaybackPlayer(video, {
+      onStateChange: ({ state }: { state: string }) =>
+        (window as any).states.push(state),
+    });
+    await (window as any).player.start();
+  });
+  const keeper = await context.newPage();
+  await keeper.bringToFront();
+  await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
+  const before = await page
+    .locator("video")
+    .evaluate((video: HTMLVideoElement) => video.currentTime);
+  await expect
+    .poll(() =>
+      page
+        .locator("video")
+        .evaluate((video: HTMLVideoElement) => video.currentTime),
+    )
+    .toBeGreaterThan(before + 0.25);
+  expect(
+    await page.evaluate(() => ({
+      paused: document.querySelector("video")?.paused,
+      states: (window as any).states,
+    })),
+  ).toEqual({ paused: false, states: ["starting", "playing"] });
+  await keeper.close();
+});
+
 test("revocation stops native media recovered after a player failure", async ({
   page,
 }, testInfo) => {
@@ -212,7 +261,7 @@ test("revocation stops native media recovered after a player failure", async ({
   });
 });
 
-test("finite native media keeps completion proof across only an unchanged pause", async ({
+test("finite native media keeps measured completion across native pause and play", async ({
   page,
 }) => {
   test.setTimeout(30_000);
@@ -270,6 +319,7 @@ test("finite native media keeps completion proof across only an unchanged pause"
       const states: string[] = [];
       const player = new (window as any).PlaybackPlayer(video, {
         onStateChange: ({ state }: { state: string }) => states.push(state),
+        onNativeResume: () => void player.resume(),
       });
       let paused = false;
       const completed = new Promise<void>((resolve) => {
@@ -282,10 +332,10 @@ test("finite native media keeps completion proof across only an unchanged pause"
           )
             return;
           paused = true;
-          player.pause();
+          video.pause();
           if (seekWhilePaused) video.currentTime -= 0.1;
           setTimeout(() => {
-            const resumed = player.resume();
+            const resumed = video.play();
             if (!seekWhilePaused) {
               // Block immediately after native play starts. The adapter must
               // accept a later `playing` baseline at its naturally advanced

@@ -1084,7 +1084,7 @@ it("clears the opt-in, then returns its grant, before answering local-data delet
 function activationListenerFixture(
   get: (tabId: number) => Promise<chrome.tabs.Tab>,
 ) {
-  let activated!: (activeInfo: { tabId: number; windowId: number }) => void;
+  const activated: Array<(activeInfo: { tabId: number; windowId: number }) => void> = [];
   let dedicatedTabId: number | null = 9;
   vi.spyOn(PlaybackRuntime.prototype, "startup").mockReturnValue(
     new Promise(() => {}),
@@ -1124,8 +1124,8 @@ function activationListenerFixture(
       get: vi.fn(get),
       onRemoved: { addListener: vi.fn() },
       onActivated: {
-        addListener: (listener: typeof activated) => {
-          activated = listener;
+        addListener: (listener: (activeInfo: { tabId: number; windowId: number }) => void) => {
+          activated.push(listener);
         },
       },
       onUpdated: { addListener: vi.fn() },
@@ -1141,7 +1141,7 @@ function activationListenerFixture(
   command.mockClear();
   return {
     activate(tabId: number, windowId: number) {
-      activated({ tabId, windowId });
+      for (const listener of activated) listener({ tabId, windowId });
     },
     command,
     replaceDedicated(tabId: number | null) {
@@ -1150,7 +1150,7 @@ function activationListenerFixture(
   };
 }
 
-it("pauses only when another tab makes the dedicated tab inactive in its own window", async () => {
+it("keeps playback running when another tab makes the dedicated tab inactive", async () => {
   let active = true;
   const get = vi.fn(
     async () => ({ id: 9, windowId: 3, active }) as chrome.tabs.Tab,
@@ -1158,23 +1158,20 @@ it("pauses only when another tab makes the dedicated tab inactive in its own win
   const fixture = activationListenerFixture(get);
 
   fixture.activate(20, 4);
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  await Promise.resolve();
   await Promise.resolve();
   expect(fixture.command).not.toHaveBeenCalled();
 
   fixture.activate(21, 3);
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+  await Promise.resolve();
   await Promise.resolve();
   expect(fixture.command).not.toHaveBeenCalled();
 
   active = false;
   fixture.activate(22, 3);
-  await vi.waitFor(() =>
-    expect(fixture.command).toHaveBeenCalledWith({
-      version: 1,
-      type: "PLAYBACK_PAUSE",
-    }),
-  );
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(fixture.command).not.toHaveBeenCalled();
 });
 
 it("ignores a dedicated-tab lookup failure", async () => {
@@ -1184,7 +1181,7 @@ it("ignores a dedicated-tab lookup failure", async () => {
   const fixture = activationListenerFixture(get);
 
   fixture.activate(20, 3);
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+  await Promise.resolve();
   await Promise.resolve();
   expect(fixture.command).not.toHaveBeenCalled();
 });

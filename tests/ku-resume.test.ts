@@ -67,7 +67,7 @@ it.each([
   expect(f.accepted).not.toHaveBeenCalled();
 });
 
-it("waits for a visible, unambiguous prompt and current authorization", async () => {
+it("waits for a rendered, unambiguous authorized prompt even in a hidden tab", async () => {
   const f = fixture();
   let authorized = false;
   cleanups.push(observeKuResume(document, () => authorized));
@@ -81,14 +81,8 @@ it("waits for a visible, unambiguous prompt and current authorization", async ()
     configurable: true,
     value: "hidden",
   });
-  document.body.removeChild(duplicate);
-  await Promise.resolve();
-  expect(f.accepted).not.toHaveBeenCalled();
-  Object.defineProperty(document, "visibilityState", {
-    configurable: true,
-    value: "visible",
-  });
   f.box.style.display = "none";
+  document.body.removeChild(duplicate);
   await Promise.resolve();
   expect(f.accepted).not.toHaveBeenCalled();
   f.box.style.display = "block";

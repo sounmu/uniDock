@@ -63,6 +63,7 @@ interface ActiveRun {
   tabId: number | null;
   address: PlayerAddress | null;
   transitioning: boolean;
+  nativePaused: boolean;
 }
 interface WatchdogArm {
   readonly name: string;
@@ -319,6 +320,7 @@ export class PlaybackRuntime {
       tabId: null,
       address: null,
       transitioning: false,
+      nativePaused: false,
     };
   }
   private async launch(
@@ -442,6 +444,7 @@ export class PlaybackRuntime {
     const intent = ["PLAYBACK_START", "PLAYBACK_RESUME"].includes(command.type);
     if (intent) this.intentGeneration++;
     if (urgent || intent) this.epoch++;
+    if (urgent && this.run) this.run.nativePaused = false;
     if (urgent) this.resolutions.clear();
     const context = this.context(intent ? this.intentGeneration : null);
     if (urgent || intent) this.pendingSource = null;
@@ -767,7 +770,8 @@ export class PlaybackRuntime {
   ): Promise<boolean> {
     let context = this.context();
     await this.ensureInitialized();
-    if (!this.matches(address, binding)) return false;
+    const run = this.run;
+    if (!run || !this.matches(address, binding)) return false;
     if (state === "paused") {
       // Authentication must happen first, but invalidation must happen before
       // the state lane: a lease may currently be awaiting discovery outside
@@ -811,6 +815,7 @@ export class PlaybackRuntime {
             this.assertCurrent(context);
             await this.persist();
           } else if (state === "paused") {
+            run.nativePaused = !this.saved.stopped;
             this.saved.stopped = true;
             this.status = "paused";
             await this.disarmWatchdog();
@@ -840,7 +845,11 @@ export class PlaybackRuntime {
     const context = this.context();
     await this.ensureInitialized();
     const run = this.run;
-    if (!run || !this.matches(address, binding) || this.saved.stopped)
+    if (
+      !run ||
+      !this.matches(address, binding) ||
+      (this.saved.stopped && !run.nativePaused)
+    )
       return null;
     try {
       // Every lease is based on a current in-flight/fresh discovery, never a cached result.
@@ -854,7 +863,7 @@ export class PlaybackRuntime {
           !this.current(context) ||
           this.run !== run ||
           !this.matches(address, binding) ||
-          this.saved.stopped
+          (this.saved.stopped && !run.nativePaused)
         )
           return null;
         await this.armWatchdog(run);
@@ -862,9 +871,21 @@ export class PlaybackRuntime {
           !this.current(context) ||
           this.run !== run ||
           !this.matches(address, binding) ||
-          this.saved.stopped
+          (this.saved.stopped && !run.nativePaused)
         )
           return null;
+        if (run.nativePaused) {
+          run.nativePaused = false;
+          this.saved.stopped = false;
+          await this.persist();
+          if (
+            !this.current(context) ||
+            this.run !== run ||
+            !this.matches(address, binding) ||
+            this.saved.stopped
+          )
+            return null;
+        }
         return this.authorization(run);
       });
     } catch (error) {

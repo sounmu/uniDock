@@ -130,7 +130,7 @@ body {
    root scroll-padding reserve the same space so nothing hides under it. */
 main {
   min-width: 0;
-  padding: var(--space-3) var(--space-3) var(--tabbar-space);
+  padding: var(--space-3) var(--space-4) var(--tabbar-space);
 }
 button,
 input,
@@ -203,9 +203,7 @@ p {
 .view-settings,
 .settings-card,
 .about-app,
-.playback-current,
-.playback-queue > li,
-.playback-selection > li,
+.playback-playlist,
 .detail-view dl {
   background: var(--glass);
   border: 1px solid var(--glass-brd);
@@ -250,7 +248,7 @@ p {
   background: var(--raised);
 }
 .btn-ghost:hover:not(:disabled, [aria-disabled="true"]) {
-  background: var(--brand-wash);
+  background: var(--neutral-wash);
 }
 .list-row:hover:not(:disabled),
 .selectable-row:hover,
@@ -261,41 +259,40 @@ p {
   opacity: 0.9;
 }
 .playback-choice {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: var(--icon-size) minmax(0, 1fr) var(--space-5);
+  align-items: center;
   gap: var(--space-2);
   min-height: 44px;
-  padding: var(--space-2) 0;
+  padding: var(--space-2);
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .playback-choice input {
-  margin-top: 2px;
+  margin: 0;
 }
-.playback-choice > span:last-child {
-  display: grid;
+.playback-choice strong {
   min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
-.playback-choice small,
+.playback-choice:has(input:checked),
+.playback-choice:hover:not(:has(input:disabled)) {
+  background: var(--neutral-wash);
+}
+.playback-choice:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
 .field small {
   color: var(--muted);
 }
 .playback-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 24px;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--r-full);
-  background: var(--brand-wash);
-  color: var(--brand);
+  text-align: right;
+  color: var(--muted);
   font-size: var(--fs-xs);
-  font-weight: 700;
-}
-.playback-choice input:not(:checked) + .playback-order {
-  background: var(--neutral-wash);
-  color: transparent;
+  font-variant-numeric: tabular-nums;
 }
 .header-actions {
   display: flex;
@@ -311,51 +308,164 @@ p {
   min-height: var(--control-h-lg);
   white-space: nowrap;
 }
-.playback-selection,
-.playback-queue {
+.playback-selection {
   list-style: none;
-  margin: var(--space-3) 0;
+  margin: 0;
   padding: 0;
 }
 .playback-selection > li {
-  padding: 0 var(--space-3);
+  margin: 0;
 }
 .playback-selection > li > p {
-  margin-top: 0;
+  margin: 0 var(--space-2) var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.detail-view:has(.playback-picker) > dl:empty {
+  display: none;
+}
+.playback-picker {
+  padding-bottom: calc(var(--control-h-lg) + var(--space-5));
+}
+.playback-course-select {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.playback-course-select .select-field {
+  flex: 1;
+  min-width: 0;
+}
+.playback-search {
+  appearance: none;
+  width: 100%;
+  margin-bottom: var(--space-4);
+}
+.playback-search::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.playback-selection-group + .playback-selection-group {
+  margin-top: var(--space-5);
+}
+.playback-selection-group h3 {
+  margin: 0 var(--space-2) var(--space-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--muted);
 }
-.playback-queue > li,
-.playback-current {
+.playback-selection-help {
+  margin-top: var(--space-4);
+  font-size: var(--fs-xs);
+}
+.playback-selection-actions {
+  position: fixed;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: calc(var(--tabbar-h) + var(--tabbar-gap) + var(--space-3) + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  min-height: var(--row-h);
-  padding: var(--row-pad-y) var(--space-3);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--glass-brd);
+  border-radius: var(--r-lg);
+  background: var(--glass-strong);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
 }
-.playback-queue > li > div,
-.playback-current > div {
+.playback-selection-actions > div {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.playback-selection-actions small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.playback-selection-actions > button {
+  flex-shrink: 0;
+}
+.playback-playlist {
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+}
+.playback-playlist-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+.playback-playlist-heading h3 {
+  margin: 0;
+}
+.playback-playlist-heading > span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.playback-playlist > .hint {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+}
+.playback-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-1);
+}
+.playback-queue > li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-h);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+}
+.playback-queue > .playback-current {
+  background: var(--neutral-wash);
+}
+.playback-position {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--icon-size);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.playback-position .icon {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+.playback-queue > li > div {
   display: grid;
   min-width: 0;
   flex: 1;
   overflow-wrap: anywhere;
 }
-.playback-queue strong,
-.playback-current strong {
-  font-size: var(--fs-md);
+.playback-queue strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--fs-sm);
   font-weight: 500;
   line-height: var(--lh-tight);
 }
-.playback-queue small,
-.playback-current small {
+.playback-queue small {
   color: var(--muted);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
 }
 /* Floating bottom tab bar: a glass capsule with five equal columns. Only this
    bar and sticky toolbars blur what scrolls beneath them. */
 .rail {
   position: fixed;
-  left: var(--tabbar-gap);
-  right: var(--tabbar-gap);
+  left: var(--space-4);
+  right: var(--space-4);
   bottom: calc(var(--tabbar-gap) + env(safe-area-inset-bottom, 0px));
   z-index: 20;
   border-radius: var(--r-full);
@@ -538,8 +648,8 @@ p {
   position: sticky;
   top: 0;
   z-index: 1;
-  margin-inline: calc(-1 * var(--space-3));
-  padding: var(--space-2) var(--space-3);
+  margin-inline: calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4);
   background: color-mix(in srgb, var(--page) 82%, transparent);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
@@ -626,9 +736,6 @@ main:has(.detail-view) > div > .view-settings {
 .assignment-refresh .icon {
   width: 18px;
   height: 18px;
-}
-.assignment-refresh.is-loading {
-  color: var(--brand);
 }
 .assignment-refresh.is-error {
   color: var(--danger);
@@ -981,7 +1088,8 @@ dd {
   margin: var(--space-2) 0;
 }
 .field input,
-.field select {
+.field select,
+.playback-search {
   width: 100%;
   min-width: 0;
   height: var(--control-h);
@@ -1135,9 +1243,7 @@ input[type="checkbox"] {
   height: 16px;
 }
 .row-action:hover:not(:disabled) {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: var(--on-brand);
+  background: var(--neutral-wash);
 }
 .row-action:disabled {
   background: transparent;
@@ -1220,6 +1326,9 @@ progress {
   font-size: var(--fs-sm);
 }
 .settings-row + .settings-row {
+  border-top: 1px solid var(--line);
+}
+.playback-guidance > .settings-row {
   border-top: 1px solid var(--line);
 }
 .row-text {
@@ -1644,7 +1753,7 @@ progress {
   color: var(--muted);
 }
 .settings-link:hover {
-  background: var(--brand-wash);
+  background: var(--neutral-wash);
 }
 .settings-link:focus-visible {
   outline-offset: calc(-1 * var(--focus-width));

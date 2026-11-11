@@ -177,6 +177,86 @@ it("releases a lost player tab so its ownership record is dropped", async () => 
   expect(f.saved?.stopped).toBe(true);
   expect(f.saved?.playlist).toHaveLength(2);
 });
+
+it("renews a native-paused run and advances after its resumed measured end", async () => {
+  const f = fixture();
+  const binding = await playing(f);
+  await f.runtime.signal(address, binding, "paused");
+  expect(f.saved?.stopped).toBe(true);
+  expect(f.alarms.size).toBe(0);
+  await f.runtime.signal(address, binding, "playing");
+  expect(f.saved?.stopped).toBe(true);
+  f.now = binding.deadline + 60000;
+  const discover = vi.spyOn(f.ports, "discover");
+  const authorization = await f.runtime.lease(address, binding);
+  expect(authorization).not.toBeNull();
+  expect(discover).toHaveBeenCalledOnce();
+  if (!authorization) throw new Error("native resume was not authorized");
+  expect(authorization.binding.deadline).toBe(f.ports.now() + 70000);
+  await f.runtime.signal(address, authorization.binding, "playing");
+  expect(
+    snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }))
+      .status,
+  ).toBe("playing");
+  await f.runtime.signal(address, authorization.binding, "ended");
+  expect(f.opened).toHaveLength(2);
+  expect(f.saved?.playlist.map((item) => item.id)).toEqual(["101:502"]);
+});
+
+it.each(["PLAYBACK_PAUSE", "PLAYBACK_STOP_ALL"] as const)(
+  "rejects native resume authorization after explicit %s",
+  async (type) => {
+    const f = fixture();
+    const binding = await playing(f);
+    await f.runtime.signal(address, binding, "paused");
+    await f.runtime.command({ version: 1, type });
+    expect(await f.runtime.lease(address, binding)).toBeNull();
+    await f.runtime.signal(address, binding, "playing");
+    expect(f.saved?.stopped).toBe(true);
+    expect(f.opened).toHaveLength(1);
+  },
+);
+
+it.each(["pause", "stop", "replacement", "expired-session"] as const)(
+  "rejects a pending native-resume lease after %s",
+  async (change) => {
+    const f = fixture();
+    const binding = await playing(f);
+    await f.runtime.signal(address, binding, "paused");
+    const discoveryRequest = deferred<PlaybackDiscovery>();
+    const entered = deferred<void>();
+    vi.spyOn(f.ports, "discover").mockImplementationOnce(() => {
+      entered.resolve();
+      return discoveryRequest.promise;
+    });
+    const lease = f.runtime.lease(address, binding);
+    await entered.promise;
+    if (change === "pause")
+      await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    else if (change === "stop")
+      await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    else if (change === "replacement")
+      await f.runtime.sourceLost(address.tabId);
+    if (change === "expired-session")
+      discoveryRequest.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
+    else discoveryRequest.resolve(discovery);
+    expect(await lease).toBeNull();
+    expect(f.saved?.stopped).toBe(true);
+    expect(f.opened).toHaveLength(1);
+  },
+);
+
+it("does not restore native-resume authority after a worker restart", async () => {
+  const f = fixture();
+  const binding = await playing(f);
+  await f.runtime.signal(address, binding, "paused");
+  const restarted = new PlaybackRuntime(f.ports);
+  expect(snapshot(await restarted.startup()).status).toBe("paused");
+  expect(await restarted.lease(address, binding)).toBeNull();
+  expect(await restarted.signal(address, binding, "playing")).toBe(false);
+  expect(f.saved?.stopped).toBe(true);
+  expect(f.opened).toHaveLength(1);
+});
 it("keeps current playback authorized when the consumed listing tab closes", async () => {
   const f = fixture();
   const binding = await playing(f);

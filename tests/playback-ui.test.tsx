@@ -367,10 +367,10 @@ it("shows only immediate playlist controls without scheduling settings or blocke
   expect(ui.host.querySelector('input[type="datetime-local"]')).toBeNull();
   const actions = [...ui.host.querySelectorAll(".header-actions button")];
   expect(
-    actions.map((button) => [button.textContent, button.className]),
+    actions.map((button) => [button.getAttribute("aria-label") ?? button.textContent, button.className]),
   ).toEqual([
     ["영상 선택", "btn-primary"],
-    ["새로고침", "btn-primary"],
+    ["새로고침", "btn-secondary assignment-refresh"],
   ]);
   await click("영상 선택");
   expect(ui.host.textContent).toContain("체크한 순서대로 바로 재생합니다");
@@ -547,13 +547,13 @@ it("renders current and next videos and keeps refresh styled like other screens"
   expect(ui.host.textContent).toContain("운영체제 1강");
   expect(ui.host.textContent).toContain("운영체제 2강");
   const actions = [...ui.host.querySelectorAll(".header-actions button")];
-  expect(actions.map((button) => button.textContent)).toEqual([
+  expect(actions.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
     "자동 재생 끄기",
     "새로고침",
   ]);
   expect(actions.map((button) => button.className)).toEqual([
     "btn-secondary",
-    "btn-primary",
+    "btn-secondary assignment-refresh",
   ]);
   await click("새로고침");
   await click("자동 재생 끄기");

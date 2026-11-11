@@ -18,11 +18,12 @@ export function AssignmentRefresh({
   readonly label?: string;
 }) {
   const pending = model.state.status === "loading";
+  const name = label ? `${label} 새로고침` : "새로고침";
   return (
     <button
       className={`btn-secondary assignment-refresh${pending ? " is-loading" : ""}${model.state.status === "error" ? " is-error" : ""}`}
-      aria-label={`${label} 새로고침`}
-      title={`${label} 새로고침`}
+      aria-label={name}
+      title={name}
       aria-busy={pending}
       {...softDisabled(pending || !model.isQueryValid ||
         (model.view === "DOCUMENTS_LIST" && model.downloads.progress.running), () => {
