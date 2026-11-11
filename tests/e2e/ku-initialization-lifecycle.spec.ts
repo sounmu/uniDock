@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { nativeVisibilityTest } from "./native-visibility";
 
 async function installInitializer(page: Page) {
   const source = await readFile(
@@ -166,7 +167,6 @@ test.describe("KU initialization native lifecycle", () => {
   });
 
   test("cancellation pauses owned native media, including late/replacement playback", async ({
-    context,
     page,
   }, testInfo) => {
     test.setTimeout(45_000);
@@ -182,19 +182,7 @@ test.describe("KU initialization native lifecycle", () => {
         ),
       )
       .toBe(true);
-    const keeperPromise = context.waitForEvent("page");
-    await page.evaluate(() => window.open("about:blank", "_blank"));
-    const keeper = await keeperPromise;
-    await keeper.bringToFront();
-    // Headed Chromium supplies the real tab-hidden regression. Its headless
-    // shell intentionally keeps every page visible, so still exercise the
-    // identical synchronous cancellation path there via AbortSignal.
-    await page.waitForTimeout(250);
-    const hiddenObserved = await page.evaluate(() => document.hidden);
-    if (process.env.UNIDOCK_REQUIRE_TAB_HIDDEN === "true")
-      expect(hiddenObserved).toBe(true);
-    if (!hiddenObserved)
-      await page.evaluate(() => (window as any).controller.abort());
+    await page.evaluate(() => (window as any).controller.abort());
     await expect
       .poll(() =>
         page.evaluate(() => ({
@@ -227,11 +215,11 @@ test.describe("KU initialization native lifecycle", () => {
       const playing = events.find((event) => event.name === "initial-playing");
       const pause = events.find((event) => event.name === "initial-pause");
       return {
-        hiddenObserved: document.hidden,
+        hidden: document.hidden,
         pauseMs: pause.at - playing.at,
       };
     });
-    await testInfo.attach("native-hidden-pause.json", {
+    await testInfo.attach("native-abort-pause.json", {
       body: Buffer.from(JSON.stringify(hiddenEvidence)),
       contentType: "application/json",
     });
@@ -278,6 +266,29 @@ test.describe("KU initialization native lifecycle", () => {
         ),
       )
       .toBe(true);
+  });
+
+  nativeVisibilityTest("authorized KU initialization survives a real hidden-tab transition", async ({
+    context,
+    page,
+  }) => {
+    await fixture(page, "replace");
+    const keeper = await context.newPage();
+    await page.bringToFront();
+    await start(page);
+    await keeper.bringToFront();
+    // The fixture leaves native visibility intact, including in headless CI.
+    await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).result))
+      .toEqual({
+        state: "ready",
+        rate: 1,
+        defaultRate: 1,
+        handedOff: true,
+        paused: false,
+      });
+    await keeper.close();
   });
 
   test("visible timeout pauses long media and happy replacement hands off at 1x", async ({

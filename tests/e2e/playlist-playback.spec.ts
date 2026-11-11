@@ -1009,7 +1009,7 @@ test("production extension plays a click-ordered playlist and explicitly recover
   const actions: string[] = [];
 
   function record(text: string) {
-    if (!text.startsWith("UNIDOCK_QA_")) return;
+    if (!text.startsWith("UNIDOCK_QA_") && !text.startsWith("[uniDock playback]")) return;
     actions.push(text);
   }
 
@@ -1243,10 +1243,10 @@ test("production extension plays a click-ordered playlist and explicitly recover
     const first = panel.getByRole("checkbox", { name: "첫 번째 합성 영상" });
     await second.check();
     await first.check();
-    await expect(second.locator("xpath=following-sibling::*[1]")).toHaveText(
+    await expect(second.locator("..").locator(".playback-order")).toHaveText(
       "1",
     );
-    await expect(first.locator("xpath=following-sibling::*[1]")).toHaveText(
+    await expect(first.locator("..").locator(".playback-order")).toHaveText(
       "2",
     );
 
@@ -1263,6 +1263,19 @@ test("production extension plays a click-ordered playlist and explicitly recover
     await expect(panel.locator(".playback-queue")).toContainText(
       "첫 번째 합성 영상",
     );
+    for (const colorScheme of ["light", "dark"] as const) {
+      await panel.emulateMedia({ colorScheme });
+      for (const width of [320, 390, 1440]) {
+        await panel.setViewportSize({ width, height: 800 });
+        expect(await panel.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await panel.screenshot({
+          path: testInfo.outputPath(`playlist-${colorScheme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+    await panel.emulateMedia({ colorScheme: "light" });
+    await panel.setViewportSize({ width: 375, height: 760 });
     const secondPage = context
       .pages()
       .find((page) => /\/courses\/101\/modules\/items\/502$/.test(page.url()));
@@ -1585,9 +1598,7 @@ test("production extension plays a click-ordered playlist and explicitly recover
       crossWindow.createdWindowId,
     );
 
-    // Switching away is a real inactive-tab pause acknowledgement. Leave the
-    // production content heartbeat window elapsed, then explicitly resume the
-    // same native adapter with a fresh background authorization.
+    // A real tab switch must preserve playback and actual measured progress.
     expect(
       await worker.evaluate(async (tabUrl) => {
         const tabs = await chrome.tabs.query({});
@@ -1595,7 +1606,7 @@ test("production extension plays a click-ordered playlist and explicitly recover
       }, secondPage!.url()),
     ).toBe(true);
     await panel.bringToFront();
-    await expect(panel.locator(".playback-panel h1")).toContainText("일시정지");
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
     expect(
       await worker.evaluate(async (tabUrl) => {
         const tabs = await chrome.tabs.query({});
@@ -1609,21 +1620,13 @@ test("production extension plays a click-ordered playlist and explicitly recover
           .locator("video#lecture")
           .evaluate((video: HTMLVideoElement) => video.paused),
       )
-      .toBe(true);
-    const pausedAt = await secondPage!
+      .toBe(false);
+    const hiddenAt = await secondPage!
       .frameLocator('iframe[src*="kucom.korea.ac.kr"]')
       .locator("video#lecture")
       .evaluate((video: HTMLVideoElement) => video.currentTime);
-    await secondPage!.waitForTimeout(21000);
-    expect(context.pages()).toContain(secondPage);
-    await panel.getByRole("button", { name: "자동 재생 재개" }).click();
-    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
-    expect(
-      await worker.evaluate(async (tabUrl) => {
-        const tabs = await chrome.tabs.query({});
-        return tabs.find((tab) => tab.url === tabUrl)?.active;
-      }, secondPage!.url()),
-    ).toBe(true);
+    if (process.env.UNIDOCK_REQUIRE_TAB_HIDDEN === "true")
+      expect(await secondPage!.evaluate(() => document.hidden)).toBe(true);
     await expect
       .poll(() =>
         secondPage!
@@ -1632,7 +1635,7 @@ test("production extension plays a click-ordered playlist and explicitly recover
           .evaluate(
             (video: HTMLVideoElement, before) =>
               !video.paused && video.currentTime > before,
-            pausedAt,
+            hiddenAt,
           ),
       )
       .toBe(true);
@@ -1701,13 +1704,46 @@ test("production extension plays a click-ordered playlist and explicitly recover
     await replayPage!
       .getByRole("button", { name: "Enable leave confirmation" })
       .click();
-    const nextOpened = context.waitForEvent("page");
+    // Operate Chromium's native controls with keyboard gestures. No extension
+    // resume command or page-owned LMS method supplies the state transition.
+    await replayVideo.evaluate((video: HTMLVideoElement) => {
+      video.controls = true;
+      video.tabIndex = 0;
+      video.style.width = "240px";
+      video.dataset.nativeResumeIdentity = "same-lecture";
+    });
+    await replayVideo.press("Space");
+    await expect(panel.locator(".playback-panel h1")).toContainText("일시정지");
+    const identitiesBeforeNativeResume = identityRequests;
+    await replayVideo.press("Space");
+    await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
+    expect(identityRequests).toBeGreaterThan(identitiesBeforeNativeResume);
+    await expect(replayVideo).toHaveAttribute(
+      "data-native-resume-identity",
+      "same-lecture",
+    );
+    await expect
+      .poll(() =>
+        replayVideo.evaluate((video: HTMLVideoElement) => video.paused),
+      )
+      .toBe(false);
+    await panel.bringToFront();
     // Let the native media run to completion: no seeking or synthetic ended.
+    const [nextPage] = await Promise.all([
+      context.waitForEvent("page", { timeout: 35000 }),
+      expect.poll(() => replayVideo.evaluate((video: HTMLVideoElement) => ({
+        ended: video.ended,
+        paused: video.paused,
+        position: video.currentTime,
+        duration: video.duration,
+        readyState: video.readyState,
+        error: video.error?.code ?? null,
+      })), { timeout: 30000 }).toMatchObject({ ended: true }),
+    ]);
     await expect(panel.locator(".playback-current")).toContainText(
       "첫 번째 합성 영상",
       { timeout: 30_000 },
     );
-    const nextPage = await nextOpened;
     expect(nextPage).not.toBe(replayPage);
     await expect(nextPage).toHaveURL(`${origin}/courses/101/modules/items/501`);
     expect(replayPage!.isClosed()).toBe(false);

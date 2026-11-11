@@ -25,7 +25,6 @@ export function initializeKuLecture(
       return false;
     }
   };
-  const isHidden = () => document.visibilityState === "hidden";
   const isUniqueCurrentPrimary = (video: HTMLVideoElement) => {
     const candidates = Array.from(
       document.querySelectorAll<HTMLVideoElement>(
@@ -38,7 +37,7 @@ export function initializeKuLecture(
     );
     return candidates.length === 1 && candidates[0] === video;
   };
-  if (signal?.aborted || isHidden() || !isAuthorized())
+  if (signal?.aborted || !isAuthorized())
     return Promise.reject(new Error("PLAYER_LOST"));
   if (
     !button ||
@@ -50,10 +49,7 @@ export function initializeKuLecture(
       video: initial,
       handoff: () => {
         const valid =
-          !signal?.aborted &&
-          !isHidden() &&
-          isAuthorized() &&
-          isUniqueCurrentPrimary(initial);
+          !signal?.aborted && isAuthorized() && isUniqueCurrentPrimary(initial);
         if (!valid) initial.pause();
         return valid;
       },
@@ -99,7 +95,6 @@ export function initializeKuLecture(
     const cleanupAllGuards = () => {
       observer.disconnect();
       for (const video of [...owned]) release(video);
-      document.removeEventListener("visibilitychange", guardVisibility);
       signal?.removeEventListener("abort", cancel);
     };
     function cancel() {
@@ -116,7 +111,7 @@ export function initializeKuLecture(
       const video = event.currentTarget;
       if (!(video instanceof HTMLVideoElement)) return;
       if (!owned.has(video)) return;
-      if (signal?.aborted || !isAuthorized() || isHidden()) {
+      if (signal?.aborted || !isAuthorized()) {
         cancel();
         pause(video);
       } else if (
@@ -131,9 +126,6 @@ export function initializeKuLecture(
       if (video instanceof HTMLVideoElement && owned.has(video))
         normalize(video);
     }
-    function guardVisibility() {
-      if (isHidden()) cancel();
-    }
     const observer = new MutationObserver(() => {
       trackPrimaries();
       for (const video of owned) {
@@ -145,7 +137,6 @@ export function initializeKuLecture(
       childList: true,
       subtree: true,
     });
-    document.addEventListener("visibilitychange", guardVisibility);
     track(initial);
     function handoff(): boolean {
       trackPrimaries();
@@ -153,7 +144,6 @@ export function initializeKuLecture(
         state !== "ready" ||
         !selected ||
         signal?.aborted ||
-        isHidden() ||
         !isAuthorized() ||
         !isUniqueCurrentPrimary(selected)
       ) {
@@ -163,7 +153,6 @@ export function initializeKuLecture(
       state = "handed-off";
       cleanupReadiness();
       observer.disconnect();
-      document.removeEventListener("visibilitychange", guardVisibility);
       signal?.removeEventListener("abort", cancel);
       release(selected);
       for (const video of owned) pause(video);
@@ -172,12 +161,7 @@ export function initializeKuLecture(
     }
     function check() {
       if (state !== "active") return;
-      if (
-        signal?.aborted ||
-        isHidden() ||
-        !isAuthorized() ||
-        performance.now() >= deadline
-      ) {
+      if (signal?.aborted || !isAuthorized() || performance.now() >= deadline) {
         cancel();
         return;
       }
@@ -196,7 +180,7 @@ export function initializeKuLecture(
           video.srcObject === stream)
       )
         return;
-      if (signal?.aborted || isHidden() || !isAuthorized()) {
+      if (signal?.aborted || !isAuthorized()) {
         cancel();
         return;
       }
@@ -211,7 +195,7 @@ export function initializeKuLecture(
     signal?.addEventListener("abort", cancel, { once: true });
     try {
       normalize(initial);
-      if (signal?.aborted || isHidden() || !isAuthorized()) {
+      if (signal?.aborted || !isAuthorized()) {
         cancel();
         return;
       }

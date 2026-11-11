@@ -6,6 +6,20 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.useRealTimers();
+  Reflect.deleteProperty(document, "visibilityState");
+});
+it("initializes and hands off authorized media across a hidden document transition", async () => {
+  const f = fixture();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "hidden",
+  });
+  const result = initializeKuLecture(f.video, () => true);
+  document.dispatchEvent(new Event("visibilitychange"));
+  f.load();
+  const ready = await result;
+  expect(ready.handoff()).toBe(true);
+  expect(f.pause).not.toHaveBeenCalled();
 });
 function fixture() {
   document.body.innerHTML =

@@ -44,6 +44,7 @@ export default defineContentScript({
     let dormant = false;
     let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let initialization: AbortController | null = null;
+    let resumingNative = false;
     const discoveryUntil = Date.now() + 45000;
     type VideoIdentity = {
       video: HTMLVideoElement;
@@ -115,7 +116,6 @@ export default defineContentScript({
       document.removeEventListener("loadedmetadata", connect, true);
       window.removeEventListener("resize", connect);
       video?.removeEventListener("ratechange", normalSpeed);
-      document.removeEventListener("visibilitychange", visibleOnly);
       player?.invalidate();
     }
     function suspendAuthorization() {
@@ -134,18 +134,6 @@ export default defineContentScript({
       if (video && video.playbackRate !== 1) video.playbackRate = 1;
       if (video && video.defaultPlaybackRate !== 1)
         video.defaultPlaybackRate = 1;
-    }
-    function visibleOnly() {
-      if (document.visibilityState !== "hidden") return;
-      if (!player) {
-        if (connecting) void signal({ state: "failed", reason: "play" });
-        stop();
-        return;
-      }
-      if (player.status.state === "starting") {
-        void signal({ state: "failed", reason: "play" });
-        stop();
-      } else player.pause();
     }
     async function signal(status: PlaybackStatus) {
       if (
@@ -259,6 +247,38 @@ export default defineContentScript({
         leaseUntil: message.leaseUntil,
       });
     }
+    async function resumeNative() {
+      if (resumingNative || !binding || !video || !current() || !dormant)
+        return;
+      resumingNative = true;
+      const generation = authorizationGeneration;
+      const selected = identity(video);
+      try {
+        const result: unknown = await chrome.runtime.sendMessage({
+          version: 1,
+          type: "PLAYBACK_PLAYER_LEASE",
+          ...binding,
+        });
+        if (generation !== authorizationGeneration || closed) return;
+        if (
+          !current() ||
+          !stillSelected(selected) ||
+          !object(result) ||
+          result.ok !== true ||
+          !authorize(result.authorization)
+        ) {
+          void signal({ state: "failed", reason: "play" });
+          stop();
+          return;
+        }
+        const status = await player?.resume();
+        if (status?.state !== "playing") stop();
+      } catch {
+        if (generation === authorizationGeneration) stop();
+      } finally {
+        resumingNative = false;
+      }
+    }
     async function connect() {
       if (closed || connecting || player) return;
       const { videos, eligible, candidates } = candidateSelection();
@@ -311,12 +331,6 @@ export default defineContentScript({
           return;
         }
         if (kuPlayer) {
-          if (document.visibilityState === "hidden") {
-            diagnostic("DOCUMENT_HIDDEN");
-            void signal({ state: "blocked-autoplay" });
-            stop();
-            return;
-          }
           diagnostic("KU_INITIALIZING");
           initialization = new AbortController();
           const ready = await initializeKuLecture(
@@ -324,7 +338,6 @@ export default defineContentScript({
             () =>
               !closed &&
               location.href === originalUrl &&
-              document.visibilityState !== "hidden" &&
               !!binding &&
               binding.deadline > Date.now(),
             initialization.signal,
@@ -340,7 +353,7 @@ export default defineContentScript({
           player = new PlaybackPlayer(video, {
             onDiagnostic: diagnostic,
             isLoginPage: () => !playerPage(location.href),
-            isVisible: () => document.visibilityState !== "hidden",
+            onNativeResume: () => void resumeNative(),
             // KU plays these UI assets on the lecture's own primary element.
             // Keep observing across their end and the optional resume prompt.
             isCompletionMedia: () =>
@@ -371,7 +384,7 @@ export default defineContentScript({
         player ??= new PlaybackPlayer(video!, {
           onDiagnostic: diagnostic,
           isLoginPage: () => !playerPage(location.href),
-          isVisible: () => document.visibilityState !== "hidden",
+          onNativeResume: () => void resumeNative(),
           onStateChange: (status) => {
             diagnostic(
               `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
@@ -382,12 +395,6 @@ export default defineContentScript({
         });
         video!.addEventListener("ratechange", normalSpeed);
         normalSpeed();
-        if (document.visibilityState === "hidden") {
-          diagnostic("DOCUMENT_HIDDEN");
-          void signal({ state: "blocked-autoplay" });
-          stop();
-          return;
-        }
         await player.start();
         if (kuPlayer && current()) {
           stopResumeObserver = observeKuResume(
@@ -400,7 +407,6 @@ export default defineContentScript({
             (position) => player?.expectNativeResume(position),
           );
         }
-        visibleOnly();
       } catch {
         diagnostic("KU_INITIALIZATION_FAILED");
         void signal({ state: "failed", reason: "play" });
@@ -435,7 +441,6 @@ export default defineContentScript({
     discoveryTimer = setTimeout(probe, 500);
     window.addEventListener("resize", connect);
     window.addEventListener("pagehide", stop, { once: true });
-    document.addEventListener("visibilitychange", visibleOnly);
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
         if (!backgroundSender(sender) || !object(message)) return false;
@@ -459,6 +464,7 @@ export default defineContentScript({
           return false;
         switch (message.action) {
           case "pause":
+            suspendAuthorization();
             // The adapter only pauses a playing video. A start still pending must be terminally cancelled.
             if (player.status.state === "starting") {
               stop();
@@ -469,10 +475,6 @@ export default defineContentScript({
             }
             return false;
           case "resume":
-            if (document.visibilityState === "hidden") {
-              respond({ ok: false });
-              return false;
-            }
             if (!authorizeControl(message)) {
               respond({ ok: false });
               return false;

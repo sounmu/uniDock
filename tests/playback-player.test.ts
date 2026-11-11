@@ -9,6 +9,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.useRealTimers();
+  Reflect.deleteProperty(document, "visibilityState");
 });
 
 function fixture(
@@ -111,23 +112,25 @@ it("physically rejects trusted native play while paused until explicit resume", 
   expect(play).toHaveBeenCalledTimes(2);
 });
 
-it("physically rejects native play when the document is already hidden", async () => {
-  let visible = true;
-  const { video, pause, player } = fixture({ isVisible: () => visible });
+it("keeps authorized native playback running when the document becomes hidden", async () => {
+  const { video, pause, player } = fixture();
   const notify = nativeSignal(video, "play");
   await player.start();
   pause.mockClear();
 
-  visible = false;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "hidden",
+  });
   notify();
 
-  expect(pause).toHaveBeenCalledOnce();
-  expect(player.status).toEqual({ state: "paused" });
+  expect(pause).not.toHaveBeenCalled();
+  expect(player.status).toEqual({ state: "playing" });
+  Reflect.deleteProperty(document, "visibilityState");
 });
 
 it("does not let a late hidden play acceptance resurrect terminal failure", async () => {
-  let visible = true;
-  const { video, play, player } = fixture({ isVisible: () => visible });
+  const { video, play, player } = fixture();
   const rateChanged = nativeSignal(video, "ratechange");
   let acceptPlay!: () => void;
   play.mockImplementation(
@@ -142,32 +145,38 @@ it("does not let a late hidden play acceptance resurrect terminal failure", asyn
   rateChanged();
   expect(await starting).toEqual({ state: "failed", reason: "rate" });
 
-  visible = false;
   acceptPlay();
   await Promise.resolve();
   await Promise.resolve();
   expect(player.status).toEqual({ state: "failed", reason: "rate" });
 });
 
-it("only a trusted native ended event with ended=true completes playback, never credit", async () => {
-  const { video, player, pause } = fixture();
-  const notify = nativeSignals(video, ["ended", "playing", "timeupdate"]);
-  await player.start();
-  video.dispatchEvent(new Event("ended"));
-  expect(player.status.state).toBe("playing");
-  notify("ended");
-  expect(player.status.state).toBe("playing");
-  advanceMedia(video, notify);
-  Object.defineProperty(video, "ended", { configurable: true, value: true });
-  notify("ended");
-  expect(player.status).toEqual({ state: "ended" });
-  expect(await player.resume()).toEqual({ state: "ended" });
-  // A retained page can replace the ended lecture with another native asset.
-  Object.defineProperty(video, "ended", { configurable: true, value: false });
-  pause.mockClear();
-  expect(player.stop()).toEqual({ state: "stopped" });
-  expect(pause).toHaveBeenCalledOnce();
-});
+it.each(["visible", "hidden"])(
+  "only measured trusted native completion ends playback in a %s document, never credit",
+  async (visibility) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: visibility,
+    });
+    const { video, player, pause } = fixture();
+    const notify = nativeSignals(video, ["ended", "playing", "timeupdate"]);
+    await player.start();
+    video.dispatchEvent(new Event("ended"));
+    expect(player.status.state).toBe("playing");
+    notify("ended");
+    expect(player.status.state).toBe("playing");
+    advanceMedia(video, notify);
+    Object.defineProperty(video, "ended", { configurable: true, value: true });
+    notify("ended");
+    expect(player.status).toEqual({ state: "ended" });
+    expect(await player.resume()).toEqual({ state: "ended" });
+    // A retained page can replace the ended lecture with another native asset.
+    Object.defineProperty(video, "ended", { configurable: true, value: false });
+    pause.mockClear();
+    expect(player.stop()).toEqual({ state: "stopped" });
+    expect(pause).toHaveBeenCalledOnce();
+  },
+);
 
 it("stops playback if the native player changes away from normal speed", async () => {
   const { video, player, pause } = fixture();
@@ -262,11 +271,10 @@ it("accumulates only measured playback across an explicit pause and resume", asy
   expect(player.status).toEqual({ state: "ended" });
 });
 
-it.each(["seek", "source", "source-object", "hidden"])(
+it.each(["seek", "source", "source-object"])(
   "invalidates retained completion evidence after paused %s changes",
   async (scenario) => {
-    let visible = true;
-    const { video, player } = fixture({ isVisible: () => visible });
+    const { video, player } = fixture();
     const notify = nativeSignals(video, [
       "playing",
       "timeupdate",
@@ -315,9 +323,7 @@ it.each(["seek", "source", "source-object", "hidden"])(
     notify("playing");
     clock.mockReturnValue(1400);
     video.currentTime = 1.7;
-    if (scenario === "hidden") visible = false;
     notify("timeupdate");
-    if (scenario === "hidden") visible = true;
     Object.defineProperty(video, "paused", {
       configurable: true,
       value: true,
@@ -333,6 +339,52 @@ it.each(["seek", "source", "source-object", "hidden"])(
       state: "paused",
       reason: "unverified-end",
     });
+  },
+);
+
+it("requests fresh authorization only for native play following a native pause", async () => {
+  const onNativeResume = vi.fn();
+  const { video, player, pause } = fixture({ onNativeResume });
+  const notify = nativeSignals(video, ["pause", "play", "playing"]);
+  await player.start();
+  Object.defineProperty(video, "paused", { configurable: true, value: true });
+  notify("pause");
+  expect(player.status.state).toBe("paused");
+
+  video.dispatchEvent(new Event("play"));
+  expect(onNativeResume).not.toHaveBeenCalled();
+  Object.defineProperty(video, "paused", { configurable: true, value: false });
+  notify("play");
+  expect(onNativeResume).toHaveBeenCalledOnce();
+  expect(pause).toHaveBeenCalledOnce();
+  expect(player.status.state).toBe("paused");
+
+  await player.resume();
+  player.pause();
+  notify("play");
+  expect(onNativeResume).toHaveBeenCalledOnce();
+});
+
+it.each(["src", "currentSrc", "srcObject", "detached"] as const)(
+  "does not request native-resume authorization after paused %s replacement",
+  async (field) => {
+    const onNativeResume = vi.fn();
+    const { video, player } = fixture({ onNativeResume });
+    const native = nativeSignals(video, ["pause", "play"]);
+    await player.start();
+    Object.defineProperty(video, "paused", { configurable: true, value: true });
+    native("pause");
+    if (field === "src") video.src = "https://example.test/replaced.webm";
+    else if (field === "detached") video.remove();
+    else
+      Object.defineProperty(video, field, {
+        configurable: true,
+        value:
+          field === "currentSrc" ? "https://example.test/replaced.webm" : {},
+      });
+    native("play");
+    expect(onNativeResume).not.toHaveBeenCalled();
+    expect(player.status.state).toBe("paused");
   },
 );
 
