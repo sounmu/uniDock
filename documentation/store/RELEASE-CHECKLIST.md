@@ -1,5 +1,20 @@
 # 배포 절차 및 남은 입력
 
+## 0.5.7 GitHub 릴리스
+
+- 대상: 사이드 패널·재생목록·영상 선택 화면 개선, 탭 전환 중 재생 유지,
+  네이티브 일시정지·재개 동기화, 안내 및 로컬 데이터 삭제 화면 정리.
+- 산출물: `release/uniDock-0.5.7-chrome-mv3.zip`, `release/inventory.json`.
+- 버전 원본은 `package.json`과 `package-lock.json`이며 manifest는 빌드에서 생성합니다.
+- 개인정보처리방침 기준일과 적용 버전은 2026-11-11, 0.5.7입니다.
+  실제 탭 전환·수동 재생 동작에 맞춘 안내를 포함합니다.
+- 실제 자막·통계 서버 주소와 `UNIDOCK_PLAYBACK=1`, `UNIDOCK_AI_CAPTIONS=1`로
+  `npm run release`를 실행합니다. 테스트 서버 주소나 확장 개발용 key가
+  ZIP에 들어가지 않는지 패키징 검사로 확인합니다.
+- PR의 CI가 통과한 뒤 `main`에 병합하고 해당 커밋에 `v0.5.7` 태그를 겁니다.
+  ZIP과 SHA-256 inventory를 GitHub 릴리스에 첨부합니다.
+- Chrome Web Store 제출과 운영 서버 배포는 이 GitHub 릴리스에 포함하지 않습니다.
+
 ## 0.5.2 GitHub 릴리스
 
 - 대상: 0.5.1 배포 ZIP(`main`의 `37af29c`)에 빠진 사이드 패널 UI 개편과 다중 대학 연동 문서.

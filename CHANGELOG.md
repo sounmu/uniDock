@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.7 - 2026-11-11
+
+- Replace separate current/next cards with a compact autoplay playlist and
+  cleaned course names.
+- Group video selection by module, add title search that preserves selection
+  order, and keep the selection count and playback actions visible while scrolling.
+- Unify refresh icons, use neutral hover and loading colors, increase side
+  padding, and show loading placeholders without an extra notice.
+- Keep authorized playback running across tab changes and synchronize native
+  player pause/resume with the extension.
+- Retain measured completion evidence across native resume and accept valid
+  playback events from inactive dedicated tabs, preserving explicit stop,
+  identity, authorization, and login-recovery checks.
+- Simplify the first usage-statistics notice and align local-data deletion with
+  the settings action style while retaining confirmation.
+- Update playback guidance, bundled release notes, privacy-policy labels, and
+  release documentation.
+
 ## 0.5.6 - 2026-11-10
 
 - Save materials directly in `uniDock/<course>/`, dropping the per-board folder
