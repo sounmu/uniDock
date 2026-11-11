@@ -6,6 +6,7 @@ import { messages } from "../query-messages";
 import { Notice } from "../ui/Notice";
 import { restoreFocus, softDisabled } from "../ui/a11y";
 import { ListRow } from "../ui/ListRow";
+import { AssignmentRefresh } from "../ui/AssignmentRefresh";
 export type PanelModel = ReturnType<typeof useSidepanelQuery>;
 export type CourseFocus = {
   readonly courseSelector: string;
@@ -45,12 +46,7 @@ export function QueryResults({
           과제·녹화·자료를 확인할 수 있습니다.
         </Notice>
       )}
-      {state.status === "loading" && (
-        <>
-          <Notice>목록을 불러오고 있습니다…</Notice>
-          <Skeleton />
-        </>
-      )}
+      {state.status === "loading" && <Skeleton />}
       {state.status === "error" && (
         <Notice error>
           <strong>
@@ -189,15 +185,5 @@ export function Skeleton() {
   );
 }
 export function Refresh({ model }: { readonly model: PanelModel }) {
-  return (
-    <button
-      className="btn-primary"
-      {...softDisabled(
-        model.state.status === "loading" || !model.isQueryValid,
-        () => void model.load(model.query, { refresh: true }),
-      )}
-    >
-      {model.state.status === "loading" ? "조회 중…" : "새로고침"}
-    </button>
-  );
+  return <AssignmentRefresh model={model} label="" />;
 }

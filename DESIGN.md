@@ -33,14 +33,16 @@ leaving the popover dismiss without applying; Escape returns focus to the
 trigger. The original display criteria live inside its contextual help. A
 list-end shortcut switches between all assignments and remaining work.
 
-Refresh is a 32px icon at the upper right of the course context, with the same
+Refresh is a 32px icon across courses, tasks, playback and course context, with the same
 `--r-md` as `보기 변경`. The last successful query time is shown below the list
 heading. Refresh keeps the current rows only while the same course/source query
 is pending, preserving filters and avoiding a collapsed list. Every failure
 clears the rows. Transient failures retain only the last successful time;
 authentication, permission and source invalidation clear it. A failed refresh
 never repopulates the LMS cache. Reduced-motion users get the same state text
-without a rotating icon.
+without a rotating icon. The shared glyph uses two clockwise arrows; buttons
+keep their accessible names and tooltips without visible button text.
+Loading retains the normal muted icon color, including while the glyph rotates.
 
 Use existing glass, spacing, typography, focus and color tokens. The approved
 visual target for this change is the light-mode demo; no separate dark layout or
@@ -85,13 +87,23 @@ Text must meet 4.5:1 against the effective painted surface in both themes; input
 
 ## 4. Spacing & Layout
 
+Layout: autoplay uses one compact ordered playlist in the existing content column; the document owns scrolling. The current video comes first with a neutral selected surface and playback marker, followed by numbered queue rows. Avoid separate current/next cards and nested scroll areas.
+
+Layout: video selection uses a text-only list grouped by module, inspired by Things 3, with a persistent selection action bar inspired by Linear. The document owns scrolling; the action bar sits above the bottom navigation and the list reserves space for both. Keep one checkbox, title and plain order number per row; avoid per-row cards, thumbnail placeholders and duplicate selection decorations.
+
 `--space-1:4px`, `--space-2:8px`, `--space-3:12px`, `--space-4:16px`, `--space-5:24px`; `--r-xs:4px`, `--r-sm:8px`, `--r-md:12px`, `--r-lg:16px`, `--r-full:999px`; `--control-h:32px`, `--control-h-lg:36px`; `--row-h:48px`, `--icon-size:20px`, `--focus-width:2px`, `--focus-offset:2px`.
 
-Layout: a single full-width content column with a floating five-tab bottom capsule, matching the approved local glass mockup. The document owns vertical scrolling. Navigation has five equal `minmax(0,1fr)` columns, 44px minimum-height buttons, 20px icons and 11px permanent labels. It sits 12px from the viewport edges plus the bottom safe area. Main bottom padding and root scroll-padding reserve `--tabbar-space` (54px bar + 12px gap + 24px breathing room + safe area). Target widths are 320–420px without horizontal overflow. Hidden lists stay mounted and restore scroll/focus when returning from details.
+Layout: a single full-width content column with a floating five-tab bottom capsule, matching the approved local glass mockup. The document owns vertical scrolling. Content and navigation share 16px horizontal outer spacing (`--space-4`) for more breathing room; the sticky playback header compensates by the same inset. Navigation has five equal `minmax(0,1fr)` columns, 44px minimum-height buttons, 20px icons and 11px permanent labels. Its bottom gap stays 12px plus the bottom safe area. Main bottom padding and root scroll-padding reserve `--tabbar-space` (54px bar + 12px gap + 24px breathing room + safe area). Target widths are 320–420px without horizontal overflow. Hidden lists stay mounted and restore scroll/focus when returning from details.
 
 Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for buttons/fields/inline guidance, 16px for cards, and 999px for tabs, segments, chips and switches. Nested rectangular surfaces use outer radius minus inset, rounded to the nearest scale step; capsules contain capsules.
 
 ## 5. Components
+
+- **Autoplay playlist:** one glass container with a `재생목록` heading and item count. Rows use 13px video titles (two lines maximum, full title on hover), 12px cleaned course names and 8px vertical padding. Course names reuse the download-folder rule to remove term, campus, English-name and section annotations. The current row has `aria-current`, a neutral wash and its real playback status beside the course name. Other rows show plain small order numbers. Rows are informational; playback controls retain their existing actions. Empty playlists show one concise message.
+
+- **Video picker:** compact cleaned course selector with automatic loading and icon refresh, followed by title search. Module headings organize plain 44px-minimum rows; selected and hovered rows use neutral wash. Search filters only visibility, preserving selection order and hidden selections. Changing courses clears search. A fixed glass action bar shows the complete selection count and the existing start/stop actions. Instructions live in collapsed `재생 안내`. Loading uses shared skeletons; unsupported videos retain disabled inputs and explicit reasons. The 100-item selection limit remains.
+
+- **Playback guidance and local data:** guidance describes background-tab playback and native pause/resume tracking without claiming LMS attendance credit. Local data deletion uses the same `settings-row` and neutral `btn-secondary btn-danger` action as Settings. Confirmation replaces the initial action with `삭제 확인` and ghost `취소`, rather than adding a second nested notice and duplicate delete button.
 
 - **Select:** every dropdown uses the shared native `Select` wrapper. Its chevron sits `--space-3` (12px) from the right edge, with `--control-h` text padding. The decorative arrow ignores pointer events; labels, keyboard operation, options and disabled state remain native.
 
@@ -103,12 +115,13 @@ Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for but
 - **DetailView:** ghost 목록 back button, heading, two-column semantic dl, contextual tools. Only its primary is visible while detail is open; list remains hidden/mounted. Keyboard focus moves to detail heading and returns to the selected row.
 - **Notice:** glass surface, 1px highlight border (danger-line for errors), `--r-lg`, 12px padding and 13px type; status or alert role.
 - **Buttons:** primary brand/on-brand, 36px; secondary strong glass/ink, 32px; ghost transparent/muted, 32px. All use `--r-md`, 13px/600. Segmented subview toggles use `--r-full`, with a raised selected capsule. Disabled opacity is .5. Interactive elements have a 2px brand focus outline and 2px offset. Actions that disable themselves use `aria-disabled="true"` and ignore clicks to retain focus. External-link glyphs remain `aria-hidden`.
+- **Hover feedback:** ghost buttons, row actions and settings links use `--neutral-wash`: black at 5% in light mode and white at 8% in dark mode. Row actions retain their neutral text and border. Selected navigation keeps its raised surface; hover alone never adds a crimson tint.
 - **Information screen:** settings groups use muted 12px/600 labels above glass cards with `--r-lg`. Rows are at least 48px with 12px padding and internal separators, a 13px/500 title, optional muted subtitle and wrapping actions. The app name, version and unofficial note appear in uniDock 정보. Links are full-row with external icons; long policy copy uses native details. Destructive actions use `--danger` text.
 - **Toggle switch:** native `<button role="switch">` with `aria-checked`, labelled by its row title and described by its subtitle. The 40×24px `--r-full` track contains an 18px knob. Off uses surface/line-input; on uses brand/on-brand and a check mark. Position and assistive state convey meaning beyond color. The knob moves without animation. Loading/saving uses `aria-disabled` to retain focus; errors preserve prior state and show an alert. Space and Enter toggle it.
 - **AI caption offer:** when detection finds no usable provided captions in an AI build, a settings-style card replaces the error notice: a title row naming the situation with a trailing ghost AI 자막 설정 entry, then one row per stage (login, generate, confirm list, progress with 취소, failure with 다시 시도, result with download). Consent copy is a bulleted list, never a paragraph.
 - **Settings:** native 보기 설정 details contain filters, sorting or date fields. Playback settings and manual confirmation each have a dedicated detail view, with deletion confirmation preserved.
 - **Pagination:** 100 rows per page, filter resets page, status/timer updates preserve page.
-- **Loading:** a query in flight shows up to six glass-card skeleton rows at `--row-h`, with bars in `--line`. Skeletons are `aria-hidden`; the existing text Notice (“목록을 불러오고 있습니다…”) remains the announced status. The surrounding live region carries `aria-busy` while loading.
+- **Loading:** a query in flight shows up to six glass-card skeleton rows at `--row-h`, with bars in `--line`, without a visible loading Notice. Skeletons are `aria-hidden`; the surrounding live region and refresh button carry `aria-busy` while loading. Refresh retains its accessible name in every state.
 - **Focus restoration:** returning from a detail or the information screen focuses the originating control if it is still connected; otherwise it focuses the nearest stable equivalent (the row with the same item identity, else the screen heading). List rows are keyed by item identity, never by index.
 
 | Screen | Sole primary action |

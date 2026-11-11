@@ -1,10 +1,11 @@
 import { usePlaybackPanel } from "./usePlaybackPanel";
 import { ScreenHeader } from "./ui/ScreenHeader";
-import { StatusChip } from "./ui/StatusChip";
 import { Notice } from "./ui/Notice";
 import { DetailView, useDetail } from "./ui/DetailView";
 import { PlaybackConfirmation } from "./screens/PlaybackConfirmation";
 import type { QueryGate } from "./query-gate";
+import { Icon } from "./ui/icons";
+import { courseFolderName } from "../../src/security/download";
 
 const status: Record<string, string> = {
   idle: "대기",
@@ -22,9 +23,14 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
   const { snapshot, pending, stopPending } = m;
   const { detail, open, back } = useDetail<"select">();
   const hasPlaylist = Boolean(snapshot?.current || snapshot?.queue.length);
+  const playlist = snapshot?.current
+    ? [snapshot.current, ...snapshot.queue]
+    : snapshot?.queue ?? [];
   const courseName = (id: string) =>
-    snapshot?.courses.find((course) => course.id === id)?.name ??
-    "과목 확인 필요";
+    courseFolderName(
+      snapshot?.courses.find((course) => course.id === id)?.name ??
+        "과목 확인 필요",
+    );
   const resumable = [
     "paused",
     "stopped",
@@ -68,13 +74,16 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
                 </button>
               )}
               <button
-                className="btn-primary"
+                className={`btn-secondary assignment-refresh${pending ? " is-loading" : ""}`}
+                aria-label="새로고침"
+                title="새로고침"
+                aria-busy={pending}
                 disabled={pending}
                 onClick={() =>
                   void m.run({ version: 1, type: "PLAYBACK_REFRESH" })
                 }
               >
-                새로고침
+                <Icon name="refresh" />
               </button>
             </div>
           }
@@ -127,84 +136,94 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
           </Notice>
         )}
 
-        <h3>현재 재생</h3>
-        {snapshot?.current ? (
-          <div className="playback-current">
-            <div>
-              <strong>
-                {snapshot.labels?.[snapshot.current.id] ??
-                  "영상 제목 확인 필요"}
-              </strong>
-              <small>{courseName(snapshot.current.courseId)}</small>
-            </div>
-            <StatusChip>{status[snapshot.status] ?? "상태 확인"}</StatusChip>
+        <section className="playback-playlist">
+          <div className="playback-playlist-heading">
+            <h3>재생목록</h3>
+            <span>{playlist.length}개</span>
           </div>
-        ) : (
-          <p className="hint">재생 중인 영상이 없습니다.</p>
-        )}
+          {hasPlaylist ? (
+            <ol className="playback-queue" aria-label="재생목록">
+              {playlist.map((item, index) => {
+                const current = item.id === snapshot?.current?.id;
+                const title = snapshot?.labels[item.id] ?? "영상 제목 확인 필요";
+                return (
+                  <li key={item.id}
+                    className={current ? "playback-current" : undefined}
+                    aria-current={current ? "true" : undefined}>
+                    <span className="playback-position" aria-hidden="true">
+                      {current ? <Icon name="playback" /> : index + 1}
+                    </span>
+                    <div>
+                      <strong title={title}>{title}</strong>
+                      <small>
+                        {courseName(item.courseId)}
+                        {current && snapshot && ` · ${status[snapshot.status] ?? "상태 확인"}`}
+                      </small>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <p className="hint">재생목록이 비어 있습니다.</p>
+          )}
+        </section>
 
-        <h3>다음 영상</h3>
-        {snapshot?.queue.length ? (
-          <ol className="playback-queue">
-            {snapshot.queue.map((item, index) => (
-              <li key={item.id}>
-                <span className="playback-order" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <div>
-                  <strong>
-                    {snapshot.labels?.[item.id] ?? "영상 제목 확인 필요"}
-                  </strong>
-                  <small>{courseName(item.courseId)}</small>
-                </div>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="hint">대기 중인 영상이 없습니다.</p>
-        )}
-
-        <details className="guidance">
+        <details className="guidance playback-guidance">
           <summary>안내 및 로컬 데이터</summary>
           <p className="hint">
-            정상 속도(1배속)로 재생하며, 강의 탭이 숨겨지면 안전하게 멈춥니다.
+            정상 속도(1배속)로 재생하며, 다른 탭으로 이동해도 확장이 재생을
+            멈추지 않습니다. 강의 플레이어에서 일시정지하거나 다시 재생하면
+            자동 재생 상태도 함께 바뀝니다.
+          </p>
+          <p className="hint">
             브라우저가 소리 있는 자동 재생을 차단하면 무음으로 한 번
             재시도합니다. 소리는 강의 플레이어에서 직접 켤 수 있습니다. 영상
             종료와 LMS 이수 인정은 별개입니다.
           </p>
-          <button
-            className="btn-secondary"
-            onClick={() => m.setDeletePrompt(true)}
-          >
-            로컬 데이터 모두 삭제
-          </button>
-          {m.deletePrompt && (
-            <div className="notice">
-              <p>
-                저장된 재생목록·상태와 미전송 사용 통계를 삭제합니다. 사용 통계
-                켜짐/꺼짐 선택은 유지됩니다.
+          <div className="settings-row">
+            <div className="row-text">
+              <p className="row-title">로컬 데이터</p>
+              <p className="row-sub">
+                {m.deletePrompt
+                  ? "저장된 재생목록·상태와 미전송 사용 통계를 삭제합니다. 사용 통계 켜짐/꺼짐 선택은 유지됩니다."
+                  : "이 기기에 저장된 재생목록과 설정을 삭제합니다."}
               </p>
-              <button
-                className="btn-primary"
-                disabled={pending}
-                onClick={() =>
-                  void m
-                    .run({ version: 1, type: "LOCAL_DATA_DELETE_ALL" })
-                    .then((ok) => {
-                      if (ok) m.setDeletePrompt(false);
-                    })
-                }
-              >
-                삭제 확인
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => m.setDeletePrompt(false)}
-              >
-                취소
-              </button>
             </div>
-          )}
+            <div className="row-actions">
+              {m.deletePrompt ? (
+                <>
+                  <button
+                    className="btn-secondary btn-danger"
+                    disabled={pending}
+                    onClick={() =>
+                      void m
+                        .run({ version: 1, type: "LOCAL_DATA_DELETE_ALL" })
+                        .then((ok) => {
+                          if (ok) m.setDeletePrompt(false);
+                        })
+                    }
+                  >
+                    삭제 확인
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => m.setDeletePrompt(false)}
+                  >
+                    취소
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn-secondary btn-danger"
+                  disabled={pending}
+                  onClick={() => m.setDeletePrompt(true)}
+                >
+                  로컬 데이터 모두 삭제
+                </button>
+              )}
+            </div>
+          </div>
         </details>
       </div>
 

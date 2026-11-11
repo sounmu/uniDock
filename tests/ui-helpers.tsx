@@ -24,7 +24,8 @@ export async function click(label: string, index = 0) {
   ].filter(
     (element) =>
       !element.closest("[hidden]") &&
-      (element.textContent === label ||
+      (element.getAttribute("aria-label") === label ||
+        element.textContent === label ||
         element.querySelector("strong")?.textContent === label),
   )[index];
   expect(button).toBeDefined();

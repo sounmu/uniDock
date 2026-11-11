@@ -137,12 +137,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
             </button>
           )}
         </div>
-        {refreshing && !model.pendingResult && (
-          <>
-            <Notice>목록을 불러오고 있습니다…</Notice>
-            <Skeleton />
-          </>
-        )}
+        {refreshing && !model.pendingResult && <Skeleton />}
         {state.status === "error" && (
           <Notice error>{messages[state.code]}</Notice>
         )}
