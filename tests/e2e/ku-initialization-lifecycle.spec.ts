@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- page fixtures use test-only window state */
 import { expect, test, type Page } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
 import { nativeVisibilityTest } from "./native-visibility";
@@ -271,24 +271,126 @@ test.describe("KU initialization native lifecycle", () => {
   nativeVisibilityTest("authorized KU initialization survives a real hidden-tab transition", async ({
     context,
     page,
-  }) => {
+  }, testInfo) => {
     await fixture(page, "replace");
     const keeper = await context.newPage();
-    await page.bringToFront();
-    await start(page);
-    await keeper.bringToFront();
-    // The fixture leaves native visibility intact, including in headless CI.
-    await expect.poll(() => page.evaluate(() => document.hidden)).toBe(true);
-    await expect
-      .poll(() => page.evaluate(() => (window as any).result))
-      .toEqual({
-        state: "ready",
-        rate: 1,
-        defaultRate: 1,
-        handedOff: true,
-        paused: false,
+    const browser = context.browser();
+    if (!browser) throw new Error("Native visibility requires a connected browser");
+    const browserSession = await browser.newBrowserCDPSession();
+    const version = await browserSession.send("Browser.getVersion");
+    const targets = await Promise.all([
+      { name: "video", page },
+      { name: "keeper", page: keeper },
+    ].map(async (target) => {
+      const session = await context.newCDPSession(target.page);
+      const { targetInfo } = await session.send("Target.getTargetInfo");
+      const window = await browserSession.send("Browser.getWindowForTarget", {
+        targetId: targetInfo.targetId,
       });
-    await keeper.close();
+      await session.send("Runtime.evaluate", {
+        userGesture: false,
+        expression: `(() => {
+          window.visibilityEvidence = [];
+          const record = (event) => window.visibilityEvidence.push({
+            event: event.type,
+            at: performance.timeOrigin + performance.now(),
+            hidden: document.hidden,
+            visibility: document.visibilityState,
+            focused: document.hasFocus(),
+            initialization: window.result?.state ?? null,
+          });
+          document.addEventListener("visibilitychange", record);
+          window.addEventListener("focus", record);
+          window.addEventListener("blur", record);
+          record({ type: "observer-installed" });
+        })()`,
+      });
+      return { name: target.name, session, targetId: targetInfo.targetId, window };
+    }));
+    const samples: { at: number; step: string; states: unknown[] }[] = [];
+    const sample = async (step: string) => {
+      const states = await Promise.all(targets.map(async (target) => {
+        try {
+          // Diagnostic reads must not grant activation or emulate focus.
+          const { result, exceptionDetails } = await target.session.send("Runtime.evaluate", {
+            userGesture: false,
+            returnByValue: true,
+            expression: `({
+              hidden: document.hidden,
+              visibility: document.visibilityState,
+              focused: document.hasFocus(),
+              activation: {
+                active: navigator.userActivation.isActive,
+                everActive: navigator.userActivation.hasBeenActive,
+              },
+              initialization: window.result ?? null,
+              events: window.visibilityEvidence,
+            })`,
+          });
+          return {
+            name: target.name, targetId: target.targetId, window: target.window,
+            state: result.value, error: exceptionDetails?.text,
+          };
+        } catch (error) {
+          return { name: target.name, error: error instanceof Error ? error.message : String(error) };
+        }
+      }));
+      samples.push({ at: Date.now(), step, states });
+      return states;
+    };
+    try {
+      expect(targets[0]?.window.windowId, "Both fixtures must be tabs in the same Chrome window")
+        .toBe(targets[1]?.window.windowId);
+      await sample("before-video-activation");
+      await page.bringToFront();
+      await sample("video-activation-ack");
+      await expect.poll(() => sample("initial-visible-state"), {
+        message: "Video visible and keeper hidden before starting initialization",
+      }).toMatchObject([
+        { name: "video", state: { hidden: false, visibility: "visible" } },
+        { name: "keeper", state: { hidden: true, visibility: "hidden" } },
+      ]);
+      await start(page);
+      await sample("initialization-started");
+      await keeper.bringToFront();
+      await sample("keeper-activation-ack");
+      // An activation acknowledgement is not the visibility observation.
+      await expect.poll(() => sample("hidden-state-poll"), {
+        message: "Real tab switch must hide the video tab and show the keeper",
+      }).toMatchObject([
+        { name: "video", state: { hidden: true, visibility: "hidden" } },
+        { name: "keeper", state: { hidden: false, visibility: "visible" } },
+      ]);
+      await expect.poll(() => sample("initialization-result"), {
+        message: "KU initialization must finish while its tab remains hidden",
+      }).toMatchObject([
+        { name: "video", state: {
+          hidden: true,
+          initialization: {
+            state: "ready",
+            rate: 1,
+            defaultRate: 1,
+            handedOff: true,
+            paused: false,
+          },
+        } },
+        { name: "keeper", state: { hidden: false } },
+      ]);
+    } finally {
+      await sample("final");
+      const evidencePath = testInfo.outputPath("native-tab-transition.json");
+      await writeFile(evidencePath, JSON.stringify({
+        version, platform: process.platform, arch: process.arch, node: process.version,
+        repeat: testInfo.repeatEachIndex, retry: testInfo.retry, samples,
+      }, null, 2));
+      await testInfo.attach("native-tab-transition.json", {
+        path: evidencePath,
+        contentType: "application/json",
+      });
+      await Promise.all(targets.map((target) => target.session.detach()));
+      await browserSession.detach();
+      await keeper.close();
+    }
   });
 
   test("visible timeout pauses long media and happy replacement hands off at 1x", async ({
