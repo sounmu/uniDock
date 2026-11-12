@@ -25,8 +25,10 @@ const messages = {
 };
 export function CaptionsPanel({
   onConnectionSettings,
+  entry,
 }: {
   readonly onConnectionSettings?: () => void;
+  readonly entry?: { readonly title: string };
 }) {
   const [state, setState] = useState<
     CaptionResult | { status: "idle" | "loading" }
@@ -73,6 +75,10 @@ export function CaptionsPanel({
     const removed = (tabId: number) => {
       if (tabId === target.current?.tabId) clear();
     };
+    if (entry) {
+      clear();
+      setNotice(`${entry.title} 강의를 열었습니다. 플레이어가 준비되면 자막 감지를 누르세요.`);
+    }
     chrome.tabs.onUpdated.addListener(updated);
     chrome.tabs.onRemoved.addListener(removed);
     return () => {
@@ -87,7 +93,7 @@ export function CaptionsPanel({
       chrome.tabs.onUpdated.removeListener(updated);
       chrome.tabs.onRemoved.removeListener(removed);
     };
-  }, []);
+  }, [entry]);
   useEffect(() => {
     if (state.status !== "success") return;
     const timer = setTimeout(() => {

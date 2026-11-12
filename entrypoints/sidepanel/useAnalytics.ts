@@ -31,7 +31,7 @@ function useVisible() {
  * or visibility returns never count. Settings is an overlay: returning from it
  * to the same learning service is not a new entry.
  */
-export function useAnalytics(screen: AnalyticsScreen) {
+export function useAnalytics(screen: AnalyticsScreen | null) {
   const status = useSyncExternalStore(subscribeAnalytics, analyticsSnapshot);
   const visible = useVisible();
   const active = collecting(status);
@@ -39,7 +39,7 @@ export function useAnalytics(screen: AnalyticsScreen) {
   const inSettings = useRef(false);
   useEffect(startAnalyticsSettings, []);
   useEffect(() => {
-    if (!active || !visible) return;
+    if (!active || !visible || screen === null) return;
     const service = SCREEN_SERVICES[screen];
     if (service === "settings") {
       if (inSettings.current) return;

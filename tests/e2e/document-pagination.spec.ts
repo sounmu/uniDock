@@ -67,7 +67,7 @@ test("production transport accepts 1001 PDF items over two real API pages", asyn
     });
 
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })

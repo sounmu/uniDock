@@ -1,4 +1,5 @@
 export type IconName =
+  | "home"
   | "courses"
   | "tasks"
   | "playback"
@@ -11,6 +12,7 @@ export type IconName =
   | "status-overdue"
   | "status-locked";
 const paths: Record<IconName, string> = {
+  home: "m3 10 9-7 9 7 M5 9v12h5v-7h4v7h5V9",
   courses:
     "M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4z M20 4h-4a3 3 0 0 0-3 3m0 14a4 4 0 0 1 4-2h3V4",
   tasks: "m3 6 2 2 4-4 M12 6h9 M3 13h3m6 0h9 M3 20h3m6 0h9",

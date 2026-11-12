@@ -19,6 +19,10 @@ export function useDetail<T>() {
       setDetail(value);
     },
     back: () => setDetail(null),
+    dismiss: () => {
+      saved.current = null;
+      setDetail(null);
+    },
   };
 }
 export function DetailView({

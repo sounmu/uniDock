@@ -64,7 +64,7 @@ test("install and update reconnect an already open LMS tab without a reload", as
             // Right after an update the new copy can need a moment to land;
             // a bounded click lets the poll retry instead of waiting forever.
             await panel
-              .getByRole("button", { name: "새로고침" })
+              .getByRole("button", { name: "내 과목", exact: true })
               .click({ timeout: 3000 })
               .catch(() => {});
             await panel.waitForTimeout(300);

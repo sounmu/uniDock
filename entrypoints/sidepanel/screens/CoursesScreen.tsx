@@ -13,7 +13,11 @@ const courseTabs = {
   RECORDINGS_LIST: "녹화 강의",
   DOCUMENTS_LIST: "강의 자료",
 } as const;
-export function CoursesScreen({ model }: { readonly model: PanelModel }) {
+export function CoursesScreen({ model, onPlayback, onCaptions }: {
+  readonly model: PanelModel;
+  readonly onPlayback?: (handle: string) => void;
+  readonly onCaptions?: (handle: string) => void;
+}) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [courseFocus, setCourseFocus] = useState<CourseFocus | null>(null);
   const tab =
@@ -88,6 +92,8 @@ export function CoursesScreen({ model }: { readonly model: PanelModel }) {
           model={model}
           courseFocus={courseFocus}
           onCourseFocus={setCourseFocus}
+          onPlayback={onPlayback}
+          onCaptions={onCaptions}
         />
       )}
     </>

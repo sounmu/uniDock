@@ -69,7 +69,7 @@ afterEach(async () => {
 });
 async function loadCourse() {
   ui = await mount(<App />);
-  await click("새로고침");
+  await click("내 과목");
   await click("과목 A");
 }
 async function refresh() {
@@ -133,7 +133,7 @@ it("does not publish an old assignment result after switching to tasks", async (
   const held = deferred<Result>();
   query.mockReturnValueOnce(held.promise);
   await refresh();
-  await click("할 일·일정");
+  await click("일정");
   expect(ui.host.textContent).not.toContain("A 첫 과제");
   expect(timestamp()).toBeUndefined();
   await act(async () => held.resolve(result("늦은 응답")));

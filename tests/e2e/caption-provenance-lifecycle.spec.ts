@@ -118,6 +118,7 @@ test(change === "menu"
     const result = panel.getByText("자막 1개 · 5분 동안 메모리에 보관");
     if (change === "menu") {
       await panel.getByRole("button", { name: "내 과목", exact: true }).click();
+      await panel.getByRole("button", { name: "홈", exact: true }).click();
       await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
       await expect(panel.getByRole("button", { name: "감지 중…" })).toBeVisible();
       expect(
@@ -129,6 +130,7 @@ test(change === "menu"
       await expect(result).toBeAttached();
       await expect(result).toBeHidden();
       const completedCalls = await panel.evaluate(() => window.captionCancellationGate!.calls());
+      await panel.getByRole("button", { name: "홈", exact: true }).click();
       await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
       await expect(result).toBeVisible();
       expect(

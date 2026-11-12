@@ -70,7 +70,7 @@ test("a stale native download lookup cannot complete a refreshed matching row", 
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();

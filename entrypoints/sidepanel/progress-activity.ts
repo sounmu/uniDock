@@ -5,7 +5,7 @@ import {
   progressActive,
   type ProgressItem,
 } from "../../src/progress";
-import type { Section } from "./ui/Rail";
+import type { ToolSection } from "./ui/Rail";
 
 let localCaption: ProgressItem | null = null;
 let localKey = "null";
@@ -48,7 +48,7 @@ function useWorkerProgress(enabled: boolean): readonly ProgressItem[] {
 }
 
 export interface Activity {
-  readonly section: Section;
+  readonly section: ToolSection;
   readonly item: ProgressItem;
 }
 

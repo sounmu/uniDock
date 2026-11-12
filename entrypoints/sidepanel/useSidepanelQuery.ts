@@ -7,6 +7,7 @@ import { messages } from "./query-messages";
 import { QueryGate } from "./query-gate";
 import { coreResult, startOperation } from "./analytics";
 import type { CoreResult, Operation } from "../../src/analytics/report";
+import type { PlaybackEntry } from "./usePlaybackPanel";
 
 const queryOperations: Partial<
   Record<Request["type"], [Operation, CoreResult | null]>
@@ -288,11 +289,33 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
             : "새 탭을 열었습니다."
           : messages[result.code],
     }));
+    return result.status === "success";
   }
   const openRecording = (handle: string) =>
     openSelection("RECORDING_OPEN", handle);
   const openDocument = (handle: string) =>
     openSelection("DOCUMENT_OPEN", handle);
+  function takePlaybackEntry(handle: string): PlaybackEntry | undefined {
+    const target = recordingTarget.current;
+    if (
+      state.status !== "success" || !("recordings" in state) ||
+      !selectedCourse || !target?.documentToken || recordingAction.pending ||
+      recordingAction.used.has(handle)
+    ) return;
+    const recording = state.recordings.find((row) => row.launchHandle === handle);
+    if (!recording) return;
+    const recordings = state.recordings.filter((row) => !recordingAction.used.has(row.launchHandle));
+    setRecordingAction((previous) => ({
+      ...previous,
+      used: new Set([...previous.used, ...recordings.map((row) => row.launchHandle)]),
+    }));
+    return {
+      course: selectedCourse,
+      recordings,
+      target,
+      selectedHandles: [handle],
+    };
+  }
   const needsCourse =
     view === "ASSIGNMENTS_LIST" ||
     view === "RECORDINGS_LIST" ||
@@ -315,7 +338,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       : {
           version: 1,
           type:
-            view === "CAPTIONS" || view === "PLAYBACK" ? "COURSES_LIST" : view,
+            view === "HOME" ? "TODO_LIST" : view,
         };
   const snapshot =
     courseRefresh?.key === courseKey(query) ? courseRefresh : null;
@@ -348,6 +371,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     load,
     openRecording,
     openDocument,
+    takePlaybackEntry,
     needsCourse,
     query,
     isQueryValid: isRequest(query),

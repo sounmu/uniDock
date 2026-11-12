@@ -446,6 +446,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         await expect(panel.getByRole("button", { name: "취소", exact: true })).toBeHidden();
         await activateTab(other);
         await activateTab(player);
+        await panel.getByRole("button", { name: "홈", exact: true }).click();
         await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
         await expect(panel.getByRole("button", { name: "취소", exact: true })).toBeVisible();
         expect(services.cancels()).toBe(0);

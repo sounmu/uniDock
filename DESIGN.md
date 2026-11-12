@@ -1,5 +1,22 @@
 # uniDock Design System
 
+## Home navigation
+
+Layout: Home and the shared shell use one document-scrolling column and the
+existing floating bottom capsule, now with four equal entries: 홈, 내 과목,
+일정, 설정. Keep the existing tokens, safe-area spacing and 44px targets.
+Do not add nested scrollers, a second navigation bar or university-specific tabs.
+
+Home prioritizes the next unfinished deadlines, then lecture tools. Its primary
+action is refreshing the task summary; the full task list lives under 일정.
+Show actual query loading, empty and error states, with no invented counts.
+Playback and captions are contextual work screens, entered from Home or a
+recording detail. Going back restores the initiating list, scroll and focus.
+Keep opened work panels mounted while hidden so navigation does not discard
+selection or an active caption job. Progress controls reopen their work screen.
+Unsupported tools have no entry; a missing session remains an actionable error.
+No chat interface or new university integration is included in this change.
+
 ## Course resources and shared navigation
 
 Recordings and materials follow the assignment list's count heading, contextual
@@ -10,9 +27,9 @@ and LMS actions; refresh must never revive consumed one-use handles.
 
 Layout: the document remains the only page scroller at 320–420px. Course
 resources use the existing assignment heading/popover arrangement. The fixed
-five-entry main navigation reuses the course `.subviews` capsule surface and
+four-entry main navigation reuses the course `.subviews` capsule surface and
 raised neutral selected state; its existing icons, labels, activity markers,
-44px targets and disabled-feature explanation remain.
+44px targets remain.
 
 Priority is the resource list, then its count/freshness, then contextual view
 options. The main action remains opening a lecture or downloading materials.
@@ -50,7 +67,7 @@ theme switch is introduced. Data examples in tests and captures are synthetic.
 
 ## 1. Atmosphere & Identity
 
-A quiet Korean study desk with TickTick-style translucent cards on a neutral gray background. Five permanently labelled bottom tabs provide navigation; crimson remains the brand accent. No colored background blobs, gradients, new fonts or icon packages.
+A quiet Korean study desk with TickTick-style translucent cards on a neutral gray background. Four permanently labelled bottom tabs provide navigation; crimson remains the brand accent. No colored background blobs, gradients, new fonts or icon packages.
 
 Extension icons use `store/assets/logo-concepts/unidock-icon.svg`, preserving the original glass tile with a transparent lowercase u cutout. This artwork matches the website favicon's `public/brand/unidock-favicon.svg`. Generate extension PNGs with `node scripts/brand-assets.mjs`. The original pearl-white letter remains available in `unidock-glass.svg` for larger brand presentations.
 
@@ -93,7 +110,7 @@ Layout: video selection uses a text-only list grouped by module, inspired by Thi
 
 `--space-1:4px`, `--space-2:8px`, `--space-3:12px`, `--space-4:16px`, `--space-5:24px`; `--r-xs:4px`, `--r-sm:8px`, `--r-md:12px`, `--r-lg:16px`, `--r-full:999px`; `--control-h:32px`, `--control-h-lg:36px`; `--row-h:48px`, `--icon-size:20px`, `--focus-width:2px`, `--focus-offset:2px`.
 
-Layout: a single full-width content column with a floating five-tab bottom capsule, matching the approved local glass mockup. The document owns vertical scrolling. Content and navigation share 16px horizontal outer spacing (`--space-4`) for more breathing room; the sticky playback header compensates by the same inset. Navigation has five equal `minmax(0,1fr)` columns, 44px minimum-height buttons, 20px icons and 11px permanent labels. Its bottom gap stays 12px plus the bottom safe area. Main bottom padding and root scroll-padding reserve `--tabbar-space` (54px bar + 12px gap + 24px breathing room + safe area). Target widths are 320–420px without horizontal overflow. Hidden lists stay mounted and restore scroll/focus when returning from details.
+Layout: a single full-width content column with a floating four-tab bottom capsule, preserving the approved glass surface. The document owns vertical scrolling. Content and navigation share 16px horizontal outer spacing (`--space-4`); the sticky playback header compensates by the same inset. Navigation has four equal `minmax(0,1fr)` columns, 44px minimum-height buttons, 20px icons and 11px permanent labels. Its bottom gap stays 12px plus the bottom safe area. Main bottom padding and root scroll-padding reserve `--tabbar-space` (54px bar + 12px gap + 24px breathing room + safe area). Target widths are 320–420px without horizontal overflow. Hidden lists stay mounted and restore scroll/focus when returning from tools or details.
 
 Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for buttons/fields/inline guidance, 16px for cards, and 999px for tabs, segments, chips and switches. Nested rectangular surfaces use outer radius minus inset, rounded to the nearest scale step; capsules contain capsules.
 
@@ -107,8 +124,8 @@ Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for but
 
 - **Select:** every dropdown uses the shared native `Select` wrapper. Its chevron sits `--space-3` (12px) from the right edge, with `--control-h` text padding. The decorative arrow ignores pointer events; labels, keyboard operation, options and disabled state remain native.
 
-- **Bottom navigation:** five native buttons: 내 과목, 할 일·일정, 자동 재생, 자막 추출, 설정. `aria-current="page"` plus the same raised neutral capsule as course menus marks selection. The surface, inset, border, radius and shadow are shared through `.subviews`. LMS 열기 lives in 설정 > uniDock 정보 alongside the existing information links. Existing callbacks and keyboard behavior remain.
-- **Pending navigation entry:** in release builds (`__UNIDOCK_PLAYBACK__` false) 자동 재생 keeps its grid slot as an `aria-disabled="true"` button (not `disabled`, so it stays focusable) at disabled opacity .5 with a default cursor and no hover wash. Clicking does nothing. A sibling `role="tooltip"` above the button, wired through `aria-describedby`, reads “현재 검토 중인 기능입니다.” on hover and `:focus-visible`: ink background, surface text, 12px type, `--r-sm`, max 12rem, no pointer events, and its fade is removed under reduced motion.
+- **Bottom navigation:** four native buttons: 홈, 내 과목, 일정, 설정. `aria-current="page"` plus the same raised neutral capsule as course menus marks selection. The surface, inset, border, radius and shadow are shared through `.subviews`. A work screen keeps its source tab selected. LMS 열기 lives in 설정 > uniDock 정보.
+- **Lecture tools:** Home uses existing settings rows for 자동 재생 and 자막 추출. Unsupported playback builds omit that tool. Recording detail offers automatic playback only for playable module records, and opens a selected lecture before entering captions. New caption entries clear previous lecture results without remounting the tool. Existing AI jobs remain independent of navigation.
 - **ScreenHeader:** title with one primary action and at most one muted subtitle. Longer policy copy lives in native 안내 details.
 - **ListRow:** full-row native glass-card button, two-line title, secondary course label and trailing StatusChip. At least 48px with 12px horizontal padding and 8px between cards. Assignment states have a decorative leading status icon: clock, check, exclamation or lock. StatusChip text remains the accessible meaning. Square neutral checkboxes are reserved for actual selection and remain separate labelled inputs, never nested inside buttons.
 - **StatusChip:** pill (`--r-full`), 12px text, three tones: neutral (neutral-wash/muted), urgent (brand-wash/brand) and done (success-wash/success). The text alone must carry the meaning: an urgent chip says so in words (D-1, 오늘 HH:MM, n시간 남음), never only by tone. Course rows have no chip.

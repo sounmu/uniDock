@@ -74,7 +74,7 @@ test("a completed native PDF is not overwritten by a late timeout acknowledgemen
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })
       .click();

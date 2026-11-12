@@ -94,7 +94,7 @@ test("production pickers keep duplicate and redacted courses bound to opaque sel
       return tab.id;
     }, origin);
 
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 4개 과목")).toBeVisible();
     await expect(
       panel.getByRole("button", { name: /Duplicate Course/ }),
@@ -188,6 +188,7 @@ test("production pickers keep duplicate and redacted courses bound to opaque sel
     await issuingLms.bringToFront();
     // Release builds omit playback; its picker is covered by test:e2e:playback.
     if (playbackBuild()) {
+      await panel.getByRole("button", { name: "홈", exact: true }).click();
       await panel
         .getByRole("button", { name: "자동 재생", exact: true })
         .click();

@@ -1,4 +1,5 @@
-import { usePlaybackPanel } from "./usePlaybackPanel";
+import { useEffect, useRef } from "react";
+import { usePlaybackPanel, type PlaybackEntry } from "./usePlaybackPanel";
 import { ScreenHeader } from "./ui/ScreenHeader";
 import { Notice } from "./ui/Notice";
 import { DetailView, useDetail } from "./ui/DetailView";
@@ -18,10 +19,22 @@ const status: Record<string, string> = {
   failed: "실패",
 };
 
-export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
-  const m = usePlaybackPanel(gate);
+export function PlaybackPanel({
+  gate,
+  entry,
+}: {
+  readonly gate?: QueryGate;
+  readonly entry?: PlaybackEntry;
+}) {
+  const m = usePlaybackPanel(gate, entry);
   const { snapshot, pending, stopPending } = m;
   const { detail, open, back } = useDetail<"select">();
+  const openedEntry = useRef<PlaybackEntry | undefined>(undefined);
+  useEffect(() => {
+    if (!entry || openedEntry.current === entry) return;
+    openedEntry.current = entry;
+    open("select");
+  }, [entry, open]);
   const hasPlaylist = Boolean(snapshot?.current || snapshot?.queue.length);
   const playlist = snapshot?.current
     ? [snapshot.current, ...snapshot.queue]

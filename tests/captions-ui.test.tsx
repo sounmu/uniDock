@@ -106,6 +106,7 @@ it("keeps the same AI caption offer across settings, menus and browser tabs", as
       listener({ tabId: 7, windowId: 1 });
     }
   });
+  await click("홈");
   await click("자막 추출");
   expect(ui.host.querySelector(".ai-offer")).toBe(offer);
   expect(offer?.closest("[hidden]")).toBeNull();
@@ -124,6 +125,18 @@ it("offers AI settings only when the AI offer is shown", async () => {
   // The offer card's action is the sole primary; detection steps back.
   expect(ui.host.querySelector(".screen-header .btn-primary")).toBeNull();
   expect(ui.host.querySelector('[role="alert"]')).toBeNull();
+});
+it("clears a previous lecture result when a newly opened lecture enters the caption tool", async () => {
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  expect(ui.host.querySelectorAll(".list-row")).toHaveLength(1);
+  await ui.render(<CaptionsPanel entry={{ title: "다음 샘플 강의" }} />);
+  expect(ui.host.querySelectorAll(".list-row")).toHaveLength(0);
+  expect(ui.host.textContent).toContain("다음 샘플 강의 강의를 열었습니다");
+  expect(detect).toHaveBeenCalledTimes(1);
+  await click("자막 감지");
+  expect(ui.host.querySelectorAll(".list-row")).toHaveLength(1);
+  expect(detect).toHaveBeenCalledTimes(2);
 });
 it.each(["reload", "url", "close"])(
   "clears captions on target %s",

@@ -5,7 +5,7 @@ import type { AssignmentFreshnessState } from "./ui/AssignmentRefresh";
 import { ListRow } from "./ui/ListRow";
 import { StatusChip } from "./ui/StatusChip";
 import { DetailView, useDetail } from "./ui/DetailView";
-import { newTab } from "./ui/a11y";
+import { newTab, softDisabled } from "./ui/a11y";
 import { Icon } from "./ui/icons";
 import {
   ResourceControls,
@@ -19,6 +19,8 @@ export function RecordingResults({
   boardsUnavailable,
   course,
   onRecording,
+  onPlayback,
+  onCaptions,
   recordingPending,
   usedRecordingHandles,
   openedRecordingHandles,
@@ -28,6 +30,8 @@ export function RecordingResults({
   readonly boardsUnavailable: boolean;
   readonly course: string;
   readonly onRecording?: (handle: string) => void;
+  readonly onPlayback?: (handle: string) => void;
+  readonly onCaptions?: (handle: string) => void;
   readonly recordingPending: boolean;
   readonly usedRecordingHandles?: ReadonlySet<string>;
   readonly openedRecordingHandles?: ReadonlySet<string>;
@@ -123,6 +127,20 @@ export function RecordingResults({
           ]}
         >
           <div className="tools">
+            {detail.launchHandle && detail.source !== "board" && onPlayback && (
+              <button className="btn-secondary"
+                {...softDisabled(Boolean(recordingPending || usedRecordingHandles?.has(detail.launchHandle)),
+                  () => onPlayback(detail.launchHandle))}>
+                자동 재생
+              </button>
+            )}
+            {detail.launchHandle && onCaptions && (
+              <button className="btn-secondary"
+                {...softDisabled(Boolean(recordingPending || usedRecordingHandles?.has(detail.launchHandle)),
+                  () => onCaptions(detail.launchHandle))}>
+                강의 열고 자막 추출
+              </button>
+            )}
             <button
               className="btn-primary"
               disabled={

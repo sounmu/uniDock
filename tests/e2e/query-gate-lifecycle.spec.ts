@@ -17,7 +17,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-test("production panel drops cross-view query waiters and dispatches only the latest view", async ({
+test("production panel preserves the playback picker and dispatches only the latest main view", async ({
   playwright,
 }) => {
   await stat(path.join(extensionPath, "manifest.json"));
@@ -113,7 +113,7 @@ test("production panel drops cross-view query waiters and dispatches only the la
     ).length;
 
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
     await expect
       .poll(
@@ -125,6 +125,9 @@ test("production panel drops cross-view query waiters and dispatches only the la
       .toBe(1);
     await assignmentStarted.promise;
 
+    // Home queues a TODO_LIST behind the held request; the later schedule
+    // selection supersedes it before it can reach the LMS.
+    await panel.getByRole("button", { name: "홈", exact: true }).click();
     await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
     await panel.getByRole("button", { name: "영상 선택", exact: true }).click();
     const modulesAfterPlaybackRefresh = apiRequests.filter((request) =>
@@ -140,9 +143,9 @@ test("production panel drops cross-view query waiters and dispatches only the la
     // bounded timeout and legitimately releases the original lease.
     await expect(panel.getByRole("combobox").locator("option")).toHaveCount(1);
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
-    await panel.getByRole("button", { name: "일정", exact: true }).click();
+    await panel.getByRole("button", { name: "일정 목록 보기", exact: true }).click();
 
     // No queued view may reach the LMS while the original response owns the gate.
     expect(
@@ -178,7 +181,10 @@ test("production panel drops cross-view query waiters and dispatches only the la
     ).toHaveLength(modulesAfterPlaybackRefresh);
     expect(
       apiRequests.filter((request) => request.startsWith("/api/v1/courses?")),
-    ).toHaveLength(coursesAfterPlaybackRefresh);
+    ).toHaveLength(coursesAfterPlaybackRefresh + 1);
+    // The hidden picker stays mounted and finishes its own admitted query.
+    // Superseded Home/tasks queries still must not reach the LMS.
+    await expect(panel.locator(".playback-panel select option")).toHaveCount(2);
     await expect(
       panel.getByText(
         "이전 조회를 처리하고 있습니다. 끝난 뒤 새로고침을 누르세요.",

@@ -59,7 +59,7 @@ async function materials(list: typeof documents = documents) {
       return { status: "success", documents: list };
     });
   ui = await mount(<App />);
-  await click("새로고침");
+  await click("내 과목");
   await click("Course");
   await click("강의 자료");
 }
@@ -146,7 +146,7 @@ it.each([0, 100])(
       })
       .mockResolvedValueOnce({ status: "success", assignments: [] });
     ui = await mount(<App />);
-    await click("새로고침");
+    await click("내 과목");
     if (index === 100) await click("다음");
     const origin = document.querySelector<HTMLButtonElement>(".list-row");
     if (!origin) throw new Error("Missing course control");
@@ -304,7 +304,7 @@ it("downloads only the checked subset and keeps selection when returning from de
   ]);
   expect(chips()).toEqual(["대기", "요청됨", "LMS에서 확인"]);
 });
-it.each(["할 일·일정", "취소", "녹화 강의"])(
+it.each(["일정", "취소", "녹화 강의"])(
   "stops unsent downloads when %s is selected",
   async (action) => {
     // Given

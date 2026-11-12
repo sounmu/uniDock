@@ -17,10 +17,14 @@ export function QueryResults({
   model,
   courseFocus = null,
   onCourseFocus,
+  onPlayback,
+  onCaptions,
 }: {
   readonly model: PanelModel;
   readonly courseFocus?: CourseFocus | null;
   readonly onCourseFocus?: (focus: CourseFocus | null) => void;
+  readonly onPlayback?: (handle: string) => void;
+  readonly onCaptions?: (handle: string) => void;
 }) {
   const { recordingAction } = model;
   const state = model.pendingResult ?? model.state;
@@ -77,6 +81,8 @@ export function QueryResults({
           course={model.course}
           onCourse={selectCourse}
           onRecording={(handle) => void model.openRecording(handle)}
+          onPlayback={onPlayback}
+          onCaptions={onCaptions}
           recordingPending={recordingAction.pending || refreshing}
           usedRecordingHandles={recordingAction.used}
           openedRecordingHandles={recordingAction.opened}

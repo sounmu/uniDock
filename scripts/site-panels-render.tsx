@@ -189,7 +189,6 @@ for (const panel of panels) {
         section={panel.section}
         onSelect={noop}
         onInfo={noop}
-        playbackAvailable={__UNIDOCK_PLAYBACK__}
       />
       <main>{panel.screen}</main>
     </>,

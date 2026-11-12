@@ -14,6 +14,7 @@ export function TasksScreen({ model }: { readonly model: PanelModel }) {
           <button
             key={type}
             className="btn-ghost"
+                aria-label={type === "UPCOMING_LIST" ? "일정 목록 보기" : undefined}
             aria-pressed={model.view === type}
             onClick={() => {
               model.setView(type);
