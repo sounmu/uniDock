@@ -40,7 +40,7 @@ test("course resource screens and main navigation share the assignment presentat
     };
     await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await panel.getByRole("button", { name: /Synthetic Operating Systems/ }).click();
     await expect(panel.getByText("Synthetic Final Project", { exact: true })).toBeVisible();
     for (const [label, slug] of [["과제", "assignments"], ["녹화 강의", "recordings"], ["강의 자료", "materials"]] as const) {
@@ -88,7 +88,7 @@ test("course resource screens and main navigation share the assignment presentat
     }
     if (!baseline) {
       await lms.bringToFront();
-      await panel.getByRole("button", { name: "할 일·일정", exact: true }).click();
+      await panel.getByRole("button", { name: "일정", exact: true }).click();
       await expect(panel.getByText("조회 완료 · 3개 항목 · 한국 시간")).toBeVisible();
       await panel.locator("summary").filter({ hasText: "보기 설정" }).click();
       await panel.getByLabel("정렬", { exact: true }).selectOption("due-desc");
@@ -100,7 +100,8 @@ test("course resource screens and main navigation share the assignment presentat
       }
       if (playbackBuild()) {
         await lms.bringToFront();
-        await panel.getByRole("navigation", { name: "주 메뉴" }).getByRole("button", { name: "자동 재생", exact: true }).click();
+        await panel.getByRole("button", { name: "홈", exact: true }).click();
+        await panel.getByRole("button", { name: "자동 재생", exact: true }).click();
         await panel.getByRole("button", { name: "영상 선택", exact: true }).click();
         await expect(panel.getByLabel("과목 선택")).toBeVisible();
         await checkSelects();

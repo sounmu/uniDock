@@ -40,12 +40,12 @@ test("list loading keeps placeholders and accessible icon refresh controls", asy
       });
       try {
         if (screen === "courses") {
-          await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+          await panel.getByRole("button", { name: "내 과목", exact: true }).click();
         } else if (screen === "assignments") {
           await panel.getByRole("button", { name: /Synthetic Operating Systems/ }).click();
         } else if (screen === "tasks") {
           await lms.bringToFront();
-          await panel.getByRole("button", { name: "할 일·일정", exact: true }).click();
+          await panel.getByRole("button", { name: "일정", exact: true }).click();
         } else {
           await panel.getByRole("navigation", { name: "과목 메뉴" })
             .getByRole("button", { name: screen === "recordings" ? "녹화 강의" : "강의 자료", exact: true }).click();

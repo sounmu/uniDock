@@ -1,4 +1,5 @@
-import { usePlaybackPanel } from "./usePlaybackPanel";
+import { useEffect, useRef } from "react";
+import { usePlaybackPanel, type PlaybackEntry } from "./usePlaybackPanel";
 import { ScreenHeader } from "./ui/ScreenHeader";
 import { Notice } from "./ui/Notice";
 import { DetailView, useDetail } from "./ui/DetailView";
@@ -18,10 +19,22 @@ const status: Record<string, string> = {
   failed: "실패",
 };
 
-export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
-  const m = usePlaybackPanel(gate);
+export function PlaybackPanel({
+  gate,
+  entry,
+}: {
+  readonly gate?: QueryGate;
+  readonly entry?: PlaybackEntry;
+}) {
+  const m = usePlaybackPanel(gate, entry);
   const { snapshot, pending, stopPending } = m;
   const { detail, open, back } = useDetail<"select">();
+  const openedEntry = useRef<PlaybackEntry | undefined>(undefined);
+  useEffect(() => {
+    if (!entry || openedEntry.current === entry) return;
+    openedEntry.current = entry;
+    open("select");
+  }, [entry, open]);
   const hasPlaylist = Boolean(snapshot?.current || snapshot?.queue.length);
   const playlist = snapshot?.current
     ? [snapshot.current, ...snapshot.queue]
@@ -32,10 +45,8 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
         "과목 확인 필요",
     );
   const resumable = [
-    "paused",
     "stopped",
     "blocked-login",
-    "blocked-autoplay",
     "failed",
   ].includes(snapshot?.status ?? "");
 
@@ -117,13 +128,46 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
           </Notice>
         )}
 
+        {snapshot?.status === "blocked-autoplay" && (
+          <Notice error>
+            <p>
+              Chrome이 자동 재생을 차단했습니다. 열려 있는 강의
+              탭에서 영상 플레이어의 재생 버튼을 직접 누르세요. 접근 권한을
+              다시 확인한 뒤 같은 영상부터 자동 재생을 이어갑니다.
+            </p>
+          </Notice>
+        )}
+
+        {snapshot?.status === "paused" && hasPlaylist && (
+          <Notice>
+            <p>강의 영상이 일시정지됐습니다.</p>
+            {snapshot.nativeResumeAvailable && (
+              <p>
+                강의 탭에서 재생 버튼을 누르면 현재 위치와 선택한 목록을
+                이어갑니다.
+              </p>
+            )}
+            <button
+              className="btn-primary"
+              disabled={pending}
+              onClick={() =>
+                void m.run({ version: 1, type: "PLAYBACK_RESUME" })
+              }
+            >
+              강의 탭에서 재개
+            </button>
+          </Notice>
+        )}
+
         {resumable && snapshot?.status !== "blocked-login" && hasPlaylist && (
           <Notice
-            error={
-              snapshot?.status !== "paused" && snapshot?.status !== "stopped"
-            }
+            error={snapshot?.status !== "stopped"}
           >
-            <p>재생목록이 멈췄습니다. 강의 탭을 확인한 뒤 재개하세요.</p>
+            <p>
+              {snapshot?.status === "stopped"
+                ? "자동 재생이 중지됐습니다. 다시 시작하려면 재개하세요."
+                : "재생목록이 멈췄습니다. 강의 탭을 확인한 뒤 재개하세요."}
+            </p>
             <button
               className="btn-primary"
               disabled={pending}
@@ -172,13 +216,14 @@ export function PlaybackPanel({ gate }: { gate?: QueryGate }) {
         <details className="guidance playback-guidance">
           <summary>안내 및 로컬 데이터</summary>
           <p className="hint">
-            정상 속도(1배속)로 재생하며, 다른 탭으로 이동해도 확장이 재생을
-            멈추지 않습니다. 강의 플레이어에서 일시정지하거나 다시 재생하면
-            자동 재생 상태도 함께 바뀝니다.
+            정상 속도(1배속)로 재생합니다. LMS가 탭 전환 시 영상을
+            일시정지할 수 있습니다. 확장은 실제 재생 상태를 표시하며 강제로
+            재생을 이어가지 않습니다.
           </p>
           <p className="hint">
-            브라우저가 소리 있는 자동 재생을 차단하면 무음으로 한 번
-            재시도합니다. 소리는 강의 플레이어에서 직접 켤 수 있습니다. 영상
+            강의 플레이어에서 일시정지한 뒤 재생 버튼을 누르면 접근 권한을
+            다시 확인하고 현재 위치와 선택한 목록을 이어갑니다. 자동 재생을
+            끈 뒤에는 강의 플레이어의 재생만으로 다시 켜지지 않습니다. 영상
             종료와 LMS 이수 인정은 별개입니다.
           </p>
           <div className="settings-row">

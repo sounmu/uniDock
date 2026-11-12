@@ -10,6 +10,8 @@ export function ResultList({
   result,
   onCourse,
   onRecording,
+  onPlayback,
+  onCaptions,
   recordingPending = false,
   usedRecordingHandles,
   openedRecordingHandles,
@@ -19,6 +21,8 @@ export function ResultList({
   readonly result: Extract<Result, { status: "success" }>;
   readonly onCourse: (course: Course) => void;
   readonly onRecording?: (handle: string) => void;
+  readonly onPlayback?: (handle: string) => void;
+  readonly onCaptions?: (handle: string) => void;
   readonly recordingPending?: boolean;
   readonly usedRecordingHandles?: ReadonlySet<string>;
   readonly openedRecordingHandles?: ReadonlySet<string>;
@@ -34,6 +38,8 @@ export function ResultList({
         boardsUnavailable={result.boardsUnavailable === true}
         course={course}
         onRecording={onRecording}
+        onPlayback={onPlayback}
+        onCaptions={onCaptions}
         recordingPending={recordingPending}
         usedRecordingHandles={usedRecordingHandles}
         openedRecordingHandles={openedRecordingHandles}

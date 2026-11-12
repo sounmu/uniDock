@@ -201,7 +201,6 @@ for (const scene of scenes) {
         section={scene.section}
         onSelect={noop}
         onInfo={noop}
-        playbackAvailable={false}
       />
       <main>{scene.screen}</main>
     </div>,

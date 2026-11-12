@@ -77,7 +77,7 @@ afterEach(async () => {
 });
 async function openTab(label: "녹화 강의" | "강의 자료") {
   ui = await mount(<App />);
-  await click("새로고침");
+  await click("내 과목");
   await click("과목 A");
   await click(label);
 }

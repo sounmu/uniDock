@@ -69,7 +69,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       const boxes = await Promise.all(
         buttons.map((button) => button.boundingBox()),
       );
-      expect(boxes).toHaveLength(5);
+      expect(boxes).toHaveLength(4);
       for (const box of boxes) {
         expect(box).not.toBeNull();
         expect(box!.y).toBe(boxes[0]!.y);
@@ -124,14 +124,15 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
     // When: the production panel sends through tabs -> content -> API/background.
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await capture(panel, "home");
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
     expect(server.coursesSeen()).toBe(true);
     await expect(
       panel
         .getByRole("navigation", { name: "주 메뉴", exact: true })
         .getByRole("button"),
-    ).toHaveCount(5);
+    ).toHaveCount(4);
     const initialCourseRequests = server.coursesCount();
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
@@ -309,7 +310,7 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
     await chat.close();
     await lms.bringToFront();
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
     await expect(
       panel.getByText("조회 완료 · 3개 항목 · 한국 시간"),
@@ -336,12 +337,13 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       "Synthetic Final Project",
     );
     await capture(panel, "tasks");
-    await panel.getByRole("button", { name: "일정", exact: true }).click();
+    await panel.getByRole("button", { name: "일정 목록 보기", exact: true }).click();
     await expect(panel.getByText("조회된 항목이 없습니다.")).toBeVisible();
     await capture(panel, "schedule-empty");
     await panel.getByText("보기 설정", { exact: true }).click();
     await expect(panel.getByLabel("시작일 (선택)")).toBeVisible();
     await capture(panel, "schedule-settings");
+    await panel.getByRole("button", { name: "홈", exact: true }).click();
     await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
     await capture(panel, "captions");
     await panel.getByRole("button", { name: "자막 감지" }).click();
@@ -371,61 +373,40 @@ test("loads the production MV3 and queries a synthetic LMS through real runtime 
       document.body.append(list);
     });
     await panel.getByRole("button", { name: "자막 감지" }).click();
-    await expect(panel.locator(".list-row")).toHaveCount(1);
+    await expect(panel.locator(".list-row:visible")).toHaveCount(1);
     await capture(panel, "captions-result");
-    await panel.locator(".list-row").click();
+    await panel.locator(".list-row:visible").click();
     await expect(
       panel.getByRole("button", { name: "TXT·JSON 다운로드" }),
     ).toBeVisible();
     await capture(panel, "caption-detail");
     await panel.getByRole("button", { name: "← 목록" }).click();
-    await expect(panel.locator(".list-row")).toBeFocused();
+    await expect(panel.locator(".list-row:visible")).toBeFocused();
+    await panel.getByRole("button", { name: "홈", exact: true }).click();
     const playbackMenu = panel.getByRole("button", {
       name: "자동 재생",
       exact: true,
     });
     if (playbackBuild()) {
       await playbackMenu.click();
-      await expect(playbackMenu).toHaveAttribute("aria-current", "page");
-      // Main navigation shares the course menu's raised neutral selection.
-      await expect(playbackMenu).toHaveCSS(
+      const homeMenu = panel.getByRole("navigation", { name: "주 메뉴" }).getByRole("button", { name: "홈", exact: true });
+      await expect(homeMenu).toHaveAttribute("aria-current", "page");
+      await expect(homeMenu).toHaveCSS(
         "background-color",
         "rgb(255, 255, 255)",
       );
-      await expect(playbackMenu).toHaveCSS("color", "rgb(28, 27, 31)");
-      await expect(playbackMenu.locator("svg")).toHaveCSS(
+      await expect(homeMenu).toHaveCSS("color", "rgb(28, 27, 31)");
+      await expect(homeMenu.locator("svg")).toHaveCSS(
         "color",
         "rgb(28, 27, 31)",
       );
       await capture(panel, "playback");
     } else {
-      // Release builds keep the menu entry as a pending notice only.
-      const notice = panel.getByRole("tooltip", {
-        name: "현재 검토 중인 기능입니다.",
-      });
-      await expect(playbackMenu).toHaveAttribute("aria-disabled", "true");
-      await expect(playbackMenu).toHaveAccessibleDescription(
-        "현재 검토 중인 기능입니다.",
-      );
-      await expect(notice).toBeHidden();
-      await playbackMenu.hover();
-      await expect(notice).toBeVisible();
-      // Playwright treats aria-disabled as not actionable; a user's click
-      // still lands on the button and must be a no-op.
-      await playbackMenu.click({ force: true });
-      await expect(playbackMenu).not.toHaveAttribute("aria-current", "page");
+      await expect(playbackMenu).toHaveCount(0);
       await expect(
         panel.getByRole("region", { name: "자동 재생" }),
       ).toHaveCount(0);
-      await capture(panel, "playback-pending");
-      await panel.mouse.move(0, 0);
-      await expect(notice).toBeHidden();
-      // Keyboard focus (focus-visible) shows the same notice without hover.
-      await playbackMenu.focus();
-      await panel.keyboard.press("Tab");
-      await panel.keyboard.press("Shift+Tab");
-      await expect(playbackMenu).toBeFocused();
-      await expect(notice).toBeVisible();
+      await capture(panel, "home-without-playback");
     }
     await panel.getByRole("button", { name: "설정", exact: true }).click();
     await expect(

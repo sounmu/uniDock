@@ -155,7 +155,7 @@ it("downloads only the materials of the applied module", async () => {
     })
     .mockResolvedValue({ status: "success", downloaded: true });
   ui = await mount(<App />);
-  await click("새로고침");
+  await click("내 과목");
   await click("Course");
   await click("강의 자료");
   expect(heading()).toBe("강의 자료 3개");

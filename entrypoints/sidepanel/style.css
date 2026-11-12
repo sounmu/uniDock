@@ -1,5 +1,47 @@
 @import "./course-resources.css";
 
+.home-screen > section {
+  margin-block-start: var(--space-5);
+}
+.home-screen h2 {
+  font-size: var(--fs-lg);
+  margin-block: 0 var(--space-3);
+}
+.home-screen .row-meta {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.home-screen .row-course {
+  max-width: 100%;
+}
+.home-due {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.home-screen .notice {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.home-tool {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: start;
+  gap: var(--space-3);
+}
+.home-tool .row-title,
+.home-tool .row-sub {
+  display: block;
+}
+.tool-return {
+  margin-block: 0 var(--space-3);
+}
+
 /* uniDock side panel: TickTick-style glass UI on a neutral gray page.
    Every color, radius and spacing value comes from the token blocks below;
    component rules never carry raw values. Cards are translucent without blur;
@@ -474,7 +516,7 @@ p {
 }
 .rail nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
   margin-bottom: 0;
 }
@@ -654,9 +696,10 @@ p {
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
 }
-main:has(.detail-view) .screen-header,
-main:has(.detail-view) .guidance,
-main:has(.detail-view) > div > .view-settings {
+/* Work panels stay mounted: hidden details must not hide another screen. */
+main:has(.detail-view:not([hidden], [hidden] *)) .screen-header,
+main:has(.detail-view:not([hidden], [hidden] *)) .guidance,
+main:has(.detail-view:not([hidden], [hidden] *)) > div > .view-settings {
   display: none;
 }
 /* Segmented controls: a glass capsule whose pressed item is a raised capsule

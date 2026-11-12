@@ -297,7 +297,6 @@ for (const [i, scene] of scenes.entries()) {
         section={scene.section}
         onSelect={noop}
         onInfo={noop}
-        playbackAvailable={false}
       />
       <main>{scene.screen}</main>
     </>,

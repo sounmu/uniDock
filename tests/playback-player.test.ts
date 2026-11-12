@@ -90,6 +90,18 @@ it("starts at normal native speed, pauses, resumes and stops without seeking", a
   expect(seek).not.toHaveBeenCalled();
 });
 
+it("preserves initial mute, volume and position when starting", async () => {
+  const f = fixture();
+  f.video.muted = true;
+  f.video.volume = 0;
+  f.video.currentTime = 12;
+  await f.player.start();
+  expect(f.video.muted).toBe(true);
+  expect(f.video.volume).toBe(0);
+  expect(f.video.currentTime).toBe(12);
+  expect(f.play).toHaveBeenCalledOnce();
+});
+
 it("physically rejects trusted native play while paused until explicit resume", async () => {
   const { video, play, pause, player } = fixture();
   const notify = nativeSignals(video, ["play", "playing"]);
@@ -516,6 +528,25 @@ it("does not retry decoder failures or already muted autoplay denial", async () 
   f.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
   expect(await f.player.start()).toEqual({ state: "blocked-autoplay" });
   expect(f.play).toHaveBeenCalledOnce();
+});
+
+it("holds native play after autoplay denial until fresh authorization resumes it", async () => {
+  const onNativeResume = vi.fn();
+  const f = fixture({ onNativeResume });
+  const notify = nativeSignals(f.video, ["play", "playing"]);
+  f.play.mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+  f.play.mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+  await f.player.start();
+  notify("play");
+  notify("playing");
+  expect(onNativeResume).toHaveBeenCalledOnce();
+  expect(f.pause).toHaveBeenCalledTimes(2);
+  expect(f.player.status.state).toBe("blocked-autoplay");
+  expect(await f.player.resume()).toEqual({ state: "playing" });
+  f.player.stop();
+  notify("play");
+  expect(onNativeResume).toHaveBeenCalledOnce();
+  expect(f.player.status.state).toBe("stopped");
 });
 
 it("bounds hung play and ignores late completion and cancellation", async () => {

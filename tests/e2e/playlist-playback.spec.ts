@@ -1513,7 +1513,7 @@ test("production extension plays a click-ordered playlist and explicitly recover
           nativePause.identity,
         ),
     ).toEqual({ same: true, paused: true });
-    await panel.getByRole("button", { name: "자동 재생 재개" }).click();
+    await panel.getByRole("button", { name: "강의 탭에서 재개" }).click();
     await expect(panel.locator(".playback-panel h1")).toContainText("재생 중");
     await expect
       .poll(() =>

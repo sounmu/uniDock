@@ -34,7 +34,7 @@ async function captureTransportLists(panel: Page) {
 
 async function openCourseRecordings(panel: Page, lms: Page) {
   await lms.bringToFront();
-  await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+  await panel.getByRole("button", { name: "내 과목", exact: true }).click();
   await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
   await panel
     .getByRole("button", { name: /Synthetic Operating Systems/ })
@@ -186,6 +186,7 @@ test("two production panel consumers retain independent capability catalogs", as
       expect(playbackRefresh.snapshot.courses).toContainEqual(
         expect.objectContaining({ name: "Synthetic Operating Systems" }),
       );
+      await panelB.getByRole("button", { name: "홈", exact: true }).click();
       await panelB
         .getByRole("button", { name: "자동 재생", exact: true })
         .click();

@@ -13,9 +13,9 @@ afterEach(async () => {
 
 it("marks a rail section with work in progress without changing its name", async () => {
   ui = await mount(
-    <Rail section="courses" onSelect={() => {}} onInfo={() => {}} playbackAvailable active={["captions"]} />,
+    <Rail section="courses" onSelect={() => {}} onInfo={() => {}} active={["home"]} />,
   );
-  const button = [...document.querySelectorAll("nav button")].find((b) => b.textContent === "자막 추출")!;
+  const button = [...document.querySelectorAll("nav button")].find((b) => b.textContent === "홈")!;
   expect(button.querySelector(".rail-dot")).not.toBeNull();
   expect(document.querySelectorAll(".rail-dot")).toHaveLength(1);
 });

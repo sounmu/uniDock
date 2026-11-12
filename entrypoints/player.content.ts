@@ -149,6 +149,9 @@ export default defineContentScript({
           type: "PLAYBACK_PLAYER_EVENT",
           ...binding,
           state: status.state,
+          ...(status.state === "paused" && status.reason
+            ? { nativeResumeAvailable: false }
+            : {}),
         });
         if (!object(response) || response.ok !== true) stop();
       } catch {
@@ -272,7 +275,9 @@ export default defineContentScript({
           return;
         }
         const status = await player?.resume();
-        if (status?.state !== "playing") stop();
+        if (status?.state === "paused" || status?.state === "blocked-autoplay")
+          suspendAuthorization();
+        else if (status?.state !== "playing") stop();
       } catch {
         if (generation === authorizationGeneration) stop();
       } finally {
@@ -367,7 +372,8 @@ export default defineContentScript({
               diagnostic(
                 `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
               );
-              if (status.state === "paused") suspendAuthorization();
+              if (status.state === "paused" || status.state === "blocked-autoplay")
+                suspendAuthorization();
               void signal(status);
             },
           });
@@ -389,7 +395,8 @@ export default defineContentScript({
             diagnostic(
               `STATE_${status.state}${status.reason ? `_${status.reason}` : ""}`,
             );
-            if (status.state === "paused") suspendAuthorization();
+            if (status.state === "paused" || status.state === "blocked-autoplay")
+              suspendAuthorization();
             void signal(status);
           },
         });
@@ -483,7 +490,8 @@ export default defineContentScript({
             void player.resume().then(
               (status) => {
                 if (status.state !== "playing") {
-                  if (status.state === "paused") suspendAuthorization();
+                  if (status.state === "paused" || status.state === "blocked-autoplay")
+                    suspendAuthorization();
                   else stop();
                 }
                 respond({ ok: status.state === "playing" });

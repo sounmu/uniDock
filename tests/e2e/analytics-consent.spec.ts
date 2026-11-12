@@ -205,10 +205,10 @@ test("aggregate statistics: first-run notice, daily dedupe, closed payloads, OFF
     ).toBeVisible();
     await panel.bringToFront();
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
 
@@ -236,7 +236,7 @@ test("aggregate statistics: first-run notice, daily dedupe, closed payloads, OFF
     expect(sum((r) => r.core_installs)).toBeLessThanOrEqual(1);
     expect(sum((r) => r.service_installs.courses ?? 0)).toBe(1);
     expect(sum((r) => r.service_installs.tasks ?? 0)).toBe(1);
-    // Panel open (courses), tasks once (re-select ignored), back to courses.
+    // Courses entry, tasks once (re-select ignored), back to courses.
     expect(sum((r) => r.service_entries.courses ?? 0)).toBe(2);
     expect(sum((r) => r.service_entries.tasks ?? 0)).toBe(1);
     expect(sum((r) => r.operations.course_items_load?.user?.success ?? 0)).toBe(
@@ -273,8 +273,9 @@ test("aggregate statistics: first-run notice, daily dedupe, closed payloads, OFF
       .poll(() => local("unidock.analytics-counters.v1"))
       .toMatchObject({ pending: [], queue: [] });
     await panel
-      .getByRole("button", { name: "할 일·일정", exact: true })
+      .getByRole("button", { name: "일정", exact: true })
       .click();
+    await panel.getByRole("button", { name: "홈", exact: true }).click();
     await panel.getByRole("button", { name: "자막 추출", exact: true }).click();
     expect(await local("unidock.analytics-counters.v1")).toMatchObject({
       pending: [],

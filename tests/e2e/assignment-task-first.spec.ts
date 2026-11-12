@@ -59,7 +59,7 @@ test("production assignments apply draft filters and track only successful refre
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${id}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await panel.locator("button.list-row").filter({ hasText: "자료구조 (샘플)" }).click();
     await expect(panel.getByRole("heading", { name: "남은 과제 2개", exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: "과제 새로고침", exact: true })).toBeVisible();

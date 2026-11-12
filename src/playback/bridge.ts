@@ -39,6 +39,8 @@ export interface PlaybackSnapshot {
   readonly queue: readonly PlaylistItem[];
   readonly status: RuntimeStatus;
   readonly current: PlaylistItem | null;
+  /** Whether a retained paused player can request fresh native-play authorization. */
+  readonly nativeResumeAvailable?: boolean;
 }
 const runtimeStatuses: readonly RuntimeStatus[] = [
   "idle",
@@ -241,7 +243,10 @@ export async function playbackCommand(
       const snapshot = result.snapshot;
       if (
         object(snapshot) &&
-        Object.keys(snapshot).length === 5 &&
+        Object.keys(snapshot).length ===
+          (snapshot.nativeResumeAvailable === undefined ? 5 : 6) &&
+        (snapshot.nativeResumeAvailable === undefined ||
+          typeof snapshot.nativeResumeAvailable === "boolean") &&
         Array.isArray(snapshot.courses) &&
         snapshot.courses.length <= 100 &&
         snapshot.courses.every(course) &&

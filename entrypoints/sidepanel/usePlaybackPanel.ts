@@ -28,7 +28,14 @@ type RecordingSelection = {
   target: QueryTarget | null;
 };
 
-export function usePlaybackPanel(sharedGate?: QueryGate) {
+export interface PlaybackEntry {
+  readonly course: Course;
+  readonly recordings: readonly Recording[];
+  readonly target: QueryTarget;
+  readonly selectedHandles: readonly string[];
+}
+
+export function usePlaybackPanel(sharedGate?: QueryGate, entry?: PlaybackEntry) {
   const localGate = useRef(new QueryGate()).current;
   const gate = sharedGate ?? localGate;
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
@@ -54,7 +61,38 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   const statusRequest = useRef<Promise<boolean> | null>(null);
   const statusInvalidation = useRef(0);
   const mounted = useRef(true);
+  const acceptedEntry = useRef<PlaybackEntry | undefined>(undefined);
+  const importedCourseList = useRef(false);
   const pending = foregroundCommands > 0 || recordingLoad;
+
+  useEffect(() => {
+    if (!entry || acceptedEntry.current === entry) return;
+    acceptedEntry.current = entry;
+    const generation = ++recordingGeneration.current;
+    const selected = [...new Set(entry.selectedHandles)].filter((handle) =>
+      entry.recordings.some(
+        (item) => item.launchHandle === handle && item.source !== "board",
+      ),
+    ).slice(0, 100);
+    const drafts = entry.recordings.map((item) => {
+      const index = item.launchHandle && item.source !== "board"
+        ? selected.indexOf(item.launchHandle)
+        : -1;
+      return { ...item, order: index < 0 ? null : index + 1 };
+    });
+    recordingSelection.current = {
+      generation,
+      recordings: drafts,
+      target: entry.target,
+    };
+    courseTarget.current = entry.target;
+    importedCourseList.current = true;
+    setCourses([entry.course]);
+    setCourseValue(entry.course.courseSelector);
+    setRecordingDrafts(drafts);
+    setRecordingLoad(false);
+    setError("");
+  }, [entry]);
 
   async function run(
     command: PlaybackCommand,
@@ -199,9 +237,13 @@ export function usePlaybackPanel(sharedGate?: QueryGate) {
   }
 
   async function loadCourses() {
-    if (courseLoadInFlight.current || (courses.length && courseTarget.current))
+    if (
+      courseLoadInFlight.current ||
+      (!importedCourseList.current && courses.length && courseTarget.current)
+    )
       return;
     courseLoadInFlight.current = true;
+    importedCourseList.current = false;
     courseTarget.current = null;
     const current = ++recordingGeneration.current;
     setCourseValue("");

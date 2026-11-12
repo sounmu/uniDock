@@ -66,7 +66,7 @@ test("production downloads expire during tab lookup and reject a same-URL replac
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await expect(panel.getByText("조회 완료 · 2개 과목")).toBeVisible();
     await panel
       .getByRole("button", { name: /Synthetic Operating Systems/ })

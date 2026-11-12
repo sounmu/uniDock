@@ -2,16 +2,15 @@ import { useState } from "react";
 import type { Course } from "../../src/domain";
 import type { Section } from "./ui/Rail";
 export type SidepanelView =
+  | "HOME"
   | "COURSES_LIST"
   | "ASSIGNMENTS_LIST"
   | "UPCOMING_LIST"
   | "TODO_LIST"
   | "RECORDINGS_LIST"
-  | "DOCUMENTS_LIST"
-  | "CAPTIONS"
-  | "PLAYBACK";
+  | "DOCUMENTS_LIST";
 export function usePanelNavigation() {
-  const [section, setSection] = useState<Section>("courses");
+  const [section, setSection] = useState<Section>("home");
   const [tasksMode, setTasksMode] = useState<"todo" | "upcoming">("todo");
   const [courseTab, setCourseTab] = useState<
     "assignments" | "recordings" | "materials"
@@ -19,11 +18,9 @@ export function usePanelNavigation() {
   const [selectedCourse, setCourse] = useState<Course | null>(null);
   const course = selectedCourse?.name ?? "";
   const view: SidepanelView =
-    section === "playback"
-      ? "PLAYBACK"
-      : section === "captions"
-        ? "CAPTIONS"
-        : section === "tasks"
+    section === "home"
+      ? "HOME"
+      : section === "tasks"
           ? tasksMode === "todo"
             ? "TODO_LIST"
             : "UPCOMING_LIST"
@@ -36,6 +33,9 @@ export function usePanelNavigation() {
                 : "DOCUMENTS_LIST";
   function setView(next: SidepanelView) {
     switch (next) {
+      case "HOME":
+        setSection("home");
+        break;
       case "COURSES_LIST":
         setSection("courses");
         setCourse(null);
@@ -59,12 +59,6 @@ export function usePanelNavigation() {
       case "UPCOMING_LIST":
         setSection("tasks");
         setTasksMode("upcoming");
-        break;
-      case "PLAYBACK":
-        setSection("playback");
-        break;
-      case "CAPTIONS":
-        setSection("captions");
         break;
       default: {
         const exhaustive: never = next;

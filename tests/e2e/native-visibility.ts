@@ -7,8 +7,9 @@ import path from "node:path";
 // Playwright's normal page session enables focus emulation. A second CDP
 // session cannot undo that session's override, so these tests connect without
 // default overrides to an isolated browser and observe real tab visibility.
-export const nativeVisibilityTest = test.extend({
-  context: async ({ playwright }, use) => {
+export const nativeVisibilityTest = test.extend<{ nativeExtension: string | null }>({
+  nativeExtension: [null, { option: true }],
+  context: async ({ playwright, nativeExtension }, use) => {
     const { chromium } = playwright;
     const profile = await mkdtemp(path.join(tmpdir(), "unidock-visibility-"));
     const endpoint = Promise.withResolvers<string>();
@@ -17,9 +18,14 @@ export const nativeVisibilityTest = test.extend({
       "--no-sandbox",
       "--no-first-run",
       "--no-default-browser-check",
+      "--disable-component-extensions-with-background-pages",
       "--remote-debugging-address=127.0.0.1",
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
+      ...(nativeExtension ? [
+        `--disable-extensions-except=${nativeExtension}`,
+        `--load-extension=${nativeExtension}`,
+      ] : []),
       "about:blank",
     ], { stdio: ["ignore", "ignore", "pipe"] });
     const closed = new Promise<void>((resolve) => child.once("close", () => {
@@ -41,7 +47,11 @@ export const nativeVisibilityTest = test.extend({
       browser = await chromium.connectOverCDP(address, { noDefaults: true });
       const context = browser.contexts()[0];
       if (!context) throw new Error("Missing native browser context");
-      await context.route("**/*", (route) => route.abort("blockedbyclient"));
+      await context.route("**/*", (route) =>
+        nativeExtension && route.request().url().startsWith("chrome-extension://")
+          ? route.continue()
+          : route.abort("blockedbyclient"),
+      );
       await use(context);
     } finally {
       clearTimeout(timeout);

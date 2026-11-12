@@ -1,14 +1,14 @@
 import { progressText } from "../../src/progress";
 import type { Activity } from "./progress-activity";
 import { Icon } from "./ui/icons";
-import type { Section } from "./ui/Rail";
+import type { ToolSection } from "./ui/Rail";
 
 export function ProgressStrip({
   activity,
   onOpen,
 }: {
   readonly activity: readonly Activity[];
-  readonly onOpen: (section: Section) => void;
+  readonly onOpen: (section: ToolSection) => void;
 }) {
   const rows = activity.flatMap(({ section, item }) => {
     const text = progressText(item);

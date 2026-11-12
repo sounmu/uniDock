@@ -46,7 +46,7 @@ test("interactive secondary controls use a neutral hover wash in both themes", a
     };
     await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
     await lms.bringToFront();
-    await panel.getByRole("button", { name: "새로고침", exact: true }).click();
+    await panel.getByRole("button", { name: "내 과목", exact: true }).click();
     await panel.getByRole("button", { name: /Synthetic Operating Systems/ }).click();
     await expect(panel.getByText("Synthetic Final Project", { exact: true })).toBeVisible();
     await checkHover(
