@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.8 - 2026-11-12
+
+- Organize the panel into Home, Courses, Schedule, and Settings, with the nearest
+  unfinished deadlines and lecture tools available from Home.
+- Open playback and captions from lecture details while preserving the source
+  screen, focus, scroll position, selections, and ongoing work across navigation.
+- Show actual lecture pauses, including LMS pauses on tab switches, and resume
+  the retained authorized video in its existing tab without resetting its
+  position or selected playlist.
+- Preserve direct-player recovery when a panel resume is denied by autoplay
+  policy, with fresh access checks and unchanged stop/revocation boundaries.
+- Remove the outer shadow from the LMS progress capsule.
+- Gate progress-notification tests by supported build features, add native
+  visibility/focus diagnostics, and allow 30 minutes for the complete CI job
+  without extending individual test timeouts.
+- Update bundled release notes, privacy-policy version labels, and release
+  documentation.
+
 ## 0.5.7 - 2026-11-11
 
 - Replace separate current/next cards with a compact autoplay playlist and
