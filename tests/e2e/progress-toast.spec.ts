@@ -1,10 +1,15 @@
 import { expect } from "@playwright/test";
 import path from "node:path";
 import { nativeVisibilityTest as test } from "./native-visibility";
+import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 
 test.use({ nativeExtension: path.resolve(".output/chrome-mv3") });
 
 test("paused playback capsule stays readable without a cast shadow", async ({ context }, testInfo) => {
+  test.skip(
+    !playbackBuild() && !aiCaptionsBuild(),
+    "requires a playback or AI caption build for progress notifications",
+  );
   const origin = "https://mylms.korea.ac.kr";
   await context.route(`${origin}/**`, (route) => route.fulfill({
     contentType: "text/html",
