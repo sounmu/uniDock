@@ -2,6 +2,11 @@
 
 ## Home navigation
 
+The LMS progress capsule uses a flat dark surface without an outer shadow.
+Keep its status, lecture label, remaining count and keyboard-accessible dismiss
+control. It informs without dimming the page or adding a backdrop; resuming a
+retained paused lecture keeps its existing authorized player tab and position.
+
 Layout: Home and the shared shell use one document-scrolling column and the
 existing floating bottom capsule, now with four equal entries: 홈, 내 과목,
 일정, 설정. Keep the existing tokens, safe-area spacing and 44px targets.

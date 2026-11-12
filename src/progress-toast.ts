@@ -42,7 +42,6 @@ section {
   border-radius: 26px;
   background: #000;
   color: var(--ink);
-  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 10px 30px rgba(0, 0, 0, 0.32);
   animation: enter 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 svg {
