@@ -634,14 +634,69 @@ it.each(["paused", "stopped"] as const)(
       queue: [{ id: "12:35", courseId: "12" }],
     });
     ui = await mount(<PlaybackPanel />);
-    expect(ui.host.textContent).toContain("재생목록이 멈췄습니다");
-    await click("자동 재생 재개");
+    expect(ui.host.querySelector('.notice[role="status"]')?.textContent).toContain(
+      status === "paused" ? "강의 영상이 일시정지됐습니다." : "자동 재생이 중지됐습니다.",
+    );
+    expect(ui.host.querySelector('[role="alert"]')).toBeNull();
+    expect(ui.host.querySelector(".notice")?.textContent).not.toContain(
+      "현재 위치와 선택한 목록을 이어갑니다",
+    );
+    await click(status === "paused" ? "강의 탭에서 재개" : "자동 재생 재개");
     expect(command).toHaveBeenCalledWith({
       version: 1,
       type: "PLAYBACK_RESUME",
     });
   },
 );
+
+it("guides a native play gesture instead of extension resume after autoplay denial", async () => {
+  setup({
+    ...idle,
+    status: "blocked-autoplay",
+    current: { id: "12:34", courseId: "12" },
+  });
+  ui = await mount(<PlaybackPanel />);
+  expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain(
+    "영상 플레이어의 재생 버튼을 직접 누르세요",
+  );
+  expect([...ui.host.querySelectorAll("button")].some(
+    (button) => button.textContent === "자동 재생 재개",
+  )).toBe(false);
+});
+
+it.each([false, true])(
+  "promises native continuation only when the paused run permits it: %s",
+  async (nativeResumeAvailable) => {
+  setup({
+    ...idle, status: "paused", nativeResumeAvailable,
+    current: { id: "12:34", courseId: "12" },
+  });
+  ui = await mount(<PlaybackPanel />);
+  const notice = ui.host.querySelector('.notice[role="status"]');
+  expect(notice?.textContent).toContain("강의 영상이 일시정지됐습니다.");
+  expect(notice?.textContent?.includes(
+    "강의 탭에서 재생 버튼을 누르면 현재 위치와 선택한 목록을 이어갑니다.",
+  )).toBe(nativeResumeAvailable);
+  expect(ui.host.querySelector('[role="alert"]')).toBeNull();
+  },
+);
+
+it("withdraws native continuation guidance after an explicit stop", async () => {
+  const paused: PlaybackSnapshot = {
+    ...idle, status: "paused", nativeResumeAvailable: true,
+    current: { id: "12:34", courseId: "12" },
+  };
+  setup(paused);
+  ui = await mount(<PlaybackPanel />);
+  setup({ ...paused, status: "stopped", nativeResumeAvailable: false });
+  await click("새로고침");
+  expect(ui.host.querySelector(".notice")?.textContent).toContain(
+    "자동 재생이 중지됐습니다.",
+  );
+  expect(ui.host.querySelector(".notice")?.textContent).not.toContain(
+    "강의 탭에서 재생 버튼을 누르면",
+  );
+});
 
 it("requires confirmation before deleting local playback data", async () => {
   setup();

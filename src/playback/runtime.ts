@@ -131,6 +131,9 @@ export class PlaybackRuntime {
         ? this.saved.playlist.filter((item) => item.id !== current.id)
         : [...this.saved.playlist],
       status: this.status,
+      nativeResumeAvailable:
+        Boolean(this.run?.nativePaused) &&
+        (this.status === "paused" || this.status === "blocked-autoplay"),
     };
   }
   private storedCopy(): StoredPlayback {
@@ -767,12 +770,13 @@ export class PlaybackRuntime {
     address: PlayerAddress,
     binding: PlayerBinding,
     state: PlayerSignal,
+    nativeResumeAvailable = true,
   ): Promise<boolean> {
     let context = this.context();
     await this.ensureInitialized();
     const run = this.run;
     if (!run || !this.matches(address, binding)) return false;
-    if (state === "paused") {
+    if (state === "paused" || state === "blocked-autoplay") {
       // Authentication must happen first, but invalidation must happen before
       // the state lane: a lease may currently be awaiting discovery outside
       // that lane. Its old context can no longer grant or arm authorization.
@@ -806,7 +810,7 @@ export class PlaybackRuntime {
           this.assertCurrent(context);
           if (!this.matches(address, binding))
             throw new SupersededOperationError();
-          if (["failed", "blocked-autoplay", "blocked-login"].includes(state)) {
+          if (["failed", "blocked-login"].includes(state)) {
             this.saved.stopped = true;
             this.status = state as RuntimeStatus;
             await this.release();
@@ -814,10 +818,10 @@ export class PlaybackRuntime {
             await this.disarm();
             this.assertCurrent(context);
             await this.persist();
-          } else if (state === "paused") {
-            run.nativePaused = !this.saved.stopped;
+          } else if (state === "paused" || state === "blocked-autoplay") {
+            run.nativePaused = !this.saved.stopped && nativeResumeAvailable;
             this.saved.stopped = true;
-            this.status = "paused";
+            this.status = state;
             await this.disarmWatchdog();
             await this.persist();
           } else if (!this.saved.stopped) this.status = state;

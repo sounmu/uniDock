@@ -1,5 +1,26 @@
-import { describe, expect, it } from "vitest";
-import { isDiscovery, isPlaybackCommand } from "../src/playback/bridge";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { isDiscovery, isPlaybackCommand, playbackCommand } from "../src/playback/bridge";
+
+afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+  [{}, true],
+  [{ nativeResumeAvailable: true }, true],
+  [{ nativeResumeAvailable: false }, true],
+  [{ nativeResumeAvailable: "true" }, false],
+  [{ nativeResumeAvailable: null }, false],
+  [{ nativeResumeAvailable: true, mediaUrl: "https://example.invalid/media" }, false],
+] as const)("validates optional native resume availability %j", async (availability, accepted) => {
+  const snapshot = {
+    courses: [], labels: {}, queue: [], current: null, status: "paused", ...availability,
+  };
+  vi.stubGlobal("chrome", {
+    runtime: { sendMessage: vi.fn().mockResolvedValue({ status: "success", snapshot }) },
+  });
+  const result = await playbackCommand({ version: 1, type: "PLAYBACK_STATUS" });
+  if (accepted) expect(result).toEqual({ status: "success", snapshot });
+  else expect(result).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+});
 
 const handle = (suffix: string) =>
   `00000000-0000-4000-8000-${suffix.padStart(12, "0")}`;

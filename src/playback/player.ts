@@ -91,7 +91,7 @@ export class PlaybackPlayer {
 
   private set(status: PlaybackStatus): PlaybackStatus {
     this.statusValue = status;
-    if (status.state !== "paused" || status.reason)
+    if ((status.state !== "paused" && status.state !== "blocked-autoplay") || status.reason)
       this.nativePause = undefined;
     if (status.state !== "playing" && status.state !== "starting")
       this.pendingResumePosition = undefined;
@@ -156,7 +156,8 @@ export class PlaybackPlayer {
   }
 
   resume(): Promise<PlaybackStatus> {
-    if (this.status.state !== "paused") return Promise.resolve(this.status);
+    if (this.status.state !== "paused" && this.status.state !== "blocked-autoplay")
+      return Promise.resolve(this.status);
     this.retainEvidenceForResume();
     return this.play();
   }
@@ -182,7 +183,8 @@ export class PlaybackPlayer {
       event: Event,
       requestResume = false,
     ): boolean => {
-      if (!event.isTrusted || !current() || this.status.state !== "paused")
+      if (!event.isTrusted || !current() ||
+        (this.status.state !== "paused" && this.status.state !== "blocked-autoplay"))
         return false;
       // Hold native playback until the caller obtains a fresh lease. Explicit
       // adapter pauses and unverified ends never request native resumption.
@@ -489,10 +491,18 @@ export class PlaybackPlayer {
             if (!current()) return;
             this.options.onDiagnostic?.("PLAY_REJECTED");
             this.clearCompletionEvidence();
-            this.detachEvents?.();
-            this.detachEvents = undefined;
             const blocked =
               cause instanceof DOMException && cause.name === "NotAllowedError";
+            if (blocked) {
+              this.nativePause = {
+                source: this.video.currentSrc,
+                src: this.video.src,
+                sourceObject: this.video.srcObject,
+              };
+            } else {
+              this.detachEvents?.();
+              this.detachEvents = undefined;
+            }
             finish(
               this.set({
                 state: blocked ? "blocked-autoplay" : "failed",

@@ -765,10 +765,15 @@ export default defineBackground(() => {
         const state = states.find((state) => state === message.state);
         if (
           message.type === "PLAYBACK_PLAYER_EVENT" &&
-          Object.keys(message).length === 6 &&
+          Object.keys(message).length ===
+            (message.nativeResumeAvailable === undefined ? 6 : 7) &&
+          (message.nativeResumeAvailable === undefined ||
+            (state === "paused" && message.nativeResumeAvailable === false)) &&
           state
         ) {
-          const ok = await playback.signal(address, message, state);
+          const ok = await playback.signal(
+            address, message, state, message.nativeResumeAvailable !== false,
+          );
           if (ok) notifyPlayback();
           return { ok };
         }

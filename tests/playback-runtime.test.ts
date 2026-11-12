@@ -178,10 +178,51 @@ it("releases a lost player tab so its ownership record is dropped", async () => 
   expect(f.saved?.playlist).toHaveLength(2);
 });
 
-it("renews a native-paused run and advances after its resumed measured end", async () => {
+it("does not offer native resumption for unauthenticated pause events", async () => {
   const f = fixture();
   const binding = await playing(f);
-  await f.runtime.signal(address, binding, "paused");
+  for (const [from, proof] of [
+    [{ ...address, tabId: 12 }, binding],
+    [{ ...address, frameId: 3 }, binding],
+    [{ ...address, documentId: "another-document" }, binding],
+    [address, { ...binding, runId: "wrong" }],
+    [address, { ...binding, token: "wrong" }],
+  ] as const) expect(await f.runtime.signal(from, proof, "paused")).toBe(false);
+  expect(snapshot(await f.runtime.command({
+    version: 1, type: "PLAYBACK_STATUS",
+  }))).toMatchObject({ status: "playing", nativeResumeAvailable: false });
+  expect(f.saved?.stopped).toBe(false);
+});
+
+it("does not offer native resumption for an unverified completion pause", async () => {
+  const f = fixture();
+  const binding = await playing(f);
+  await f.runtime.signal(address, binding, "paused", false);
+  expect(snapshot(await f.runtime.command({
+    version: 1, type: "PLAYBACK_STATUS",
+  }))).toMatchObject({ status: "paused", nativeResumeAvailable: false });
+  expect(await f.runtime.lease(address, binding)).toBeNull();
+  expect(f.saved?.playlist).toHaveLength(2);
+});
+
+it.each(["paused", "blocked-autoplay"] as const)(
+  "renews a %s run and advances after its resumed measured end", async (state) => {
+  const f = fixture();
+  const binding = await playing(f);
+  const status = () => f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" });
+  expect(snapshot(await status()).nativeResumeAvailable).toBe(false);
+  const playlist = structuredClone(f.saved?.playlist);
+  await f.runtime.signal(address, binding, state);
+  expect(snapshot(await status())).toMatchObject({
+    status: state,
+    nativeResumeAvailable: true,
+    current: { id: "101:501", courseId: "101" },
+    queue: [{ id: "101:502", courseId: "101" }],
+  });
+  expect(f.saved?.playlist).toEqual(playlist);
+  expect(f.saved).not.toHaveProperty("nativeResumeAvailable");
+  expect(f.runtime.dedicatedTabId).toBe(address.tabId);
+  expect(f.released).toEqual([]);
   expect(f.saved?.stopped).toBe(true);
   expect(f.alarms.size).toBe(0);
   await f.runtime.signal(address, binding, "playing");
@@ -193,6 +234,9 @@ it("renews a native-paused run and advances after its resumed measured end", asy
   expect(discover).toHaveBeenCalledOnce();
   if (!authorization) throw new Error("native resume was not authorized");
   expect(authorization.binding.deadline).toBe(f.ports.now() + 70000);
+  expect(authorization.binding.runId).toBe(binding.runId);
+  expect(authorization.binding.token).toBe(binding.token);
+  expect(snapshot(await status()).nativeResumeAvailable).toBe(false);
   await f.runtime.signal(address, authorization.binding, "playing");
   expect(
     snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }))
@@ -203,13 +247,24 @@ it("renews a native-paused run and advances after its resumed measured end", asy
   expect(f.saved?.playlist.map((item) => item.id)).toEqual(["101:502"]);
 });
 
-it.each(["PLAYBACK_PAUSE", "PLAYBACK_STOP_ALL"] as const)(
-  "rejects native resume authorization after explicit %s",
-  async (type) => {
+it.each([
+  ["paused", "PLAYBACK_PAUSE"],
+  ["paused", "PLAYBACK_STOP_ALL"],
+  ["blocked-autoplay", "PLAYBACK_PAUSE"],
+  ["blocked-autoplay", "PLAYBACK_STOP_ALL"],
+] as const)(
+  "rejects %s native resume authorization after explicit %s",
+  async (state, type) => {
     const f = fixture();
     const binding = await playing(f);
-    await f.runtime.signal(address, binding, "paused");
+    await f.runtime.signal(address, binding, state);
     await f.runtime.command({ version: 1, type });
+    expect(snapshot(await f.runtime.command({
+      version: 1, type: "PLAYBACK_STATUS",
+    }))).toMatchObject({
+      status: type === "PLAYBACK_PAUSE" ? "paused" : "stopped",
+      nativeResumeAvailable: false,
+    });
     expect(await f.runtime.lease(address, binding)).toBeNull();
     await f.runtime.signal(address, binding, "playing");
     expect(f.saved?.stopped).toBe(true);
@@ -217,12 +272,17 @@ it.each(["PLAYBACK_PAUSE", "PLAYBACK_STOP_ALL"] as const)(
   },
 );
 
-it.each(["pause", "stop", "replacement", "expired-session"] as const)(
-  "rejects a pending native-resume lease after %s",
-  async (change) => {
+it.each([
+  ["paused", "pause"], ["paused", "stop"], ["paused", "replacement"],
+  ["paused", "expired-session"],
+  ["blocked-autoplay", "pause"], ["blocked-autoplay", "stop"],
+  ["blocked-autoplay", "replacement"], ["blocked-autoplay", "expired-session"],
+] as const)(
+  "rejects a pending %s native-resume lease after %s",
+  async (state, change) => {
     const f = fixture();
     const binding = await playing(f);
-    await f.runtime.signal(address, binding, "paused");
+    await f.runtime.signal(address, binding, state);
     const discoveryRequest = deferred<PlaybackDiscovery>();
     const entered = deferred<void>();
     vi.spyOn(f.ports, "discover").mockImplementationOnce(() => {
@@ -241,17 +301,23 @@ it.each(["pause", "stop", "replacement", "expired-session"] as const)(
       discoveryRequest.reject(new PlaybackRuntimeError("LOGIN_REQUIRED"));
     else discoveryRequest.resolve(discovery);
     expect(await lease).toBeNull();
+    expect(snapshot(await f.runtime.command({
+      version: 1, type: "PLAYBACK_STATUS",
+    })).nativeResumeAvailable).toBe(false);
     expect(f.saved?.stopped).toBe(true);
     expect(f.opened).toHaveLength(1);
   },
 );
 
-it("does not restore native-resume authority after a worker restart", async () => {
+it.each(["paused", "blocked-autoplay"] as const)(
+  "does not restore %s native-resume authority after a worker restart", async (state) => {
   const f = fixture();
   const binding = await playing(f);
-  await f.runtime.signal(address, binding, "paused");
+  await f.runtime.signal(address, binding, state);
   const restarted = new PlaybackRuntime(f.ports);
-  expect(snapshot(await restarted.startup()).status).toBe("paused");
+  expect(snapshot(await restarted.startup())).toMatchObject({
+    status: "paused", nativeResumeAvailable: false,
+  });
   expect(await restarted.lease(address, binding)).toBeNull();
   expect(await restarted.signal(address, binding, "playing")).toBe(false);
   expect(f.saved?.stopped).toBe(true);

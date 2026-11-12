@@ -18,7 +18,11 @@ const binding: PlayerBinding = {
   token: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
   deadline: Date.now() + 60000,
 };
-type Wire = { type: string; state?: string; action?: string };
+type Wire = {
+  type: string;
+  state?: string;
+  action?: string;
+};
 type Listener = (
   message: unknown,
   sender: chrome.runtime.MessageSender,
@@ -159,6 +163,28 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, "visibilityState");
+});
+
+it("does not advertise native continuation after an unverified end", async () => {
+  const fixture = setup();
+  const notify = nativeSignals(fixture.video);
+  document.body.append(fixture.video);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+  const paused = fixture.event("paused");
+  Object.defineProperty(fixture.video, "ended", { configurable: true, value: true });
+  notify("ended");
+  expect(await paused).toMatchObject({
+    type: "PLAYBACK_PLAYER_EVENT",
+    state: "paused",
+    nativeResumeAvailable: false,
+  });
+  Object.defineProperty(fixture.video, "ended", { configurable: true, value: false });
+  notify("play");
+  expect(fixture.sendMessage).not.toHaveBeenCalledWith(
+    expect.objectContaining({ type: "PLAYBACK_PLAYER_LEASE" }),
+  );
 });
 
 it("does not handshake on non-player pages or until exactly one native video exists", async () => {
@@ -610,6 +636,7 @@ it("renews native-paused playback after dormancy before updating autoplay to pla
   const started = fixture.event("playing");
   page.main();
   await started;
+  fixture.video.currentTime = 37;
   Object.defineProperty(fixture.video, "paused", {
     configurable: true,
     value: true,
@@ -645,25 +672,38 @@ it("renews native-paused playback after dormancy before updating autoplay to pla
   });
   await resumed;
   expect(fixture.play).toHaveBeenCalledTimes(2);
+  expect(fixture.video.currentTime).toBe(37);
 });
 
-it.each(["pause", "stop", "source", "revoke", "refuse"] as const)(
-  "does not resume a native-paused player after a pending lease and %s",
-  async (change) => {
+it.each([
+  ["paused", "pause"], ["paused", "stop"], ["paused", "source"],
+  ["paused", "revoke"], ["paused", "refuse"],
+  ["blocked-autoplay", "pause"], ["blocked-autoplay", "stop"],
+  ["blocked-autoplay", "source"], ["blocked-autoplay", "revoke"],
+  ["blocked-autoplay", "refuse"],
+] as const)(
+  "does not resume a %s player after a pending lease and %s",
+  async (state, change) => {
     const lease = Promise.withResolvers<unknown>();
     const fixture = setup({ lease: lease.promise });
     const native = nativeSignals(fixture.video);
     document.body.append(fixture.video);
-    const started = fixture.event("playing");
+    if (state === "blocked-autoplay")
+      fixture.play
+        .mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"))
+        .mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
+    const started = fixture.event(state === "paused" ? "playing" : state);
     page.main();
     await started;
     Object.defineProperty(fixture.video, "paused", {
       configurable: true,
       value: true,
     });
-    const paused = fixture.event("paused");
-    native("pause");
-    await paused;
+    if (state === "paused") {
+      const paused = fixture.event("paused");
+      native("pause");
+      await paused;
+    }
     Object.defineProperty(fixture.video, "paused", {
       configurable: true,
       value: false,
@@ -700,7 +740,7 @@ it.each(["pause", "stop", "source", "revoke", "refuse"] as const)(
     );
     await fixture.sendMessage.mock.results[leaseCall]?.value;
     await Promise.resolve();
-    expect(fixture.play).toHaveBeenCalledOnce();
+    expect(fixture.play).toHaveBeenCalledTimes(state === "blocked-autoplay" ? 2 : 1);
   },
 );
 
@@ -878,19 +918,39 @@ it.each(
   },
 );
 
-it("reports native autoplay denial after one muted retry without restarting", async () => {
-  const fixture = setup();
-  fixture.play.mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+it("reports autoplay denial after one muted retry and resumes the same video after a fresh native lease", async () => {
+  vi.useFakeTimers();
+  const lease = Promise.withResolvers<unknown>();
+  const fixture = setup({ lease: lease.promise });
+  const native = nativeSignals(fixture.video);
+  fixture.play
+    .mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"))
+    .mockRejectedValueOnce(new DOMException("Denied", "NotAllowedError"));
   document.body.append(fixture.video);
   const blocked = fixture.event("blocked-autoplay");
   page.main();
   await blocked;
   expect(fixture.play).toHaveBeenCalledTimes(2);
   expect(fixture.video.muted).toBe(true);
-  const resume = fixture.control("resume");
-  expect(resume.accepted).toBe(true);
-  expect(await resume.done).toEqual({ ok: false });
+  await vi.advanceTimersByTimeAsync(80000);
+  expect(fixture.sendMessage.mock.calls.filter(([message]) =>
+    message.type === "PLAYBACK_PLAYER_LEASE")).toHaveLength(0);
+  const resumed = fixture.event("playing");
+  native("play");
   expect(fixture.play).toHaveBeenCalledTimes(2);
+  expect(fixture.pause).toHaveBeenCalled();
+  lease.resolve({
+    ok: true,
+    authorization: {
+      binding: { ...fixture.activeBinding, deadline: Date.now() + 70000 },
+      leaseUntil: Date.now() + 60000,
+    },
+  });
+  await resumed;
+  expect(fixture.play).toHaveBeenCalledTimes(3);
+  expect(fixture.sendMessage).toHaveBeenCalledWith({
+    version: 1, type: "PLAYBACK_PLAYER_LEASE", ...fixture.activeBinding,
+  });
 });
 
 it("rejects controls after navigation or video removal and invalidates playback", async () => {
