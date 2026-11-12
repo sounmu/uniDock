@@ -819,7 +819,11 @@ export class PlaybackRuntime {
             this.assertCurrent(context);
             await this.persist();
           } else if (state === "paused" || state === "blocked-autoplay") {
-            run.nativePaused = !this.saved.stopped && nativeResumeAvailable;
+            // A panel resume keeps stopped set until its control succeeds.
+            // Denial ends that transition but must retain direct-play recovery.
+            run.nativePaused = nativeResumeAvailable &&
+              (!this.saved.stopped || run.nativePaused || run.transitioning);
+            run.transitioning = false;
             this.saved.stopped = true;
             this.status = state;
             await this.disarmWatchdog();

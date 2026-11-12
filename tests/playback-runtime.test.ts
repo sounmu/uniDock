@@ -205,6 +205,85 @@ it("does not offer native resumption for an unverified completion pause", async 
   expect(f.saved?.playlist).toHaveLength(2);
 });
 
+it.each(["native", "panel"] as const)(
+  "keeps direct-play recovery when panel resume from %s pause reports autoplay denial",
+  async (pause) => {
+    const f = fixture();
+    const binding = await playing(f);
+    if (pause === "native") await f.runtime.signal(address, binding, "paused");
+    else await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    const playlist = structuredClone(f.saved?.playlist);
+    const control = vi.spyOn(f.ports, "control").mockImplementationOnce(
+      async (target, authorization, action) => {
+        expect(action).toBe("resume");
+        await f.runtime.signal(target, authorization.binding, "starting");
+        await f.runtime.signal(target, authorization.binding, "blocked-autoplay");
+        throw new PlaybackRuntimeError("PLAYER_LOST");
+      },
+    );
+
+    expect(await f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" }))
+      .toEqual({ status: "error", code: "BUSY" });
+    control.mockRestore();
+    const blocked = snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" }));
+    const authorization = await f.runtime.lease(address, binding);
+
+    expect({ blocked, authorization }).toMatchObject({
+      blocked: { status: "blocked-autoplay", nativeResumeAvailable: true },
+      authorization: { binding: { runId: binding.runId, token: binding.token } },
+    });
+    if (!authorization) throw new Error("Native recovery was not authorized");
+    await f.runtime.signal(address, authorization.binding, "playing");
+    expect(f.saved?.stopped).toBe(false);
+    expect(f.saved?.playlist).toEqual(playlist);
+    expect(f.opened).toHaveLength(1);
+    expect(f.released).toEqual([]);
+    // Recovery ends the panel transition: a later explicit pause retains its
+    // owned player, but withdraws native resumption until another user resume.
+    await f.runtime.command({ version: 1, type: "PLAYBACK_PAUSE" });
+    expect(f.runtime.dedicatedTabId).toBe(address.tabId);
+    expect(await f.runtime.lease(address, authorization.binding)).toBeNull();
+  },
+);
+
+it.each(["stop", "source-lost", "login-expired"] as const)(
+  "cannot recover a denied panel resume after %s while its control reply is pending",
+  async (change) => {
+    const f = fixture();
+    const binding = await playing(f);
+    await f.runtime.signal(address, binding, "paused");
+    const denied = deferred<void>();
+    const reply = deferred<void>();
+    vi.spyOn(f.ports, "control").mockImplementationOnce(async (target, authorization) => {
+      await f.runtime.signal(target, authorization.binding, "starting");
+      await f.runtime.signal(target, authorization.binding, "blocked-autoplay");
+      denied.resolve();
+      await reply.promise;
+      throw new PlaybackRuntimeError("PLAYER_LOST");
+    });
+    const resume = f.runtime.command({ version: 1, type: "PLAYBACK_RESUME" });
+    await denied.promise;
+
+    if (change === "stop")
+      await f.runtime.command({ version: 1, type: "PLAYBACK_STOP_ALL" });
+    else if (change === "source-lost") await f.runtime.sourceLost(address.tabId);
+    else f.failLogin = true;
+    reply.resolve();
+
+    expect(await resume).toEqual({ status: "error", code: "BUSY" });
+    expect(await f.runtime.lease(address, binding)).toBeNull();
+    expect(snapshot(await f.runtime.command({ version: 1, type: "PLAYBACK_STATUS" })))
+      .toMatchObject({
+        status: change === "stop" ? "stopped"
+          : change === "source-lost" ? "failed" : "blocked-login",
+        nativeResumeAvailable: false,
+      });
+    expect(f.runtime.dedicatedTabId).toBeNull();
+    expect(f.saved?.stopped).toBe(true);
+    expect(f.opened).toHaveLength(1);
+  },
+);
+
 it.each(["paused", "blocked-autoplay"] as const)(
   "renews a %s run and advances after its resumed measured end", async (state) => {
   const f = fixture();
