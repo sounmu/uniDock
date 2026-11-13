@@ -1,6 +1,8 @@
+import { KOREA_ORIGINS } from "./security/origins";
+
 export const popupAutoCloseKey = "unidock.popup-auto-close.v1";
 /** The only origin where the popup content script runs. */
-export const POPUP_ORIGIN = "https://lms.korea.ac.kr";
+export const POPUP_ORIGIN = KOREA_ORIGINS.portal;
 export const POPUP_MATCHES = [`${POPUP_ORIGIN}/*`];
 /**
  * Optional host grant requested only when the user turns the feature on.

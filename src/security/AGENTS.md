@@ -7,7 +7,8 @@ Earned its file: score ~9.5 (8 files, 20 exports, highest reference centrality i
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| Allowed LMS origins | `policy.ts` `LMS_ORIGINS`, `LMS_MATCHES` | `https://mylms.korea.ac.kr`, `https://canvas.korea.ac.kr`; manifest matches derive from these |
+| Origin declarations | `origins.ts` `KOREA_ORIGINS` | Import-free data shared by build configuration and runtime; LMS, player, portal and caption CDN |
+| Allowed LMS origins | `policy.ts` `LMS_ORIGINS`, `LMS_MATCHES` | Derived from `KOREA_ORIGINS.lms`; existing policy exports remain the runtime boundary |
 | Is a page URL ours? | `policy.ts` `allowedPage` | origin match AND no username/password in URL |
 | Build an LMS API read URL | `policy.ts` `readUrl(value, origin, expectedPath)` | throws `"POLICY"` unless path matches a regex allowlist (assignments, modules, module items, discussion topics, LearningX boards; only `page` query on post lists) |
 | Caption CDN media URL | `policy.ts` `CAPTION_MEDIA_HOST`, `CAPTION_MEDIA_ORIGIN_PATTERN`, `allowedCaptionMediaUrl` | used by `captions/media-source.ts`, `captions/referer-rule.ts` |
@@ -30,5 +31,5 @@ Earned its file: score ~9.5 (8 files, 20 exports, highest reference centrality i
 - Never widen `readUrl` with a generic path or pass-through query; add one exact regex per new LMS endpoint.
 - Never log page data, URLs, titles, IDs, or `Error` objects - add a fixed code to the allowlist in `logger.ts` instead.
 - Never treat `redactText` as a logging sanitizer: it is display-text defense in depth; logs accept no free text at all.
-- Do not add new LMS origins in other files; extend `LMS_ORIGINS` so `LMS_MATCHES` and `allowedPage` stay in sync.
+- Keep runtime origin declarations in `origins.ts`; `LMS_ORIGINS`, `LMS_MATCHES` and `allowedPage` derive from them. Injected functions remain self-contained, and release checks keep independent expectations.
 - Do not persist rate-limit state or tokens to `chrome.storage`.
