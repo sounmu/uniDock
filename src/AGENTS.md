@@ -24,6 +24,7 @@ src/
 | Course/assignment/deadline projections | `domain.ts`, `domain-items.ts`, `deadline-view.ts` | Raw LMS JSON -> `Course`, `Deadline`, `Todo`... |
 | Recordings / documents | `recordings.ts`, `documents.ts` | candidates, labels, MIME/extension checks |
 | LMS list fetching | `api/client.ts` | `listCourses`, `listCourseIndex`, `listQuery`; composes `api/*-collection.ts`, `pagination.ts`, `body.ts` |
+| LMS account / playback discovery | `api/account.ts`, `api/playback-discovery.ts` | `currentAccount`, `discoverPlayback`; content entrypoint retains lifecycle and epoch checks |
 | Opaque item handles | `navigation-catalog.ts`, `navigation-catalog-registry.ts`, `course-selector-registry.ts` | capacity-bounded, TTL'd admissions |
 | Panel result caching | `query-result-cache.ts` | |
 | Downloads / tab opening | `download-tab.ts`, `open-tab.ts` | `download-tab.ts` uses `TabRateLimiter` + `security/download` |

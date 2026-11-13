@@ -16,7 +16,8 @@ vi.mock("../src/api/client", () => ({
 vi.mock("wxt/utils/define-content-script", () => ({
   defineContentScript: (options: unknown) => options,
 }));
-import content, { discoverPlayback } from "../entrypoints/lms.content";
+import content from "../entrypoints/lms.content";
+import { discoverPlayback } from "../src/api/playback-discovery";
 
 const origin = "https://mylms.korea.ac.kr";
 const salt = "a".repeat(64);
