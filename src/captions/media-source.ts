@@ -3,8 +3,9 @@ import {
   CAPTION_MEDIA_ORIGIN_PATTERN,
   LMS_ORIGINS,
 } from "../security/policy";
+import { KOREA_ORIGINS } from "../security/origins";
 
-const PLAYER_ORIGIN = "https://kucom.korea.ac.kr";
+const PLAYER_ORIGIN = KOREA_ORIGINS.player;
 // The player runs as its own tab or inside a lecture page on the LMS.
 const PLAYER_TAB_ORIGINS: readonly string[] = [PLAYER_ORIGIN, ...LMS_ORIGINS];
 

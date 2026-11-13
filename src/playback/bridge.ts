@@ -1,6 +1,7 @@
 import { validHandle, type ErrorCode } from "../protocol";
 import type { PlaybackCandidate, PlaylistItem } from "./playlist";
 import { LMS_ORIGINS } from "../security/policy";
+import { KOREA_ORIGINS } from "../security/origins";
 import { navigationUrl } from "../security/navigation";
 
 export type PlaybackCommand =
@@ -192,7 +193,7 @@ export function playerPage(value: string): boolean {
     return (
       !url.username &&
       !url.password &&
-      ((url.origin === "https://kucom.korea.ac.kr" &&
+      ((url.origin === KOREA_ORIGINS.player &&
         url.pathname.startsWith("/em/")) ||
         navigationUrl(value, value) === value)
     );

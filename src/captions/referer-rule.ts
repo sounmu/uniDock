@@ -1,10 +1,11 @@
 import { allowedCaptionMediaUrl, CAPTION_MEDIA_HOST } from "../security/policy";
 import { safeLog } from "../security/logger";
+import { KOREA_ORIGINS } from "../security/origins";
 
 export const CAPTION_RULE_PORT = "unidock-caption-rule";
 const RULE_ID_MIN = 1_947_000;
 const RULE_ID_SPAN = 1000;
-const PLAYER_REFERER = "https://kucom.korea.ac.kr/";
+const PLAYER_REFERER = `${KOREA_ORIGINS.player}/`;
 const MAX_FAILED_RECONNECTS = 5;
 export const CAPTION_RULE_KEEPALIVE_MS = 20_000;
 export const CAPTION_RULE_SWEEP_GRACE_MS = 10_000;
