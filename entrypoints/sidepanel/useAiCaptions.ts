@@ -26,6 +26,7 @@ import {
 import { isTerminal, type JobPhase } from "../../src/captions/job-state";
 import type { Transcript } from "../../src/captions/transcript";
 import { safeLog } from "../../src/security/logger";
+import { KOREA_ORIGINS } from "../../src/security/origins";
 import type { ErrorCode } from "../../src/analytics/report";
 import { startOperation, type OperationHandle } from "./analytics";
 import { publishCaptionActivity } from "./progress-activity";
@@ -215,7 +216,7 @@ export function useAiCaptions() {
           expiresAt: value.expiresAt || null,
           result: {
             transcript: {
-              sourceUrl: "https://kucom.korea.ac.kr/",
+              sourceUrl: `${KOREA_ORIGINS.player}/`,
               pageTitle: lectureTitle.current || "AI 자막",
               extractedAt: value.extractedAt,
               itemCount: value.items.length,
@@ -356,7 +357,7 @@ export function useAiCaptions() {
               engine: transcript.engine,
               modelRevision: transcript.modelRevision,
               transcript: {
-                sourceUrl: "https://kucom.korea.ac.kr/",
+                sourceUrl: `${KOREA_ORIGINS.player}/`,
                 pageTitle: title || "AI 자막",
                 extractedAt: transcript.extractedAt,
                 itemCount: transcript.items.length,

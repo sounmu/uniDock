@@ -1,5 +1,6 @@
 import { defineConfig } from "wxt";
-const CAPTION_CDN = "https://korea-cms-object.cdn.gov-ntruss.com";
+import { KOREA_ORIGINS } from "./src/security/origins";
+const CAPTION_CDN = KOREA_ORIGINS.captionMedia;
 // WXT loads .env, .env.local and mode files into process.env only after this
 // module is evaluated, so the flags are read lazily from the hooks below.
 // Shell variables override the files. The release ZIP needs both features on.
@@ -77,14 +78,13 @@ export default defineConfig({
           : []),
       ],
       host_permissions: [
-        "https://mylms.korea.ac.kr/*",
-        "https://canvas.korea.ac.kr/*",
-        "https://kucom.korea.ac.kr/*",
+        ...KOREA_ORIGINS.lms.map((origin) => `${origin}/*`),
+        `${KOREA_ORIGINS.player}/*`,
       ],
       // Requested only when the user turns on popup auto-close, so adding the
       // portal never re-prompts existing installs on update.
       optional_host_permissions: [
-        "https://lms.korea.ac.kr/*",
+        `${KOREA_ORIGINS.portal}/*`,
         ...(aiCaptions ? [`${CAPTION_CDN}/*`] : []),
       ],
       icons: {
