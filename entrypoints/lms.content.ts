@@ -209,20 +209,31 @@ export async function discoverPlayback(
     const courses: { id: string; name: string }[] = [];
     const candidates: PlaybackCandidate[] = [];
     const now = Date.now();
+    const indexed: { id: string; name: string }[] = [];
     for (const course of await collect(
       "/api/v1/courses",
       "per_page=100&enrollment_state=active",
     )) {
       const projectedCourse = projectCourseIndex([course])[0];
-      if (!projectedCourse) continue;
-      const courseId = projectedCourse.id;
-      courses.push({ id: courseId, name: projectedCourse.name });
-      if (courses.length > 100) throw new Error("LIMIT");
+      if (projectedCourse) indexed.push(projectedCourse);
+    }
+    // Each course is still read fresh with the same GETs. Up to three courses
+    // overlap; results are merged in course order and the lowest-index failure
+    // wins, so listing order and error precedence match a sequential walk.
+    // `buffered` is the one candidate budget shared by every overlapped course:
+    // it is charged before a candidate is kept, so the 10,000 cap bounds memory
+    // while courses are still being read, not only after they are merged.
+    let buffered = 0;
+    async function courseCandidates(
+      courseId: string,
+    ): Promise<PlaybackCandidate[]> {
+      const found: PlaybackCandidate[] = [];
       const modulesPath = `/api/v1/courses/${courseId}/modules`;
       for (const module of await collect(
         modulesPath,
         "per_page=100&include[]=items&include[]=content_details",
       )) {
+        if (buffered > 10000) throw new Error("LIMIT");
         if (!accessible(module, now)) continue;
         if (
           module.items_count != null &&
@@ -246,15 +257,46 @@ export async function discoverPlayback(
           if (!recordingCandidate(item, now)) continue;
           const itemId = internalId(item.id);
           if (!itemId) continue;
-          candidates.push({
+          if (++buffered > 10000) throw new Error("LIMIT");
+          // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
+          found.push({
             id: `${courseId}:${itemId}`,
             courseId,
             title: recordingLabel(item.title),
           });
-          // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
-          if (candidates.length > 10000) throw new Error("LIMIT");
         }
       }
+      return found;
+    }
+    // The 101st course is the LIMIT failure; it is never fetched.
+    const fetchable = Math.min(indexed.length, 100);
+    const fetched: ({ found: PlaybackCandidate[] } | { error: unknown })[] = [];
+    let nextCourse = 0,
+      firstFailure = Infinity;
+    async function worker() {
+      while (nextCourse < fetchable) {
+        const index = nextCourse++;
+        // A sequential walk would have stopped before reading this course.
+        if (index > firstFailure || buffered > 10000) return;
+        try {
+          fetched[index] = {
+            found: await courseCandidates(indexed[index]!.id),
+          };
+        } catch (error) {
+          fetched[index] = { error };
+          firstFailure = Math.min(firstFailure, index);
+        }
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(3, fetchable) }, () => worker()),
+    );
+    for (const [index, course] of indexed.entries()) {
+      courses.push({ id: course.id, name: course.name });
+      if (courses.length > 100) throw new Error("LIMIT");
+      const result = fetched[index]!;
+      if ("error" in result) throw result.error;
+      candidates.push(...result.found);
     }
     const identityAfter = await identity();
     if (
