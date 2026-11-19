@@ -1815,3 +1815,132 @@ it.each([
     expect(f.values).not.toHaveProperty(PLAYBACK_STORAGE_KEY);
   },
 );
+
+function tabLifecycleFixture(saved: unknown, coldStart = false) {
+  const listeners = {
+    removed: [] as ((tabId: number) => void)[],
+    updated: [] as ((
+      tabId: number,
+      change: { status?: string; url?: string },
+      tab: chrome.tabs.Tab,
+    ) => void)[],
+  };
+  const local: Record<string, unknown> = { [PLAYBACK_STORAGE_KEY]: saved };
+  const sendMessage = vi.fn().mockResolvedValue(undefined);
+  // A cold start leaves initialization to the first tab event, as after a worker wake-up.
+  if (coldStart)
+    vi.spyOn(PlaybackRuntime.prototype, "startup").mockReturnValue(
+      new Promise(() => {}),
+    );
+  const lost = vi.spyOn(PlaybackRuntime.prototype, "lost");
+  const sourceLost = vi.spyOn(PlaybackRuntime.prototype, "sourceLost");
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test-extension",
+      sendMessage,
+      onMessage: { addListener: vi.fn() },
+      onStartup: { addListener: vi.fn() },
+      onInstalled: { addListener: vi.fn() },
+    },
+    action: actionMocks(),
+    sidePanel: { setPanelBehavior: vi.fn().mockResolvedValue(undefined) },
+    storage: {
+      local: {
+        get: async (key: string | string[]) =>
+          Object.fromEntries(
+            [key].flat().map((name) => [name, local[name]]),
+          ),
+        set: async (next: Record<string, unknown>) =>
+          Object.assign(local, next),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+    tabs: {
+      get: vi.fn().mockRejectedValue(new Error("gone")),
+      query: vi.fn().mockResolvedValue([]),
+      remove: vi.fn().mockResolvedValue(undefined),
+      onRemoved: {
+        addListener: (listener: (tabId: number) => void) =>
+          listeners.removed.push(listener),
+      },
+      onActivated: { addListener: vi.fn() },
+      onUpdated: {
+        addListener: (listener: (typeof listeners.updated)[number]) =>
+          listeners.updated.push(listener),
+      },
+    },
+    alarms: {
+      clear: vi.fn().mockResolvedValue(true),
+      create: vi.fn().mockResolvedValue(undefined),
+      getAll: vi.fn().mockResolvedValue([]),
+      onAlarm: { addListener: vi.fn() },
+    },
+  });
+  background.main();
+  const notifications = () =>
+    sendMessage.mock.calls.filter(
+      ([message]) => message?.type === "PLAYBACK_UPDATED",
+    ).length;
+  return {
+    local,
+    notifications,
+    async ready() {
+      await vi.waitFor(() => expect(notifications()).toBe(1));
+      sendMessage.mockClear();
+      lost.mockClear();
+      sourceLost.mockClear();
+    },
+    async settle() {
+      await Promise.all(
+        [...lost.mock.results, ...sourceLost.mock.results].map(
+          (result) => result.value as Promise<unknown>,
+        ),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+    remove: (tabId: number) => listeners.removed.forEach((l) => l(tabId)),
+    update: (tabId: number, change: { status?: string; url?: string }) =>
+      listeners.updated.forEach((l) => l(tabId, change, { id: tabId } as chrome.tabs.Tab)),
+  };
+}
+
+const savedPlayer = {
+  ...emptyPlayback("a".repeat(64), "https://mylms.korea.ac.kr"),
+  playlist: [{ id: "101:501", courseId: "101" }],
+  player: { tabId: 9, id: "101:501", courseId: "101" },
+  stopped: false,
+};
+
+it("sends no playback notification for unrelated tab loading and removal bursts", async () => {
+  const f = tabLifecycleFixture(savedPlayer);
+  await f.ready();
+
+  for (let tabId = 100; tabId < 120; tabId++) {
+    f.update(tabId, { status: "loading" });
+    f.remove(tabId + 100);
+  }
+  await f.settle();
+
+  expect(f.notifications()).toBe(0);
+  expect((f.local[PLAYBACK_STORAGE_KEY] as typeof savedPlayer).player).toEqual(
+    savedPlayer.player,
+  );
+});
+
+it("still notifies once when the first event after a cold start recovers the saved player", async () => {
+  const f = tabLifecycleFixture(savedPlayer, true);
+
+  f.remove(9);
+  await f.settle();
+
+  expect(f.notifications()).toBe(1);
+  expect(
+    (f.local[PLAYBACK_STORAGE_KEY] as typeof savedPlayer).player,
+  ).toBeNull();
+});
