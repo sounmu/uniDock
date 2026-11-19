@@ -39,19 +39,32 @@ function courseList(count: number) {
 /** Serves identity and course listing immediately; course modules go through `modules`. */
 function lms(
   count: number,
-  modules: (courseId: number) => Promise<Response> | Response,
+  modules: (
+    courseId: number,
+    signal: AbortSignal | null | undefined,
+  ) => Promise<Response> | Response,
 ) {
   const requested: string[] = [];
-  const fetcher: typeof fetch = async (input) => {
+  const fetcher: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
     requested.push(path);
     if (path === "/api/v1/users/self") return json({ id: 42 });
     if (path === "/api/v1/courses") return json(courseList(count));
     const match = path.match(/^\/api\/v1\/courses\/(\d+)\/modules$/);
-    if (match) return modules(Number(match[1]));
+    if (match) return modules(Number(match[1]), init?.signal);
     throw new Error("unexpected endpoint");
   };
   return { fetcher, requested };
+}
+/** A read that never answers and rejects only when its own signal aborts. */
+function hang(signal: AbortSignal | null | undefined): Promise<Response> {
+  return new Promise((_, reject) => {
+    signal?.addEventListener(
+      "abort",
+      () => reject(new DOMException("aborted", "AbortError")),
+      { once: true },
+    );
+  });
 }
 
 it("overlaps at most three course module reads and still lists candidates in course order", async () => {
@@ -115,6 +128,63 @@ it("reports the lowest-index course failure and returns no partial discovery", a
   await Promise.resolve();
   slow.resolve(new Response(null, { status: 403 }));
   expect(await discovery).toEqual({ status: "error", code: "FORBIDDEN" });
+});
+
+it("returns an earlier course failure promptly while a later course hangs", async () => {
+  const signals = new Map<number, AbortSignal>();
+  const { fetcher, requested } = lms(6, (courseId, signal) => {
+    if (courseId === 100) return new Response(null, { status: 403 });
+    signals.set(courseId, signal!);
+    return hang(signal);
+  });
+  // Without the fix this stays pending until the 20s deadline and reports TIMEOUT.
+  expect(await discoverPlayback(origin, salt, fetcher)).toEqual({
+    status: "error",
+    code: "FORBIDDEN",
+  });
+  // The hanging later reads are discarded, not left running.
+  expect([...signals.keys()]).toEqual([101, 102]);
+  for (const signal of signals.values()) expect(signal.aborted).toBe(true);
+  expect(requested.filter((path) => path.endsWith("/modules"))).toEqual(
+    [100, 101, 102].map((id) => `/api/v1/courses/${id}/modules`),
+  );
+  expect(
+    requested.filter((path) => path === "/api/v1/users/self"),
+  ).toHaveLength(1);
+});
+
+it("keeps a lower unresolved course running when a later one fails first, then lets it win", async () => {
+  const signals = new Map<number, AbortSignal>();
+  const first = deferred<Response>();
+  const { fetcher } = lms(4, (courseId, signal) => {
+    signals.set(courseId, signal!);
+    if (courseId === 100) return first.promise;
+    if (courseId === 101) return new Response(null, { status: 500 });
+    return hang(signal);
+  });
+  const discovery = discoverPlayback(origin, salt, fetcher);
+  // Course 101's failure is not yet the answer: 100 is unresolved. Only the
+  // higher-index hanging read is discarded.
+  await vi.waitFor(() => expect(signals.get(102)!.aborted).toBe(true));
+  expect(signals.get(100)!.aborted).toBe(false);
+  expect(signals.get(101)!.aborted).toBe(false);
+  first.resolve(new Response(null, { status: 403 }));
+  expect(await discovery).toEqual({ status: "error", code: "FORBIDDEN" });
+});
+
+it("falls back to the later failure once every lower course has succeeded", async () => {
+  const first = deferred<Response>();
+  const signals = new Map<number, AbortSignal>();
+  const { fetcher } = lms(4, (courseId, signal) => {
+    signals.set(courseId, signal!);
+    if (courseId === 100) return first.promise;
+    if (courseId === 101) return new Response(null, { status: 401 });
+    return hang(signal);
+  });
+  const discovery = discoverPlayback(origin, salt, fetcher);
+  await vi.waitFor(() => expect(signals.get(102)!.aborted).toBe(true));
+  first.resolve(json(courseModules(100)));
+  expect(await discovery).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
 });
 
 it("starts no course after a failed one", async () => {
