@@ -12,7 +12,6 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { isProgressState } from "../src/progress";
 import { createProgressToast } from "../src/progress-toast";
 import { listCourseIndex, listQuery } from "../src/api/client";
-import { ConditionalReads } from "../src/api/conditional-reads";
 import { learningxToken } from "../src/security/learningx-token";
 import {
   panelQuery,
@@ -343,7 +342,6 @@ export default defineContentScript({
     const catalogs = new NavigationCatalogRegistry();
     const courseSelectors = new CourseSelectorRegistry();
     const cache = new QueryResultCache();
-    const reads = new ConditionalReads();
     let cacheAccount: string | undefined;
     let lifecycleEpoch = 0;
     let courseIndexGeneration = 0;
@@ -358,7 +356,6 @@ export default defineContentScript({
       courseIndexGeneration++;
       courseIndexPending = undefined;
       cache.clear();
-      reads.clear();
       cacheAccount = undefined;
       catalogs.revokeAll();
       courseSelectors.revokeAll();
@@ -627,7 +624,6 @@ export default defineContentScript({
         }
       }
       if (ttl !== undefined && refresh) cache.delete(key);
-      if (capabilityList && refresh) reads.clear();
       if (ttl !== undefined && !refresh) {
         const hit = cache.get(key);
         if (hit) return hit;
@@ -639,7 +635,6 @@ export default defineContentScript({
           staging = catalogs.begin(admission, account, epoch);
           if (!staging) return { status: "error", code: "RELOAD_TAB" };
         }
-        const readScope = reads.scope();
         const result = await (staging
           ? listQuery(
               location.origin,
@@ -649,7 +644,6 @@ export default defineContentScript({
               staging,
               resolvedCourseId,
               () => learningxToken(document.cookie),
-              readScope,
             )
           : listQuery(
               location.origin,
@@ -689,7 +683,6 @@ export default defineContentScript({
             return { status: "error", code: "RELOAD_TAB" };
           if (!catalogs.publish(admission!, staging))
             return { status: "error", code: "RELOAD_TAB" };
-          readScope.commit();
         }
         if (ttl !== undefined) cache.set(key, result, ttl);
         return result;

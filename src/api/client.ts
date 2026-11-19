@@ -1,10 +1,4 @@
-import { readJsonBounded, readJsonBoundedSized } from "./body";
-import {
-  cacheableHeaders,
-  sameValidator,
-  validEntityTag,
-  type ConditionalReadScope,
-} from "./conditional-reads";
+import { readJsonBounded } from "./body";
 import { NavigationCatalog } from "../navigation-catalog";
 import { projectCourseIndex, type InternalCourse } from "../domain";
 import {
@@ -34,7 +28,6 @@ const coursesPath = "/api/v1/courses";
 // Time kept back from board videos so module recordings can still be returned.
 const BOARD_RESERVE_MS = 2000;
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
-const PAGE_SIZE = 100;
 export async function listQuery(
   origin: string,
   query: Request,
@@ -44,13 +37,7 @@ export async function listQuery(
   resolvedCourseId?: string,
   /** Reads the LearningX board token at call time; omitted skips boards. */
   boardToken?: () => string | null,
-  /** Revalidates module/item/topic pages of capability lists with ETags. */
-  reads?: ConditionalReadScope,
 ): Promise<Result> {
-  const revalidate =
-    query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
-      ? reads
-      : undefined;
   const controller = new AbortController();
   let timedOut = false;
   const deadline = Date.now() + 20000;
@@ -72,83 +59,44 @@ export async function listQuery(
     let next: string | null = readUrl(initial, origin, path).href;
     const visited = new Set<string>();
     const items: T[] = [];
-    // Only the first page of a course-scoped list may be revalidated.
-    const validators = path === coursesPath ? undefined : revalidate;
     while (next) {
       if (controller.signal.aborted) throw new Error("TIMEOUT");
       if (visited.has(next) || pages++ >= 100) throw new Error("LIMIT");
       visited.add(next);
-      const url = readUrl(next, origin, path).href;
-      const stored = visited.size === 1 ? validators?.get(url) : undefined;
-      const request = (etag?: string) =>
-        fetcher(url, {
-          method: "GET",
-          credentials: "same-origin",
-          redirect: "manual",
-          cache: "no-store",
-          referrerPolicy: "no-referrer",
-          headers: etag
-            ? { Accept: "application/json", "If-None-Match": etag }
-            : { Accept: "application/json" },
-          signal: controller.signal,
-        });
-      let response = await request(stored?.etag);
-      let raw: unknown;
-      let link: string | null = null;
-      if (stored && response.status === 304) {
+      const response = await fetcher(readUrl(next, origin, path).href, {
+        method: "GET",
+        credentials: "same-origin",
+        redirect: "manual",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (
+        optional &&
+        visited.size === 1 &&
+        [401, 403, 404].includes(response.status)
+      ) {
         void response.body?.cancel().catch(() => {});
-        if (
-          nextPage(response.headers.get("link"), origin, path) ||
-          !cacheableHeaders(response.headers) ||
-          !sameValidator(response.headers, stored.etag)
-        ) {
-          validators!.delete(url);
-          if (pages++ >= 100) throw new Error("LIMIT");
-          response = await request();
-        } else raw = stored.raw;
+        return [];
       }
-      if (raw === undefined) {
-        if (
-          optional &&
-          visited.size === 1 &&
-          [401, 403, 404].includes(response.status)
-        ) {
-          void response.body?.cancel().catch(() => {});
-          return [];
-        }
-        if (
-          response.type === "opaqueredirect" ||
-          response.status === 401 ||
-          (response.status >= 300 && response.status < 400)
-        )
-          throw new Error("LOGIN_REQUIRED");
-        if (response.status === 403) throw new Error("FORBIDDEN");
-        if (!response.ok) throw new Error("NETWORK");
-        link = response.headers.get("link");
-        const type = response.headers.get("content-type") ?? "";
-        if (type.includes("text/html")) throw new Error("LOGIN_REQUIRED");
-        if (!/^application\/json\b/i.test(type))
-          throw new Error("INVALID_RESPONSE");
-        const body = await readJsonBoundedSized(response);
-        raw = body.value;
-        const etag = response.headers.get("etag");
-        if (validators && visited.size === 1) {
-          if (
-            etag &&
-            validEntityTag(etag) &&
-            cacheableHeaders(response.headers) &&
-            !nextPage(link, origin, path) &&
-            Array.isArray(raw) &&
-            raw.length < PAGE_SIZE
-          )
-            validators.set(url, { etag, raw, bytes: body.bytes });
-          else validators.delete(url);
-        }
-      }
+      if (
+        response.type === "opaqueredirect" ||
+        response.status === 401 ||
+        (response.status >= 300 && response.status < 400)
+      )
+        throw new Error("LOGIN_REQUIRED");
+      if (response.status === 403) throw new Error("FORBIDDEN");
+      if (!response.ok) throw new Error("NETWORK");
+      const type = response.headers.get("content-type") ?? "";
+      if (type.includes("text/html")) throw new Error("LOGIN_REQUIRED");
+      if (!/^application\/json\b/i.test(type))
+        throw new Error("INVALID_RESPONSE");
+      const raw = await readJsonBounded(response);
       if (controller.signal.aborted) throw new Error("TIMEOUT");
       items.push(...project(raw));
       if (items.length > 10000) throw new Error("LIMIT");
-      next = nextPage(link, origin, path);
+      next = nextPage(response.headers.get("link"), origin, path);
     }
     return items;
   }
