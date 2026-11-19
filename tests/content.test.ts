@@ -2719,3 +2719,166 @@ it("answers the background presence check so re-injection skips a live copy", ()
   listener(message, { id: "other-extension" }, refused);
   expect(refused).not.toHaveBeenCalledWith({ version: 1, type: "LMS_PRESENT" });
 });
+
+const readScopeB = "00000000-0000-4000-8000-000000000002";
+const readOperationA = "00000000-0000-4000-8000-0000000000a1";
+const readOperationB = "00000000-0000-4000-8000-0000000000b1";
+const cancellable = (
+  request: CapabilityListRequest,
+  scope: string,
+  operation: string,
+) => ({ ...capability(request, scope), operation });
+const cancelRead = (scope: string, operation: string) =>
+  ({ version: 1, type: "CAPABILITY_CANCEL", scope, operation }) as const;
+
+it("aborts only the read named by its own scope and operation", async () => {
+  const addListener = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage: vi.fn(),
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const signals = new Map<string, AbortSignal>();
+  const finish = new Map<string, (result: Result) => void>();
+  let bothStarted!: () => void;
+  const started = new Promise<void>((resolve) => (bothStarted = resolve));
+  query.mockImplementation(
+    (
+      _origin,
+      request: Request,
+      _fetch,
+      _now,
+      _catalog,
+      _course,
+      _token,
+      cancel: AbortSignal,
+    ) =>
+      new Promise<Result>((resolve) => {
+        signals.set(request.type, cancel);
+        finish.set(request.type, resolve);
+        cancel.addEventListener("abort", () =>
+          resolve({ status: "error", code: "TIMEOUT" }),
+        );
+        if (signals.size === 2) bothStarted();
+      }),
+  );
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  const recordings = response();
+  const documents = response();
+  listener(
+    cancellable(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      defaultCapabilityScope,
+      readOperationA,
+    ),
+    sender,
+    recordings.respond,
+  );
+  listener(
+    cancellable(
+      { version: 1, type: "DOCUMENTS_LIST", course: "Course" },
+      readScopeB,
+      readOperationB,
+    ),
+    sender,
+    documents.respond,
+  );
+  await started;
+  const cancel = (message: unknown, from: unknown = sender) =>
+    listener(message, from, vi.fn());
+  const aborted = () => [...signals.values()].map((signal) => signal.aborted);
+
+  // Another panel's scope, another operation of the right scope, a forged sender.
+  cancel(cancelRead(readScopeB, readOperationA));
+  cancel(cancelRead(defaultCapabilityScope, readOperationB));
+  cancel(cancelRead(defaultCapabilityScope, readOperationA), {
+    id: "other-extension",
+    url: sender.url,
+  });
+  expect(aborted()).toEqual([false, false]);
+
+  cancel(cancelRead(defaultCapabilityScope, readOperationA));
+
+  expect(aborted()).toEqual([true, false]);
+  expect(await recordings.done).toEqual({ status: "error", code: "TIMEOUT" });
+  finish.get("DOCUMENTS_LIST")!({ status: "success", documents: [] });
+  expect(await documents.done).toEqual({ status: "success", documents: [] });
+
+  // A cancel that arrives after its read finished has nothing left to abort.
+  cancel(cancelRead(readScopeB, readOperationB));
+  expect(signals.get("DOCUMENTS_LIST")!.aborted).toBe(false);
+});
+
+it("does not publish a read cancelled after its list finished, so its handles stay unusable", async () => {
+  const addListener = vi.fn();
+  const sendMessage = vi.fn();
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  const sender = {
+    id: "fixture-extension",
+    url: "chrome-extension://fixture-extension/sidepanel.html",
+  };
+  let listener: (m: unknown, s: unknown, r: (v: unknown) => void) => unknown =
+    () => undefined;
+  let stagedHandle = "";
+  query.mockImplementation(
+    async (_origin, _request, _fetch, _now, catalog: NavigationCatalog) => {
+      stagedHandle = catalog.replace(origin, [
+        {
+          module: "Week",
+          title: "Cancelled lecture",
+          courseId: "101",
+          itemId: "501",
+          moduleAccess: {},
+          itemAccess: {},
+        },
+      ])[0]!.launchHandle;
+      listener(
+        cancelRead(defaultCapabilityScope, readOperationA),
+        sender,
+        vi.fn(),
+      );
+      return { status: "success", recordings: [] };
+    },
+  );
+  (content as unknown as { main: () => void }).main();
+  listener = addListener.mock.calls[0]![0];
+  const listed = response();
+  listener(
+    cancellable(
+      { version: 1, type: "RECORDINGS_LIST", course: "Course" },
+      defaultCapabilityScope,
+      readOperationA,
+    ),
+    sender,
+    listed.respond,
+  );
+  expect(await listed.done).toEqual({ status: "error", code: "TIMEOUT" });
+  const opened = response();
+  listener(
+    { version: 1, type: "RECORDING_OPEN", handle: stagedHandle },
+    sender,
+    opened.respond,
+  );
+  expect(await opened.done).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).not.toHaveBeenCalled();
+});

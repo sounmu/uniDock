@@ -331,3 +331,91 @@ it("accepts a recording target only from the closed document-bound response", as
   ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
   expect(onTarget).toHaveBeenCalledTimes(1);
 });
+
+const readRequest = {
+  version: 1,
+  type: "RECORDINGS_LIST",
+  courseSelector: selector,
+} as const;
+const readScope = "00000000-0000-4000-8000-000000000002";
+it("cancels only the read it dispatched, in the same tab and after that read", async () => {
+  const { sendMessage } = setup();
+  let reply!: (value: unknown) => void;
+  const answer = new Promise<unknown>((resolve) => (reply = resolve));
+  let dispatched!: () => void;
+  const sent = new Promise<void>((resolve) => (dispatched = resolve));
+  sendMessage.mockImplementationOnce(() => {
+    dispatched();
+    return answer;
+  });
+  const controller = new AbortController();
+  const pending = queryActive(readRequest, {
+    target: { id: 7, url },
+    capabilityScope: readScope,
+    signal: controller.signal,
+  });
+  await sent;
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+
+  controller.abort();
+
+  const list = sendMessage.mock.calls[0]![1];
+  expect(list).toMatchObject({
+    type: "CAPABILITY_LIST",
+    scope: readScope,
+    operation: expect.any(String),
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+  expect(sendMessage).toHaveBeenLastCalledWith(
+    7,
+    {
+      version: 1,
+      type: "CAPABILITY_CANCEL",
+      scope: readScope,
+      operation: list.operation,
+    },
+    { frameId: 0 },
+  );
+  reply({ status: "error", code: "TIMEOUT" });
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+});
+it("sends nothing for a read aborted before dispatch or after it completed", async () => {
+  const { sendMessage } = setup();
+  const early = new AbortController();
+  early.abort();
+  expect(
+    await queryActive(readRequest, {
+      target: { id: 7, url },
+      capabilityScope: readScope,
+      signal: early.signal,
+    }),
+  ).toEqual({ status: "error", code: "TIMEOUT" });
+  expect(sendMessage).not.toHaveBeenCalled();
+
+  sendMessage.mockResolvedValue({
+    status: "success",
+    recordings: [],
+    documentToken: crypto.randomUUID(),
+  });
+  const late = new AbortController();
+  expect(
+    await queryActive(readRequest, {
+      target: { id: 7, url },
+      capabilityScope: readScope,
+      signal: late.signal,
+    }),
+  ).toMatchObject({ status: "success" });
+  late.abort();
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+});
+it("gives a course list no cancellable operation", async () => {
+  const { sendMessage } = setup();
+  const controller = new AbortController();
+  await queryActive(
+    { version: 1, type: "COURSES_LIST" },
+    { capabilityScope: readScope, signal: controller.signal },
+  );
+  controller.abort();
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  expect(sendMessage.mock.calls[0]![1]).not.toHaveProperty("operation");
+});
