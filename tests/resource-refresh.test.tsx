@@ -145,3 +145,25 @@ it("keeps material rows unselectable while refreshing and clears them after a ne
   expect(disabled('input[type="checkbox"]')).toEqual([false, false, false]);
   expect(timestamp()).toBe(new Date(now + 180000).toISOString());
 });
+
+it("cancels the superseded read and hands the lane to the new view only after it ended", async () => {
+  await openTab("녹화 강의");
+  const held = deferred<Result>();
+  let first: AbortSignal | undefined;
+  query.mockImplementationOnce(async (_request, options) => {
+    first = options?.signal;
+    return held.promise;
+  });
+  await refresh("녹화 강의");
+  expect(first?.aborted).toBe(false);
+
+  await click("강의 자료");
+
+  expect(first?.aborted).toBe(true);
+  expect(query.mock.calls.at(-1)?.[0]).toMatchObject({ type: "RECORDINGS_LIST" });
+  await act(async () => held.resolve({ status: "error", code: "TIMEOUT" }));
+  const next = query.mock.calls.at(-1);
+  expect(next?.[0]).toMatchObject({ type: "DOCUMENTS_LIST" });
+  expect(next?.[1]?.signal?.aborted).toBe(false);
+  expect(next?.[1]?.signal).not.toBe(first);
+});

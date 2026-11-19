@@ -901,9 +901,13 @@ export class PlaybackRuntime {
       return null;
     }
   }
-  async lost(tabId: number): Promise<void> {
+  /** Resolves true when playback state changed, so callers notify only for related tabs. */
+  async lost(tabId: number): Promise<boolean> {
+    // Initialization releases any saved player, which is itself a state change.
+    const cold = this.initialization === null;
     await this.ensureInitialized();
-    if (this.run?.tabId !== tabId && this.saved.player?.tabId !== tabId) return;
+    if (this.run?.tabId !== tabId && this.saved.player?.tabId !== tabId)
+      return cold;
     this.epoch++;
     const context = this.context();
     await this.serial(async () => {
@@ -914,14 +918,15 @@ export class PlaybackRuntime {
       await this.ports.releaseTab(tabId);
     });
     await this.blocked(new PlaybackRuntimeError("PLAYER_LOST"), context);
+    return true;
   }
-  sourceLost(tabId: number): Promise<void> {
+  sourceLost(tabId: number): Promise<boolean> {
     if (this.run?.address && this.run.tabId === tabId) return this.lost(tabId);
     if (
       this.pendingSource?.tabId !== tabId &&
       this.source?.sourceTabId !== tabId
     )
-      return Promise.resolve();
+      return Promise.resolve(false);
     // Invalidate before any await so a reply from the replaced document cannot
     // authorize, lease, persist, or launch using its old capability epoch.
     this.epoch++;
@@ -930,7 +935,7 @@ export class PlaybackRuntime {
     this.pendingSource = null;
     const context = this.context();
     return this.blocked(new PlaybackRuntimeError("RELOAD_TAB"), context).then(
-      () => undefined,
+      () => true,
     );
   }
   get sourceTabId(): number | null {

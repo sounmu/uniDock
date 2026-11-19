@@ -88,6 +88,14 @@ export type PanelQueryMessage =
       scope: string;
       refresh: boolean;
       request: CapabilityListRequest;
+      /** One-use identity of a recording/document read that may be cancelled. */
+      operation?: string;
+    }
+  | {
+      version: 1;
+      type: "CAPABILITY_CANCEL";
+      scope: string;
+      operation: string;
     };
 export function validHandle(value: unknown): value is string {
   return (
@@ -187,6 +195,7 @@ export function panelQuery(value: unknown): {
   request: Request;
   refresh: boolean;
   scope?: string;
+  operation?: string;
   deadline?: number;
 } | null {
   if (isRequest(value))
@@ -214,20 +223,24 @@ export function panelQuery(value: unknown): {
     };
   }
   if (row.type === "CAPABILITY_LIST") {
+    const cancellable = "operation" in row;
     if (
-      Object.keys(row).length !== 5 ||
+      Object.keys(row).length !== (cancellable ? 6 : 5) ||
       !validHandle(row.scope) ||
       typeof row.refresh !== "boolean" ||
       !isRequest(row.request) ||
       (row.request.type !== "COURSES_LIST" &&
         row.request.type !== "RECORDINGS_LIST" &&
-        row.request.type !== "DOCUMENTS_LIST")
+        row.request.type !== "DOCUMENTS_LIST") ||
+      (cancellable &&
+        (!validHandle(row.operation) || row.request.type === "COURSES_LIST"))
     )
       return null;
     return {
       request: row.request as CapabilityListRequest,
       refresh: row.refresh,
       scope: row.scope,
+      ...(cancellable ? { operation: row.operation as string } : {}),
     };
   }
   if (
@@ -242,6 +255,19 @@ export function panelQuery(value: unknown): {
     request.type !== "RECORDINGS_LIST" &&
     request.type !== "DOCUMENTS_LIST"
     ? { request: request as ListRequest, refresh: true }
+    : null;
+}
+export function panelCancel(
+  value: unknown,
+): { scope: string; operation: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  return row.version === 1 &&
+    row.type === "CAPABILITY_CANCEL" &&
+    Object.keys(row).length === 4 &&
+    validHandle(row.scope) &&
+    validHandle(row.operation)
+    ? { scope: row.scope, operation: row.operation }
     : null;
 }
 export function parseResult(

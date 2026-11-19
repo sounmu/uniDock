@@ -14,6 +14,7 @@ import { createProgressToast } from "../src/progress-toast";
 import { listCourseIndex, listQuery } from "../src/api/client";
 import { learningxToken } from "../src/security/learningx-token";
 import {
+  panelCancel,
   panelQuery,
   parseResult,
   validDownloadDeadline,
@@ -128,7 +129,10 @@ export async function discoverPlayback(
     controller.abort();
   }, 20000);
   let pages = 0;
-  async function read(url: string): Promise<Response> {
+  async function read(
+    url: string,
+    signal: AbortSignal = controller.signal,
+  ): Promise<Response> {
     if (++pages > 100) throw new Error("LIMIT");
     const response = await fetcher(url, {
       method: "GET",
@@ -137,7 +141,7 @@ export async function discoverPlayback(
       cache: "no-store",
       referrerPolicy: "no-referrer",
       headers: { Accept: "application/json" },
-      signal: controller.signal,
+      signal,
     });
     if (
       response.type === "opaqueredirect" ||
@@ -178,6 +182,7 @@ export async function discoverPlayback(
   async function collect(
     path: string,
     query: string,
+    signal?: AbortSignal,
   ): Promise<Record<string, unknown>[]> {
     let url: string | null = readUrl(`${path}?${query}`, origin, path).href;
     const result: Record<string, unknown>[] = [],
@@ -185,7 +190,7 @@ export async function discoverPlayback(
     while (url) {
       if (seen.has(url)) throw new Error("LIMIT");
       seen.add(url);
-      const response = await read(readUrl(url, origin, path).href);
+      const response = await read(readUrl(url, origin, path).href, signal);
       result.push(...rows(await readJsonBounded(response)));
       if (result.length > 10000) throw new Error("LIMIT");
       url = nextPage(response.headers.get("link"), origin, path);
@@ -209,20 +214,36 @@ export async function discoverPlayback(
     const courses: { id: string; name: string }[] = [];
     const candidates: PlaybackCandidate[] = [];
     const now = Date.now();
+    const indexed: { id: string; name: string }[] = [];
     for (const course of await collect(
       "/api/v1/courses",
       "per_page=100&enrollment_state=active",
     )) {
       const projectedCourse = projectCourseIndex([course])[0];
-      if (!projectedCourse) continue;
-      const courseId = projectedCourse.id;
-      courses.push({ id: courseId, name: projectedCourse.name });
-      if (courses.length > 100) throw new Error("LIMIT");
+      if (projectedCourse) indexed.push(projectedCourse);
+    }
+    // Each course is still read fresh with the same GETs. Up to three courses
+    // overlap; results are merged in course order and the lowest-index failure
+    // wins, so listing order and error precedence match a sequential walk.
+    // Every course reads under its own signal, linked to the overall deadline.
+    // A failure at index F aborts only the reads after F, which can no longer
+    // decide the result; lower unresolved courses keep running until they settle.
+    // `buffered` is the one candidate budget shared by every overlapped course:
+    // it is charged before a candidate is kept, so the 10,000 cap bounds memory
+    // while courses are still being read, not only after they are merged.
+    let buffered = 0;
+    async function courseCandidates(
+      courseId: string,
+      signal: AbortSignal,
+    ): Promise<PlaybackCandidate[]> {
+      const found: PlaybackCandidate[] = [];
       const modulesPath = `/api/v1/courses/${courseId}/modules`;
       for (const module of await collect(
         modulesPath,
         "per_page=100&include[]=items&include[]=content_details",
+        signal,
       )) {
+        if (buffered > 10000) throw new Error("LIMIT");
         if (!accessible(module, now)) continue;
         if (
           module.items_count != null &&
@@ -240,21 +261,72 @@ export async function discoverPlayback(
           items = await collect(
             `${modulesPath}/${moduleId}/items`,
             "per_page=100&include[]=content_details",
+            signal,
           );
         }
         for (const item of rows(items)) {
           if (!recordingCandidate(item, now)) continue;
           const itemId = internalId(item.id);
           if (!itemId) continue;
-          candidates.push({
+          if (++buffered > 10000) throw new Error("LIMIT");
+          // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
+          found.push({
             id: `${courseId}:${itemId}`,
             courseId,
             title: recordingLabel(item.title),
           });
-          // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
-          if (candidates.length > 10000) throw new Error("LIMIT");
         }
       }
+      return found;
+    }
+    // The 101st course is the LIMIT failure; it is never fetched.
+    const fetchable = Math.min(indexed.length, 100);
+    type CourseOutcome = { found: PlaybackCandidate[] } | { error: unknown };
+    const settle: ((outcome: CourseOutcome) => void)[] = [];
+    const outcomes = Array.from(
+      { length: fetchable },
+      (_, index) =>
+        new Promise<CourseOutcome>((resolve) => {
+          settle[index] = resolve;
+        }),
+    );
+    const courseAborts: AbortController[] = [];
+    let nextCourse = 0,
+      firstFailure = Infinity;
+    async function worker() {
+      while (nextCourse < fetchable) {
+        const index = nextCourse++;
+        // A sequential walk would have stopped before reading this course.
+        if (index > firstFailure || buffered > 10000) return;
+        const own = new AbortController();
+        courseAborts[index] = own;
+        controller.signal.addEventListener("abort", () => own.abort(), {
+          once: true,
+        });
+        try {
+          settle[index]!({
+            found: await courseCandidates(indexed[index]!.id, own.signal),
+          });
+        } catch (error) {
+          settle[index]!({ error });
+          if (index < firstFailure) {
+            firstFailure = index;
+            courseAborts.forEach((later, laterIndex) => {
+              if (laterIndex > index) later.abort();
+            });
+          }
+        }
+      }
+    }
+    // Workers are not awaited: the merge below returns as soon as the course
+    // that decides the result has settled. `finally` aborts whatever is left.
+    for (let i = 0; i < Math.min(3, fetchable); i++) void worker();
+    for (const [index, course] of indexed.entries()) {
+      courses.push({ id: course.id, name: course.name });
+      if (courses.length > 100) throw new Error("LIMIT");
+      const result = await outcomes[index]!;
+      if ("error" in result) throw result.error;
+      candidates.push(...result.found);
     }
     const identityAfter = await identity();
     if (
@@ -438,6 +510,9 @@ export default defineContentScript({
       result: Promise<Result>;
       owner?: Promise<CachedOwner | undefined>;
       scope?: string;
+      /** Cancellation identity; only a cancel naming scope and operation aborts. */
+      operation?: string;
+      cancel?: AbortController;
       admission?: NavigationCatalogAdmission;
       courseAdmission?: CourseSelectorAdmission;
     }
@@ -460,6 +535,7 @@ export default defineContentScript({
       publishOwner?: (owner: CachedOwner | undefined) => void,
       admission?: NavigationCatalogAdmission,
       courseAdmission?: CourseSelectorAdmission,
+      cancel?: AbortSignal,
     ): Promise<Result> {
       const ttl = cacheTtl(message);
       const capabilityList =
@@ -602,6 +678,7 @@ export default defineContentScript({
               staging,
               resolvedCourseId,
               () => learningxToken(document.cookie),
+              cancel,
             )
           : listQuery(
               location.origin,
@@ -636,6 +713,8 @@ export default defineContentScript({
           invalidateScope(epoch);
           return { status: "error", code: "LOGIN_REQUIRED" };
         }
+        // A superseded read never publishes a catalog or caches handles.
+        if (cancel?.aborted) return { status: "error", code: "TIMEOUT" };
         if (staging) {
           if (!staging.ownedBy(account, epoch))
             return { status: "error", code: "RELOAD_TAB" };
@@ -882,6 +961,22 @@ export default defineContentScript({
             return false;
           }
         }
+        const cancellation = panelCancel(message);
+        if (cancellation) {
+          // Only the panel scope that issued the read can abort that read.
+          if (
+            sender.id === chrome.runtime.id &&
+            sender.url === chrome.runtime.getURL("sidepanel.html") &&
+            allowedPage(location.href)
+          )
+            for (const item of pending.values())
+              if (
+                item.scope === cancellation.scope &&
+                item.operation === cancellation.operation
+              )
+                item.cancel?.abort();
+          return false;
+        }
         const parsed = panelQuery(message);
         if (
           sender.id !== chrome.runtime.id ||
@@ -938,11 +1033,14 @@ export default defineContentScript({
             resolveResult = resolve;
             rejectResult = reject;
           });
+          const cancel = parsed.operation ? new AbortController() : undefined;
           operation = {
             key,
             result: sharedResult,
             owner,
             scope: parsed.scope,
+            operation: parsed.operation,
+            cancel,
             admission,
             courseAdmission,
           };
@@ -965,6 +1063,7 @@ export default defineContentScript({
               resolveOwner,
               admission,
               courseAdmission,
+              cancel?.signal,
             ).finally(() => {
               resolveOwner?.(undefined);
               if (courseAdmission) courseSelectors.discard(courseAdmission);

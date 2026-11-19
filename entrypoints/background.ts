@@ -807,19 +807,25 @@ export default defineBackground(() => {
     chrome.runtime.onInstalled?.addListener(recover);
     chrome.tabs.onRemoved.addListener((tabId) => {
       void Promise.all([playback.sourceLost(tabId), playback.lost(tabId)]).then(
-        notifyPlayback,
+        (changed) => {
+          if (changed.some(Boolean)) notifyPlayback();
+        },
       );
     });
     chrome.tabs.onUpdated.addListener((tabId, change) => {
       if (change.status === "loading")
-        void playback.sourceLost(tabId).then(notifyPlayback);
+        void playback.sourceLost(tabId).then((changed) => {
+          if (changed) notifyPlayback();
+        });
       if (
         tabId === playback.dedicatedTabId &&
         change.url &&
         change.url !== "about:blank" &&
         !playerPage(change.url)
       )
-        void playback.lost(tabId).then(notifyPlayback);
+        void playback.lost(tabId).then((changed) => {
+          if (changed) notifyPlayback();
+        });
     });
     recover();
   }

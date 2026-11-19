@@ -37,6 +37,8 @@ export async function listQuery(
   resolvedCourseId?: string,
   /** Reads the LearningX board token at call time; omitted skips boards. */
   boardToken?: () => string | null,
+  /** Aborts every fetch of this query; the result is then a TIMEOUT error. */
+  cancel?: AbortSignal,
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
@@ -45,6 +47,17 @@ export async function listQuery(
     timedOut = true;
     controller.abort();
   }, 20000);
+  function cancelRead() {
+    timedOut = true;
+    controller.abort();
+  }
+  if (cancel?.aborted) cancelRead();
+  // The listener leaves with this query: its controller aborts in `finally`.
+  else
+    cancel?.addEventListener("abort", cancelRead, {
+      once: true,
+      signal: controller.signal,
+    });
   // One budget covers course resolution plus all item pages.
   let pages = 0;
   // `optional` marks a supplementary source: a first page the LMS refuses
