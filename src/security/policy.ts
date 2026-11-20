@@ -117,9 +117,10 @@ export function courseUrl(value: string, origin: string): URL {
 }
 export const CAPTION_MEDIA_HOST = new URL(KOREA_ORIGINS.captionMedia).hostname;
 export const CAPTION_MEDIA_ORIGIN_PATTERN = `https://${CAPTION_MEDIA_HOST}/*`;
-// The one KU lecture media shape: a 13-hex content id under media_files.
+// The one KU lecture media shape: a 13-hex content id under media_files,
+// optionally one profile folder deeper (module-item videos use mobile/).
 const CAPTION_MEDIA_PATH =
-  /^\/contents7\/kruniv1001\/[0-9a-f]{13}\/contents\/media_files\/[\w.-]+\.mp4$/;
+  /^\/contents7\/kruniv1001\/[0-9a-f]{13}\/contents\/media_files\/(?:[\w-]+\/)?[\w.-]+\.mp4$/;
 export function allowedCaptionMediaUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   let url: URL;

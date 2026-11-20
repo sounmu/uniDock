@@ -32,6 +32,21 @@ it("reads the first non-intro desktop media uri", () => {
   });
 });
 
+it("reads a module-item video stored in a media profile folder", () => {
+  const mobile = good.replace("/media_files/screen.mp4", "/media_files/mobile/ssmovie.mp4");
+  setConfig({
+    _contentPlayingInfoData: {
+      contentDuration: 370.54,
+      storyList: [{ mainMediaList: { list: [{ desktopMediaUri: mobile }] } }],
+    },
+  });
+  expect(readPlayerMedia()).toEqual({
+    mediaUrl: mobile,
+    durationS: 370.54,
+    contentId: "0123456789abc",
+  });
+});
+
 it("returns null without a config", () => {
   expect(readPlayerMedia()).toBeNull();
 });
