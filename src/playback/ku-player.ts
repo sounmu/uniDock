@@ -1,3 +1,5 @@
+import { observeKuResume } from "./ku-resume";
+
 export interface KuLectureReady {
   video: HTMLVideoElement;
   /** Transfer the selected video after the caller has installed its adapter. */
@@ -60,6 +62,7 @@ export function initializeKuLecture(
   return new Promise((resolve, reject) => {
     let state: "active" | "cancelled" | "ready" | "handed-off" = "active";
     let selected: HTMLVideoElement | null = null;
+    let stopPrompt = () => {};
     const owned = new Set<HTMLVideoElement>();
     const deadline = performance.now() + 15000;
     const normalize = (video: HTMLVideoElement) => {
@@ -89,6 +92,7 @@ export function initializeKuLecture(
         track(video);
     };
     const cleanupReadiness = () => {
+      stopPrompt();
       clearInterval(timer);
       document.removeEventListener("loadedmetadata", check, true);
     };
@@ -199,6 +203,13 @@ export function initializeKuLecture(
         cancel();
         return;
       }
+      // Module-item embeds carry the saved position, and KU then asks to
+      // resume it instead of loading the lecture. Accepting keeps the
+      // position; declining would rewind.
+      stopPrompt = observeKuResume(
+        document,
+        () => state === "active" && !signal?.aborted && isAuthorized(),
+      );
       button.click();
       check();
     } catch {
