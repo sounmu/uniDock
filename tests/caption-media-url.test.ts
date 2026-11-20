@@ -6,6 +6,9 @@ const good =
 
 it("accepts the one KU media shape", () => {
   expect(allowedCaptionMediaUrl(good)).toBe(true);
+  expect(
+    allowedCaptionMediaUrl(good.replace("/media_files/screen.mp4", "/media_files/mobile/ssmovie.mp4")),
+  ).toBe(true);
 });
 
 it("rejects other hosts, schemes, queries and paths", () => {
@@ -18,6 +21,8 @@ it("rejects other hosts, schemes, queries and paths", () => {
     good.replace("https://", "https://user@"),
     good + "?token=x",
     good.replace("/media_files/screen.mp4", "/media_files/screen.mkv"),
+    good.replace("/media_files/screen.mp4", "/media_files/a/b/screen.mp4"),
+    good.replace("/media_files/screen.mp4", "/media_files/a.b/screen.mp4"),
     good.replace("0123456789abc", "0123"),
     "https://korea-cms-object.cdn.gov-ntruss.com/other/path.mp4",
     "not a url",

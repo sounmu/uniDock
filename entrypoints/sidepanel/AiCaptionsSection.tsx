@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { downloadCaption, exportTranscript } from "../../src/captions/download";
 import { coreResult, startOperation } from "./analytics";
 import { useAiCaptions, type AiCaptionState } from "./useAiCaptions";
@@ -151,14 +151,44 @@ interface AiCaptionsProps {
   readonly restoreOnly?: boolean;
 }
 
+/** The card fills the panel down to the tab bar, so it needs its own document
+    top. Whatever sits above it (return link, notices, open guidance) moves that
+    top, and any such change also resizes the body. */
+function useDocumentTop() {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const [top, setTop] = useState<number>();
+  useLayoutEffect(() => {
+    if (!element) return;
+    const measure = () => {
+      if (element.getClientRects().length)
+        setTop(Math.round(element.getBoundingClientRect().top + window.scrollY));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [element]);
+  return [setElement, top] as const;
+}
+
 /** Keep the restore hook mounted without leaving an empty card in the page. */
 export function AiCaptionsSection(props: AiCaptionsProps = {}) {
   const flow = useAiCaptions();
+  const [cardRef, top] = useDocumentTop();
   const phase = flow.state.phase;
   if (props.restoreOnly && (phase === "idle" || phase === "cancelled"))
     return null;
   return (
-    <section className="settings-card ai-offer" aria-labelledby="ai-offer-title">
+    <section
+      ref={cardRef}
+      className="settings-card ai-offer"
+      aria-labelledby="ai-offer-title"
+      style={top === undefined ? undefined : ({ "--captions-card-top": `${top}px` } as CSSProperties)}
+    >
       <AiCaptionsContent {...props} flow={flow} />
     </section>
   );

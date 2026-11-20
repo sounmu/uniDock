@@ -63,7 +63,7 @@ export function readPlayerMedia(): {
   )
     return null;
   const pattern =
-    /^https:\/\/korea-cms-object\.cdn\.gov-ntruss\.com\/contents7\/kruniv1001\/([0-9a-f]{13})\/contents\/media_files\/[\w.-]+\.mp4$/;
+    /^https:\/\/korea-cms-object\.cdn\.gov-ntruss\.com\/contents7\/kruniv1001\/([0-9a-f]{13})\/contents\/media_files\/(?:[\w-]+\/)?[\w.-]+\.mp4$/;
   const config = own(window, "uniPlayerConfig");
   if (!config) return null;
   const info = data(config, "_contentPlayingInfoData");

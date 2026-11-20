@@ -733,6 +733,20 @@ it("uses KU prototype data and uri elements, skips the intro without changing cu
   expect(info.currStoryIdx).toBe(0);
   expect(config.getContentPlayingInfoData).not.toHaveBeenCalled();
 });
+it("reads KU's HTML error page for a missing caption list as no captions, not a blocked one", async () => {
+  player();
+  const fetcher = vi.fn(async () =>
+    new Response("<!DOCTYPE html><html><body>not found</body></html>", {
+      headers: { "content-type": "text/html" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  expect(await collectCaptionSources("player")).toMatchObject({
+    vtt: "",
+    blocked: false,
+  });
+  expect(fetcher).toHaveBeenCalledOnce();
+});
 it.each(["static", "remix"])(
   "resolves the KU %s caption base",
   async (kind) => {

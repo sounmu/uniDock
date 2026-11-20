@@ -186,8 +186,9 @@ export function CaptionsPanel({
       }
     }
   }
-  // A lecture without captions often ends in UNSAFE_CAPTION: its caption file
-  // fails to load. Either way the next step is AI generation, not an error.
+  // A lecture without captions ends in NO_CAPTIONS, or in UNSAFE_CAPTION when
+  // its caption file exists but cannot be read safely. Either way the next
+  // step is AI generation, not an error.
   const aiOffer =
     __UNIDOCK_AI_CAPTIONS__ &&
     state.status === "error" &&
