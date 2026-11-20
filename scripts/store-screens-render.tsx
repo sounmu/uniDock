@@ -121,7 +121,6 @@ const panels: { file: string; section: Section; screen: ReactNode }[] = [
           state: { status: "success", todo: todos },
         })}
         onTool={noop}
-        onSchedule={noop}
       />
     ),
   },
