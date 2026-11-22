@@ -1,5 +1,3 @@
-import { observeKuResume } from "./ku-resume";
-
 export interface KuLectureReady {
   video: HTMLVideoElement;
   /** Transfer the selected video after the caller has installed its adapter. */
@@ -14,6 +12,9 @@ export function initializeKuLecture(
   initial: HTMLVideoElement,
   authorized: () => boolean,
   signal?: AbortSignal,
+  /** Runs right before KU's start control is clicked; the returned cleanup
+   * runs once initialization is ready or cancelled. */
+  onStart?: () => () => void,
 ): Promise<KuLectureReady> {
   const document = initial.ownerDocument;
   const container = initial.parentElement;
@@ -203,13 +204,7 @@ export function initializeKuLecture(
         cancel();
         return;
       }
-      // Module-item embeds carry the saved position, and KU then asks to
-      // resume it instead of loading the lecture. Accepting keeps the
-      // position; declining would rewind.
-      stopPrompt = observeKuResume(
-        document,
-        () => state === "active" && !signal?.aborted && isAuthorized(),
-      );
+      stopPrompt = onStart?.() ?? stopPrompt;
       button.click();
       check();
     } catch {
