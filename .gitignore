@@ -8,6 +8,8 @@ coverage/
 release/
 .store-build/
 .store-v052-build/
+.store-screens-build/
+.store-playback-build/
 store/assets/*.html
 output/
 .omo/

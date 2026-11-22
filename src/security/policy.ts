@@ -1,8 +1,6 @@
 import { validDate } from "../protocol";
-export const LMS_ORIGINS = [
-  "https://mylms.korea.ac.kr",
-  "https://canvas.korea.ac.kr",
-] as const;
+import { KOREA_ORIGINS } from "./origins";
+export const LMS_ORIGINS = KOREA_ORIGINS.lms;
 export const LMS_MATCHES = LMS_ORIGINS.map((origin) => `${origin}/*`);
 export function allowedPage(value: string): boolean {
   try {
@@ -117,11 +115,12 @@ export function readUrl(
 export function courseUrl(value: string, origin: string): URL {
   return readUrl(value, origin, "/api/v1/courses");
 }
-export const CAPTION_MEDIA_HOST = "korea-cms-object.cdn.gov-ntruss.com";
+export const CAPTION_MEDIA_HOST = new URL(KOREA_ORIGINS.captionMedia).hostname;
 export const CAPTION_MEDIA_ORIGIN_PATTERN = `https://${CAPTION_MEDIA_HOST}/*`;
-// The one KU lecture media shape: a 13-hex content id under media_files.
+// The one KU lecture media shape: a 13-hex content id under media_files,
+// optionally one profile folder deeper (module-item videos use mobile/).
 const CAPTION_MEDIA_PATH =
-  /^\/contents7\/kruniv1001\/[0-9a-f]{13}\/contents\/media_files\/[\w.-]+\.mp4$/;
+  /^\/contents7\/kruniv1001\/[0-9a-f]{13}\/contents\/media_files\/(?:[\w-]+\/)?[\w.-]+\.mp4$/;
 export function allowedCaptionMediaUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length > 2048) return false;
   let url: URL;

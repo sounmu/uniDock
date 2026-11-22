@@ -1,4 +1,5 @@
 import { collectCaptionSources } from "./extract";
+import { KOREA_ORIGINS } from "../security/origins";
 import {
   normalizeItems,
   parseVtt,
@@ -174,7 +175,7 @@ export async function detectCaptions(
             try {
               const url = new URL(batch.result?.pageUrl ?? "");
               return (
-                url.origin === "https://kucom.korea.ac.kr" &&
+                url.origin === KOREA_ORIGINS.player &&
                 url.pathname.startsWith("/em/") &&
                 batch.documentId
               );

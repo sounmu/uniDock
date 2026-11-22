@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { discoverPlayback } from "../entrypoints/lms.content";
+import { discoverPlayback } from "../src/api/playback-discovery";
 import {
   PlaybackRuntime,
   type PlayerAddress,

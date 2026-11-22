@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { discoverPlayback } from "../entrypoints/lms.content";
+import { discoverPlayback } from "../src/api/playback-discovery";
 
 const origin = "https://mylms.korea.ac.kr";
 const salt = "a".repeat(64);

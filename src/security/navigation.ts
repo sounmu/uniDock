@@ -1,8 +1,9 @@
 import { allowedPage } from "./policy";
+import { KOREA_ORIGINS } from "./origins";
 // The KU player (kucom) hosts lecture videos that LearningX board posts embed as
 // iframes. A board video opens its canonical player page directly: the LMS has
 // no clean route to one post inside the board tool.
-export const PLAYER_ORIGIN = "https://kucom.korea.ac.kr";
+export const PLAYER_ORIGIN = KOREA_ORIGINS.player;
 export function playerUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 300) return null;
   try {

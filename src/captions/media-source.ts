@@ -3,8 +3,9 @@ import {
   CAPTION_MEDIA_ORIGIN_PATTERN,
   LMS_ORIGINS,
 } from "../security/policy";
+import { KOREA_ORIGINS } from "../security/origins";
 
-const PLAYER_ORIGIN = "https://kucom.korea.ac.kr";
+const PLAYER_ORIGIN = KOREA_ORIGINS.player;
 // The player runs as its own tab or inside a lecture page on the LMS.
 const PLAYER_TAB_ORIGINS: readonly string[] = [PLAYER_ORIGIN, ...LMS_ORIGINS];
 
@@ -62,7 +63,7 @@ export function readPlayerMedia(): {
   )
     return null;
   const pattern =
-    /^https:\/\/korea-cms-object\.cdn\.gov-ntruss\.com\/contents7\/kruniv1001\/([0-9a-f]{13})\/contents\/media_files\/[\w.-]+\.mp4$/;
+    /^https:\/\/korea-cms-object\.cdn\.gov-ntruss\.com\/contents7\/kruniv1001\/([0-9a-f]{13})\/contents\/media_files\/(?:[\w-]+\/)?[\w.-]+\.mp4$/;
   const config = own(window, "uniPlayerConfig");
   if (!config) return null;
   const info = data(config, "_contentPlayingInfoData");

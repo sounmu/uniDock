@@ -12,25 +12,26 @@ import {
   type PlayerBinding,
 } from "../src/playback/bridge";
 import { LMS_MATCHES } from "../src/security/policy";
+import { KOREA_ORIGINS } from "../src/security/origins";
 import { playbackDiagnostic as diagnostic } from "../src/security/logger";
 
 /** Runs only in the original native-video document, never injects MAIN-world player calls. */
 export default defineContentScript({
-  matches: [...LMS_MATCHES, "https://kucom.korea.ac.kr/em/*"],
+  matches: [...LMS_MATCHES, `${KOREA_ORIGINS.player}/em/*`],
   allFrames: true,
   runAt: "document_idle",
   main() {
     if (!playerPage(location.href)) return;
     diagnostic("FRAME_READY");
     diagnostic(
-      location.origin === "https://kucom.korea.ac.kr"
+      location.origin === KOREA_ORIGINS.player
         ? "KU_FRAME_READY"
         : "LMS_FRAME_READY",
     );
     let waitingCode = "";
     const originalUrl = location.href;
     const kuPlayer =
-      new URL(originalUrl).origin === "https://kucom.korea.ac.kr";
+      new URL(originalUrl).origin === KOREA_ORIGINS.player;
     let player: PlaybackPlayer | null = null;
     let binding: PlayerBinding | null = null;
     let video: HTMLVideoElement | null = null;
@@ -45,6 +46,7 @@ export default defineContentScript({
     let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
     let initialization: AbortController | null = null;
     let resumingNative = false;
+    let startPosition: number | undefined;
     const discoveryUntil = Date.now() + 45000;
     type VideoIdentity = {
       video: HTMLVideoElement;
@@ -338,14 +340,31 @@ export default defineContentScript({
         if (kuPlayer) {
           diagnostic("KU_INITIALIZING");
           initialization = new AbortController();
+          const starting = initialization.signal;
+          const startAuthorized = () =>
+            !closed &&
+            location.href === originalUrl &&
+            !!binding &&
+            binding.deadline > Date.now();
           const ready = await initializeKuLecture(
             found,
+            startAuthorized,
+            starting,
+            // Module-item embeds carry the saved position, and KU asks to
+            // resume it before it loads the lecture at all. Accepting keeps
+            // the position (declining would rewind); the adapter verifies
+            // completion against it like a prompt accepted while playing.
             () =>
-              !closed &&
-              location.href === originalUrl &&
-              !!binding &&
-              binding.deadline > Date.now(),
-            initialization.signal,
+              observeKuResume(
+                document,
+                () =>
+                  startAuthorized() &&
+                  !starting.aborted &&
+                  leaseUntil > Date.now(),
+                (position) => {
+                  startPosition = position;
+                },
+              ),
           );
           video = ready.video;
           diagnostic("KU_LECTURE_READY");
@@ -402,7 +421,7 @@ export default defineContentScript({
         });
         video!.addEventListener("ratechange", normalSpeed);
         normalSpeed();
-        await player.start();
+        await player.start(startPosition);
         if (kuPlayer && current()) {
           stopResumeObserver = observeKuResume(
             document,

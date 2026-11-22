@@ -119,6 +119,9 @@ export async function collectCaptionSources(
     return result;
   }
   const controller = new AbortController();
+  // KU answers a caption file it does not have with its HTML error page (200
+  // text/html). That lecture simply has no captions; nothing was withheld.
+  let absent = false;
   const timer = setTimeout(
     () => controller.abort(),
     Math.max(0, Math.min(10000, deadline - Date.now())),
@@ -152,6 +155,10 @@ export async function collectCaptionSources(
       Number(response.headers.get("content-length")) > 1000000
     )
       throw new Error("FETCH");
+    if (/^text\/html\b/i.test(response.headers.get("content-type") ?? "")) {
+      absent = true;
+      throw new Error("ABSENT");
+    }
     const reader = response.body?.getReader();
     if (!reader) throw new Error("FETCH");
     const decoder = new TextDecoder();
@@ -254,7 +261,7 @@ export async function collectCaptionSources(
     result.vtt = (await read(selected.url, resourceBase, "vtt")).body;
     result.label = selected.label || selected.language || "자막";
   } catch {
-    result.blocked = true;
+    if (!absent) result.blocked = true;
   } finally {
     clearTimeout(timer);
   }

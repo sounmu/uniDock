@@ -108,7 +108,7 @@
     var(--tabbar-h) + var(--tabbar-gap) + var(--space-5) +
       env(safe-area-inset-bottom, 0px)
   );
-  /* Panel header plus the collapsed guidance above the AI caption card. */
+  /* Fallback document top of the AI caption card until it measures its own. */
   --captions-card-top: 108px;
   --focus-width: 2px;
   --focus-offset: 2px;
@@ -1404,8 +1404,10 @@ progress {
   color: var(--danger);
 }
 /* Captions without a provided track continue into one AI caption card that
-   fills the panel down to the tab bar; the finished card keeps a fixed height
-   so its transcript preview scrolls inside it. */
+   fills the panel down to the tab bar, ending the same gap above it as every
+   other screen; taller content grows the card and the page scrolls. The
+   finished card keeps a fixed height so its transcript preview scrolls inside
+   it. AiCaptionsSection sets --captions-card-top to its measured top. */
 .ai-offer {
   display: flex;
   flex-direction: column;

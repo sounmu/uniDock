@@ -8,6 +8,8 @@ export default ts.config(
       ".output/**",
       ".store-build/**",
       ".store-v052-build/**",
+      ".store-screens-build/**",
+      ".store-playback-build/**",
       "release/**",
       "output/**",
     ],

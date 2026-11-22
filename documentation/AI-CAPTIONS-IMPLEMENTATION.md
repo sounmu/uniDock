@@ -19,7 +19,7 @@
 | 항목 | 확정 내용 |
 | --- | --- |
 | 미디어 형식 | KU 플레이어(`kucom.korea.ac.kr/em/{id}`, `contentType: "upf"`)는 progressive MP4 하나를 `uniPlayerConfig._contentPlayingInfoData.storyList[*].mainMediaList.list[*].desktopMediaUri`로 제공한다. 표본 1건은 약 463 MB, 약 66분 |
-| 미디어 호스트 | `https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/{id}/contents/media_files/*.mp4` |
+| 미디어 호스트 | `https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/{id}/contents/media_files/*.mp4`. 모듈 아이템 영상(`contentType: "video1"`)은 프로필 폴더 한 단계 아래에 둔다(예: `media_files/mobile/ssmovie.mp4`) |
 | 접근 조건 | **Referer hotlink 제한만** 있다. `Referer: https://kucom.korea.ac.kr/`를 붙이면 쿠키·서명 없이 206. CORS 헤더는 없다 |
 | 막힌 경로 | 페이지·content script `fetch`(CORS), background `fetch`(Referer 없음 → 403, release CSP → 차단), kucom 같은 출처 경로(HTML 반환), `contents7_pseudo`(503), `captureStream`(cross-origin 무음) |
 | 취득 방식 | 확장 background/sidepanel에서 `declarativeNetRequestWithHostAccess` **세션 규칙**으로 자기 요청에만 Referer를 붙여 스트리밍으로 읽는다 |
@@ -158,7 +158,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 | 파일 | 변경 |
 | --- | --- |
-| `src/captions/media-source.ts` (신규) | `chrome.scripting.executeScript`로 현재 탭의 `uniPlayerConfig`에서 **데이터 descriptor만** 읽어 `{ mediaUrl, durationS, contentId }`를 돌려준다. 기존 `src/captions/extract.ts`의 `own`/`data` 접근 규칙을 그대로 쓴다(플레이어 메서드·getter 호출 금지). URL은 반드시 `https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/{13 hex}/contents/media_files/*.mp4` 패턴과 일치해야 하고, 아니면 `UNSUPPORTED_MEDIA`로 끝낸다. `isIntro: true` story는 제외한다 |
+| `src/captions/media-source.ts` (신규) | `chrome.scripting.executeScript`로 현재 탭의 `uniPlayerConfig`에서 **데이터 descriptor만** 읽어 `{ mediaUrl, durationS, contentId }`를 돌려준다. 기존 `src/captions/extract.ts`의 `own`/`data` 접근 규칙을 그대로 쓴다(플레이어 메서드·getter 호출 금지). URL은 반드시 `https://korea-cms-object.cdn.gov-ntruss.com/contents7/kruniv1001/{13 hex}/contents/media_files/[폴더 1단계/]*.mp4` 패턴과 일치해야 하고, 아니면 `UNSUPPORTED_MEDIA`로 끝낸다. `isIntro: true` story는 제외한다 |
 | `src/security/policy.ts` | `allowedCaptionMediaUrl(url)` 추가. 위 패턴, `https:`, query·hash·credential 없음, 길이 상한 |
 
 #### 3-3. 취득과 오디오 분리 (sidepanel 안에서 실행)

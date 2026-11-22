@@ -790,6 +790,96 @@ it("revokes owned playback only for an exact background revocation", async () =>
   expect(fixture.play).toHaveBeenCalledOnce();
 });
 
+it("accepts KU's saved-position prompt that gates a module-item lecture before it loads", async () => {
+  const fixture = setup();
+  let source = "https://kucom.korea.ac.kr/viewer/uniplayer/preloader.mp4";
+  Object.defineProperty(fixture.video, "currentSrc", { get: () => source });
+  const start = document.createElement("div");
+  start.className = "vc-front-screen-play-btn";
+  const prompt = document.createElement("div");
+  prompt.className = "confirm-msg-box";
+  prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 03:45부터 이어서 보시겠습니까?</div>
+    <div class="confirm-ok-btn" role="button">예</div>
+    <div class="confirm-cancel-btn" role="button">아니오</div>`;
+  const yes = prompt.querySelector(".confirm-ok-btn");
+  const no = prompt.querySelector(".confirm-cancel-btn");
+  if (!yes || !no) throw new Error("missing resume actions");
+  const declined = vi.fn();
+  no.addEventListener("click", declined);
+  // KU shows the prompt instead of loading the lecture; only "예" loads it.
+  start.addEventListener("click", () => document.body.append(prompt));
+  yes.addEventListener("click", () => {
+    prompt.remove();
+    source = "https://kucom.korea.ac.kr/lecture.mp4";
+    fixture.video.dispatchEvent(new Event("loadedmetadata"));
+  });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 100, 40),
+  );
+  document.body.append(fixture.video, start);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+
+  expect(source).toBe("https://kucom.korea.ac.kr/lecture.mp4");
+  expect(declined).not.toHaveBeenCalled();
+  expect(fixture.play).toHaveBeenCalledOnce();
+});
+
+it("verifies the short remainder of a saved position accepted before the adapter starts", async () => {
+  const fixture = setup();
+  const notify = nativeSignals(fixture.video);
+  let source = "https://kucom.korea.ac.kr/viewer/uniplayer/preloader.mp4";
+  let paused = true;
+  let ended = false;
+  const duration = 1.5;
+  Object.defineProperties(fixture.video, {
+    currentSrc: { get: () => source },
+    paused: { get: () => paused },
+    ended: { get: () => ended },
+    duration: { get: () => duration },
+  });
+  const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+  const start = document.createElement("div");
+  start.className = "vc-front-screen-play-btn";
+  const prompt = document.createElement("div");
+  prompt.className = "confirm-msg-box";
+  prompt.innerHTML = `<div class="confirm-msg-text">이전에 시청했던 00:01부터 이어서 보시겠습니까?</div>
+    <div class="confirm-ok-btn" role="button">예</div>
+    <div class="confirm-cancel-btn" role="button">아니오</div>`;
+  start.addEventListener("click", () => document.body.append(prompt));
+  // KU loads the lecture at the saved second and is already playing it
+  // before the adapter exists.
+  prompt.querySelector(".confirm-ok-btn")?.addEventListener("click", () => {
+    prompt.remove();
+    source = "https://kucom.korea.ac.kr/lecture.mp4";
+    fixture.video.currentTime = 1;
+    paused = false;
+    fixture.video.dispatchEvent(new Event("loadedmetadata"));
+  });
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 100, 40),
+  );
+  document.body.append(fixture.video, start);
+  const playing = fixture.event("playing");
+  page.main();
+  await playing;
+
+  const finished = fixture.event("ended");
+  clock.mockReturnValue(500);
+  fixture.video.currentTime = duration;
+  paused = true;
+  ended = true;
+  notify("timeupdate");
+  notify("ended");
+  await finished;
+  expect(
+    fixture.sendMessage.mock.calls
+      .filter(([message]) => message.type === "PLAYBACK_PLAYER_EVENT")
+      .map(([message]) => message.state),
+  ).toEqual(["starting", "playing", "ended"]);
+});
+
 it("accepts the KU resume prompt only while the bound player is active", async () => {
   const fixture = setup();
   document.body.append(fixture.video);
