@@ -751,3 +751,56 @@ it("uses submitted_at when an upcoming item has no submitted boolean", () => {
 
   expect(upcoming).toMatchObject({ submitted: true, new_activity: false });
 });
+
+it("aborts a query on its cancel signal, before or during a fetch, and stops fetching", async () => {
+  const todo: Request = { version: 1, type: "TODO_LIST" };
+  const early = new AbortController();
+  early.abort();
+  const unused = vi.fn<typeof fetch>();
+  expect(
+    await listQuery(
+      origin,
+      todo,
+      unused,
+      Date.now(),
+      undefined,
+      undefined,
+      undefined,
+      early.signal,
+    ),
+  ).toEqual({ status: "error", code: "TIMEOUT" });
+  expect(unused).not.toHaveBeenCalled();
+
+  const live = new AbortController();
+  let seen: AbortSignal | undefined | null;
+  let started!: () => void;
+  const fetching = new Promise<void>((resolve) => (started = resolve));
+  const fetcher = vi.fn<typeof fetch>(
+    (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        seen = init?.signal;
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+        started();
+      }),
+  );
+  const pending = listQuery(
+    origin,
+    todo,
+    fetcher,
+    Date.now(),
+    undefined,
+    undefined,
+    undefined,
+    live.signal,
+  );
+  await fetching;
+  expect(seen?.aborted).toBe(false);
+
+  live.abort();
+
+  expect(await pending).toEqual({ status: "error", code: "TIMEOUT" });
+  expect(seen?.aborted).toBe(true);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

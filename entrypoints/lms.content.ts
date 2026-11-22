@@ -16,6 +16,7 @@ import { currentAccount } from "../src/api/account";
 import { discoverPlayback } from "../src/api/playback-discovery";
 import { learningxToken } from "../src/security/learningx-token";
 import {
+  panelCancel,
   panelQuery,
   parseResult,
   validDownloadDeadline,
@@ -208,6 +209,9 @@ export default defineContentScript({
       result: Promise<Result>;
       owner?: Promise<CachedOwner | undefined>;
       scope?: string;
+      /** Cancellation identity; only a cancel naming scope and operation aborts. */
+      operation?: string;
+      cancel?: AbortController;
       admission?: NavigationCatalogAdmission;
       courseAdmission?: CourseSelectorAdmission;
     }
@@ -230,6 +234,7 @@ export default defineContentScript({
       publishOwner?: (owner: CachedOwner | undefined) => void,
       admission?: NavigationCatalogAdmission,
       courseAdmission?: CourseSelectorAdmission,
+      cancel?: AbortSignal,
     ): Promise<Result> {
       const ttl = cacheTtl(message);
       const capabilityList =
@@ -372,6 +377,7 @@ export default defineContentScript({
               staging,
               resolvedCourseId,
               () => learningxToken(document.cookie),
+              cancel,
             )
           : listQuery(
               location.origin,
@@ -406,6 +412,8 @@ export default defineContentScript({
           invalidateScope(epoch);
           return { status: "error", code: "LOGIN_REQUIRED" };
         }
+        // A superseded read never publishes a catalog or caches handles.
+        if (cancel?.aborted) return { status: "error", code: "TIMEOUT" };
         if (staging) {
           if (!staging.ownedBy(account, epoch))
             return { status: "error", code: "RELOAD_TAB" };
@@ -652,6 +660,22 @@ export default defineContentScript({
             return false;
           }
         }
+        const cancellation = panelCancel(message);
+        if (cancellation) {
+          // Only the panel scope that issued the read can abort that read.
+          if (
+            sender.id === chrome.runtime.id &&
+            sender.url === chrome.runtime.getURL("sidepanel.html") &&
+            allowedPage(location.href)
+          )
+            for (const item of pending.values())
+              if (
+                item.scope === cancellation.scope &&
+                item.operation === cancellation.operation
+              )
+                item.cancel?.abort();
+          return false;
+        }
         const parsed = panelQuery(message);
         if (
           sender.id !== chrome.runtime.id ||
@@ -708,11 +732,14 @@ export default defineContentScript({
             resolveResult = resolve;
             rejectResult = reject;
           });
+          const cancel = parsed.operation ? new AbortController() : undefined;
           operation = {
             key,
             result: sharedResult,
             owner,
             scope: parsed.scope,
+            operation: parsed.operation,
+            cancel,
             admission,
             courseAdmission,
           };
@@ -735,6 +762,7 @@ export default defineContentScript({
               resolveOwner,
               admission,
               courseAdmission,
+              cancel?.signal,
             ).finally(() => {
               resolveOwner?.(undefined);
               if (courseAdmission) courseSelectors.discard(courseAdmission);

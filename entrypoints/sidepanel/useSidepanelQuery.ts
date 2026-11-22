@@ -61,6 +61,8 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   const capabilityScope = useRef(crypto.randomUUID()).current;
   const courseScope = useRef(crypto.randomUUID()).current;
   const inFlight = useRef<Promise<Result> | null>(null);
+  // The recording/document read this hook has in flight, if any.
+  const read = useRef<AbortController | null>(null);
   const recordingTarget = useRef<QueryTarget | null>(null);
   const courseTarget = useRef<QueryTarget | null>(null);
   // One course list query (assignments, recordings or materials from the same
@@ -107,8 +109,15 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       notice: "",
     });
   }
+  // A superseded read can never be shown, so stop it in the LMS tab. The gate
+  // still hands the lane over only after the cancelled read has ended.
+  function cancelRead() {
+    read.current?.abort();
+    read.current = null;
+  }
   function clear() {
     generation.current++;
+    cancelRead();
     downloads.cancel();
     resetRecordingAction();
     setCourseRefresh(null);
@@ -117,6 +126,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
   useEffect(
     () => () => {
       generation.current++;
+      read.current?.abort();
     },
     [],
   );
@@ -140,12 +150,14 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       !courseTarget.current
     ) {
       generation.current++;
+      cancelRead();
       setCourseRefresh(null);
       setState({ status: "error", code: "STALE_SELECTION" });
       op?.failure("STALE_SELECTION");
       return;
     }
     const current = ++generation.current;
+    cancelRead();
     const key = courseKey(query);
     if (query.type === "COURSES_LIST") courseTarget.current = null;
     downloads.cancel();
@@ -162,6 +174,11 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
       return;
     }
     let issuingCourseTarget: QueryTarget | null = null;
+    const controller =
+      query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST"
+        ? new AbortController()
+        : null;
+    read.current = controller;
     const work =
       query.type === "COURSES_LIST"
         ? queryActive(query, {
@@ -173,6 +190,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
           ? queryActive(query, {
               refresh: options.refresh,
               capabilityScope,
+              ...(controller ? { signal: controller.signal } : {}),
               ...(courseTarget.current ? { target: courseTarget.current } : {}),
               onTarget: (target) => {
                 if (current === generation.current)
@@ -191,6 +209,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     inFlight.current = work;
     const result = await work.finally(lease.release);
     if (inFlight.current === work) inFlight.current = null;
+    if (controller && read.current === controller) read.current = null;
     if (current === generation.current) {
       if (query.type === "COURSES_LIST") {
         courseTarget.current =

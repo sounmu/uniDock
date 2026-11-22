@@ -23,6 +23,11 @@ export interface QueryOptions {
   refresh?: boolean;
   /** Stable identity of one mounted capability-list consumer. */
   capabilityScope?: string;
+  /**
+   * Aborting a recording/document read cancels exactly that read in the tab it
+   * was dispatched to. An abort before dispatch sends nothing at all.
+   */
+  signal?: AbortSignal;
 }
 export async function queryActive(
   query: Request,
@@ -73,6 +78,12 @@ export async function queryActive(
         (!capabilityList && options.capabilityScope !== undefined)
       )
         return { status: "error", code: "POLICY" };
+      if (options.signal?.aborted) return { status: "error", code: "TIMEOUT" };
+      const operation =
+        options.signal &&
+        (query.type === "RECORDINGS_LIST" || query.type === "DOCUMENTS_LIST")
+          ? crypto.randomUUID()
+          : undefined;
       const message: PanelQueryMessage =
         query.type === "DOCUMENT_DOWNLOAD"
           ? {
@@ -88,6 +99,7 @@ export async function queryActive(
                 scope: options.capabilityScope!,
                 refresh: options.refresh === true,
                 request: query as CapabilityListRequest,
+                ...(operation ? { operation } : {}),
               }
             : options.refresh
               ? {
@@ -96,9 +108,34 @@ export async function queryActive(
                   request: query as ListRequest,
                 }
               : query;
-      const result: unknown = await chrome.tabs.sendMessage(tab.id, message, {
+      const dispatched = chrome.tabs.sendMessage(tab.id, message, {
         frameId: 0,
       });
+      // Registered in the same tick as the dispatch, so the cancel can only
+      // follow its own read and ends with it: a late abort sends nothing.
+      let stopCancel: (() => void) | undefined;
+      if (operation && options.signal) {
+        const { signal } = options;
+        const tabId = tab.id;
+        const cancel: PanelQueryMessage = {
+          version: 1,
+          type: "CAPABILITY_CANCEL",
+          scope: options.capabilityScope!,
+          operation,
+        };
+        const send = () =>
+          void Promise.resolve(
+            chrome.tabs.sendMessage(tabId, cancel, { frameId: 0 }),
+          ).catch(() => {});
+        signal.addEventListener("abort", send, { once: true });
+        stopCancel = () => signal.removeEventListener("abort", send);
+      }
+      let result: unknown;
+      try {
+        result = await dispatched;
+      } finally {
+        stopCancel?.();
+      }
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
       const current = await chrome.tabs.get(tab.id);
       if (timedOut()) return { status: "error", code: "TIMEOUT" };
