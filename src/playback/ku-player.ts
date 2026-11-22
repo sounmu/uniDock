@@ -12,6 +12,9 @@ export function initializeKuLecture(
   initial: HTMLVideoElement,
   authorized: () => boolean,
   signal?: AbortSignal,
+  /** Runs right before KU's start control is clicked; the returned cleanup
+   * runs once initialization is ready or cancelled. */
+  onStart?: () => () => void,
 ): Promise<KuLectureReady> {
   const document = initial.ownerDocument;
   const container = initial.parentElement;
@@ -60,6 +63,7 @@ export function initializeKuLecture(
   return new Promise((resolve, reject) => {
     let state: "active" | "cancelled" | "ready" | "handed-off" = "active";
     let selected: HTMLVideoElement | null = null;
+    let stopPrompt = () => {};
     const owned = new Set<HTMLVideoElement>();
     const deadline = performance.now() + 15000;
     const normalize = (video: HTMLVideoElement) => {
@@ -89,6 +93,7 @@ export function initializeKuLecture(
         track(video);
     };
     const cleanupReadiness = () => {
+      stopPrompt();
       clearInterval(timer);
       document.removeEventListener("loadedmetadata", check, true);
     };
@@ -199,6 +204,7 @@ export function initializeKuLecture(
         cancel();
         return;
       }
+      stopPrompt = onStart?.() ?? stopPrompt;
       button.click();
       check();
     } catch {

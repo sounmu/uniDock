@@ -126,11 +126,7 @@ export function App() {
           </aside>
         )}
         <div hidden={info || tool.detail !== null}>
-          {model.section === "home" && <HomeScreen model={model} onTool={openTool} onSchedule={() => {
-            navigationRevision.current++;
-            model.setView("TODO_LIST");
-            void model.load({ version: 1, type: "TODO_LIST" });
-          }} />}
+          {model.section === "home" && <HomeScreen model={model} onTool={openTool} />}
           {model.section === "courses" && <CoursesScreen model={model}
             onPlayback={__UNIDOCK_PLAYBACK__ ? (handle) => {
               const entry = model.takePlaybackEntry(handle);

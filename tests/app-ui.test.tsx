@@ -482,9 +482,7 @@ it("starts on Home and opens a task from the nearest three future deadlines", as
   expect(ui.host.querySelector(".item-title-link")?.getAttribute("href"))
     .toBe("https://mylms.korea.ac.kr/courses/12/assignments/34");
   await click("← 목록");
-  await click("전체 할 일");
-  expect(ui.host.textContent).toContain("날짜 없음");
-  expect(ui.host.textContent).toContain("지난 과제");
+  expect(ui.host.textContent).not.toContain("전체 할 일");
 });
 
 it("returns from playback to the same recording detail and focused entry control", async () => {

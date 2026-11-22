@@ -42,6 +42,7 @@ beforeEach(() => {
   current = { ...base };
   session = { email: "student@example.com" };
   vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => undefined) } });
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   downloadCaption.mockResolvedValue({ status: "complete" });
 });
 afterEach(async () => {

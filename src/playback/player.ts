@@ -143,9 +143,12 @@ export class PlaybackPlayer {
       this.clearCompletionEvidence();
   }
 
-  /** Starts once from the current native position, at normal speed. */
-  start(): Promise<PlaybackStatus> {
+  /** Starts once from the current native position, at normal speed. A position
+   * accepted from the site's resume prompt before this adapter existed is
+   * verified like one accepted while playing. */
+  start(resumePosition?: number): Promise<PlaybackStatus> {
     if (this.status.state !== "idle") return Promise.resolve(this.status);
+    this.pendingResumePosition = resumePosition;
     return this.play();
   }
 
@@ -178,6 +181,25 @@ export class PlaybackPlayer {
     const resetEvidence = () => {
       observedPlaying = false;
       this.clearCompletionEvidence();
+    };
+    // An accepted resume within a second of the end leaves less than the
+    // default one second of progress; require only the remaining fraction.
+    const acceptResume = () => {
+      const evidence = this.completionEvidence;
+      if (!evidence || this.options.isCompletionMedia?.() === false) return;
+      const expected = this.pendingResumePosition;
+      this.pendingResumePosition = undefined;
+      const duration = this.video.duration;
+      const remaining = duration - lastTime;
+      if (
+        expected !== undefined &&
+        Math.floor(lastTime) === expected &&
+        Number.isFinite(duration) &&
+        duration > 0 &&
+        remaining >= 0 &&
+        remaining < 1
+      )
+        evidence.minimumProgressSeconds = remaining;
     };
     const rejectUnauthorizedNativePlay = (
       event: Event,
@@ -242,21 +264,7 @@ export class PlaybackPlayer {
         sourceObject: this.video.srcObject,
         position: this.video.currentTime,
       };
-      if (this.options.isCompletionMedia?.() !== false) {
-        const expected = this.pendingResumePosition;
-        this.pendingResumePosition = undefined;
-        const duration = this.video.duration;
-        const remaining = duration - lastTime;
-        if (
-          expected !== undefined &&
-          Math.floor(lastTime) === expected &&
-          Number.isFinite(duration) &&
-          duration > 0 &&
-          remaining >= 0 &&
-          remaining < 1
-        )
-          this.completionEvidence.minimumProgressSeconds = remaining;
-      }
+      acceptResume();
       this.completionEvidence.pausedPosition = undefined;
       this.options.onDiagnostic?.("NATIVE_PLAYING");
     };
@@ -281,6 +289,7 @@ export class PlaybackPlayer {
         sourceObject: this.video.srcObject,
         position: this.video.currentTime,
       };
+      acceptResume();
       this.completionEvidence.pausedPosition = undefined;
     }
     const progress = (event: Event) => {

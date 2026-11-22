@@ -14,11 +14,9 @@ import { Refresh, Skeleton, type PanelModel } from "./QueryResults";
 export function HomeScreen({
   model,
   onTool,
-  onSchedule,
 }: {
   readonly model: PanelModel;
   readonly onTool: (tool: ToolSection) => void;
-  readonly onSchedule: () => void;
 }) {
   const { detail, open, back } = useDetail<Todo>();
   const [now, setNow] = useState(Date.now);
@@ -35,10 +33,7 @@ export function HomeScreen({
       <div hidden={detail !== null} className="home-screen">
         <ScreenHeader title="홈" action={<Refresh model={model} />} />
         <section aria-labelledby="home-deadlines" aria-busy={state.status === "loading"}>
-          <div className="toolbar">
-            <h2 id="home-deadlines">다가오는 마감</h2>
-            <button className="btn-ghost" onClick={onSchedule}>전체 할 일</button>
-          </div>
+          <h2 id="home-deadlines">다가오는 마감</h2>
           {state.status === "idle" && <Notice>LMS 탭을 선택하고 새로고침하면 남은 과제를 확인할 수 있습니다.</Notice>}
           {state.status === "loading" && <Skeleton />}
           {state.status === "error" && <Notice error>{messages[state.code]}</Notice>}
@@ -52,7 +47,7 @@ export function HomeScreen({
                 </li>
               ))}
             </ul>
-          ) : <Notice>다가오는 마감이 없습니다. 마감이 지났거나 날짜가 없는 과제는 전체 할 일에서 확인하세요.</Notice>)}
+          ) : <Notice>다가오는 마감이 없습니다. 마감이 지났거나 날짜가 없는 과제는 일정 탭에서 확인하세요.</Notice>)}
         </section>
         <section aria-labelledby="home-tools">
           <h2 id="home-tools">강의 도구</h2>
