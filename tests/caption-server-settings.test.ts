@@ -27,9 +27,16 @@ let store: Record<string, unknown>;
 let sessionStore: Record<string, unknown>;
 let launchWebAuthFlow: ReturnType<typeof stubCaptionChrome>["launchWebAuthFlow"];
 beforeEach(() => {
+  // Pin the wall clock inside the fixture session's refresh window
+  // (session.json refresh token expires 2026-11-23); timers stay real.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-22T00:00:00Z"));
   ({ store, sessionStore, launchWebAuthFlow } = stubCaptionChrome());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 const b64url = (bytes: ArrayBuffer) =>
   Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
