@@ -17,10 +17,14 @@ function ownTrack(video: CaptionVideo): TextTrack | undefined {
 }
 
 // ::cue ignores padding, so pad each line with a non-collapsing en space to
-// widen the cue background left and right.
+// widen the cue background left and right. VTTCue parses its text as WebVTT
+// markup, so transcript text is escaped to show literally.
 const PAD = "\u2002";
 export function paddedCueText(text: string): string {
   return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
     .split("\n")
     .map((line) => `${PAD}${line}${PAD}`)
     .join("\n");

@@ -135,6 +135,8 @@ export function CaptionsPanel({
     detection.current = controller;
     const current = ++generation.current;
     setState({ status: "loading" });
+    // A new detection lets go of the previous lecture's video.
+    setVideoTarget(null);
     setNotice("");
     const isCurrent = () =>
       mounted.current &&

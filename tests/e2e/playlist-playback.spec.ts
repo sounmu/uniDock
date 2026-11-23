@@ -2536,9 +2536,13 @@ test("panel subtitles reach the KU player video as one native track", async ({
     const extensionId = new URL(worker.url()).host;
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
-    const deliver = (cues: { start: number; end: number; text: string }[]) =>
+    // `viaWorker` is the panel's real path; `false` messages the frame directly.
+    const deliver = (
+      cues: { start: number; end: number; text: string }[],
+      viaWorker = true,
+    ) =>
       panel.evaluate(
-        async ({ lmsOrigin, playerOrigin, cues }) => {
+        async ({ lmsOrigin, playerOrigin, cues, viaWorker }) => {
           const [tab] = await chrome.tabs.query({ url: `${lmsOrigin}/*` });
           const frames = await chrome.scripting.executeScript({
             target: { tabId: tab!.id!, allFrames: true },
@@ -2546,16 +2550,24 @@ test("panel subtitles reach the KU player video as one native track", async ({
           });
           const player = frames.find((frame) => frame.result === playerOrigin);
           try {
-            return await chrome.tabs.sendMessage(
-              tab!.id!,
-              { version: 1, type: "PLAYBACK_CAPTION_TRACK", cues },
-              { documentId: player!.documentId },
-            );
+            return viaWorker
+              ? await chrome.runtime.sendMessage({
+                  version: 1,
+                  type: "PLAYBACK_CAPTION_FORWARD",
+                  tabId: tab!.id!,
+                  documentId: player!.documentId,
+                  cues,
+                })
+              : await chrome.tabs.sendMessage(
+                  tab!.id!,
+                  { version: 1, type: "PLAYBACK_CAPTION_TRACK", cues },
+                  { documentId: player!.documentId },
+                );
           } catch {
             return null;
           }
         },
-        { lmsOrigin: origin, playerOrigin: kuPlayer, cues },
+        { lmsOrigin: origin, playerOrigin: kuPlayer, cues, viaWorker },
       );
     const cues = [
       { start: 0, end: 2000, text: "첫 자막" },
@@ -2584,11 +2596,20 @@ test("panel subtitles reach the KU player video as one native track", async ({
     expect(await tracks()).toEqual([
       { kind: "subtitles", label: "uniDock 자막", language: "ko", mode: "showing", cues: 1 },
     ]);
+    // The panel cannot reach the frame around the worker.
+    expect(await deliver([], false)).not.toEqual({ ok: true });
+    expect((await tracks())[0]).toMatchObject({ mode: "showing", cues: 1 });
     // An empty delivery removes them.
     expect(await deliver([])).toEqual({ ok: true });
     expect(await tracks()).toEqual([
       { kind: "subtitles", label: "uniDock 자막", language: "ko", mode: "disabled", cues: null },
     ]);
+    // When the setting goes off, the worker clears what it delivered.
+    expect(await deliver(cues)).toEqual({ ok: true });
+    await panel.evaluate(() =>
+      chrome.storage.local.set({ "unidock.video-captions.v1": false }),
+    );
+    await expect.poll(async () => (await tracks())[0]?.mode).toBe("disabled");
   } finally {
     await context?.close();
     await rm(profile, { recursive: true, force: true });

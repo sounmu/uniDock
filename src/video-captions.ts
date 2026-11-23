@@ -1,5 +1,5 @@
 import type { CaptionCue } from "./captions/transcript";
-import type { PlayerCaptionTrack } from "./playback/bridge";
+import type { CaptionTrackForward } from "./playback/bridge";
 
 export const videoCaptionsKey = "unidock.video-captions.v1";
 
@@ -38,37 +38,26 @@ export function watchVideoCaptions(
   };
 }
 
-// Documents this panel put subtitles on. The setting lives on another screen,
-// so turning it off must reach them even after the captions view unmounted.
-const showing = new Map<string, VideoCaptionTarget>();
-const targetKey = (target: VideoCaptionTarget) =>
-  `${target.tabId}:${target.documentId}`;
-
+/** Turning it off clears the videos from the worker, which tracks what they show. */
 export async function saveVideoCaptions(enabled: boolean): Promise<void> {
   await chrome.storage.local.set({ [videoCaptionsKey]: enabled });
-  if (!enabled)
-    await Promise.all(
-      [...showing.values()].map((target) => sendVideoCaptions(target, [])),
-    );
 }
 
-/** Empty `cues` removes the subtitles. A document without the player script simply has no receiver. */
+/** Empty `cues` removes the subtitles. The worker forwards them to the document. */
 export async function sendVideoCaptions(
   target: VideoCaptionTarget,
   cues: readonly CaptionCue[],
 ): Promise<void> {
-  if (cues.length) showing.set(targetKey(target), target);
-  else showing.delete(targetKey(target));
-  const message: PlayerCaptionTrack = {
+  const message: CaptionTrackForward = {
     version: 1,
-    type: "PLAYBACK_CAPTION_TRACK",
+    type: "PLAYBACK_CAPTION_FORWARD",
+    tabId: target.tabId,
+    documentId: target.documentId,
     cues,
   };
   try {
-    await chrome.tabs.sendMessage(target.tabId, message, {
-      documentId: target.documentId,
-    });
+    await chrome.runtime.sendMessage(message);
   } catch {
-    // The lecture document navigated away or closed; its subtitles went with it.
+    // A worker that cannot answer leaves the video as it was.
   }
 }

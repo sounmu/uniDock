@@ -9,6 +9,7 @@ import {
   type PlayerAddress,
 } from "../src/playback/runtime";
 import {
+  isCaptionTrackForward,
   isDiscovery,
   isPlaybackCommand,
   isPlayerBinding,
@@ -35,6 +36,7 @@ import {
 } from "../src/update-notice";
 import { ANALYTICS_ALARM, isAnalyticsCommand } from "../src/analytics/contract";
 import { videoCaptionsKey } from "../src/video-captions";
+import { VideoCaptionTargets } from "../src/video-caption-targets";
 import {
   applyPopupAutoCloseChange,
   isPopupAutoCloseGet,
@@ -586,9 +588,25 @@ export default defineBackground(() => {
   };
   if (typeof chrome.scripting?.getRegisteredContentScripts === "function")
     popupTask(() => syncPopupAutoClose(true));
+  // The worker records which documents show subtitles, so turning the
+  // setting off reaches them after the panel closed or the worker restarted.
+  const videoCaptions =
+    __UNIDOCK_PLAYBACK__ && chrome.storage?.session
+      ? new VideoCaptionTargets()
+      : null;
+  if (__UNIDOCK_PLAYBACK__ && videoCaptions)
+    chrome.tabs?.onRemoved?.addListener((tabId) => {
+      void videoCaptions.tabRemoved(tabId).catch(() => {});
+    });
   chrome.storage?.onChanged?.addListener((changes, area) => {
-    if (area === "local" && popupAutoCloseKey in changes)
-      popupTask(applyPopupAutoCloseChange);
+    if (area !== "local") return;
+    if (popupAutoCloseKey in changes) popupTask(applyPopupAutoCloseChange);
+    if (
+      __UNIDOCK_PLAYBACK__ &&
+      videoCaptions &&
+      changes[videoCaptionsKey]?.newValue === false
+    )
+      void videoCaptions.clearAll().catch(() => {});
   });
   chrome.permissions?.onRemoved?.addListener(() =>
     popupTask(() => syncPopupAutoClose(true)),
@@ -704,6 +722,22 @@ export default defineBackground(() => {
             notifyPlayback(result);
           },
           () => respond({ status: "error", code: "STORAGE" }),
+        );
+      return true;
+    }
+    if (__UNIDOCK_PLAYBACK__ && isCaptionTrackForward(message)) {
+      if (!panelSender(sender) || !videoCaptions) {
+        respond({ ok: false });
+        return false;
+      }
+      void videoCaptions
+        .deliver(
+          { tabId: message.tabId, documentId: message.documentId },
+          message.cues,
+        )
+        .then(
+          (ok) => respond({ ok }),
+          () => respond({ ok: false }),
         );
       return true;
     }

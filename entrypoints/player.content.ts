@@ -8,7 +8,6 @@ import {
   isPlayerCaptionTrack,
   isPlayerControl,
   object,
-  panelSender,
   playerPage,
   PLAYBACK_PLAYER_REVOKE,
   type PlayerBinding,
@@ -485,7 +484,8 @@ export default defineContentScript({
     });
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
-        if (panelSender(sender) && isPlayerCaptionTrack(message)) {
+        // The worker forwards panel subtitles; nothing else may set them.
+        if (backgroundSender(sender) && isPlayerCaptionTrack(message)) {
           captions.deliver(message.cues);
           respond({ ok: true });
           return false;

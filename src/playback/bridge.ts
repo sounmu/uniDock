@@ -310,8 +310,8 @@ export function isPlayerBinding(value: unknown): value is PlayerBinding {
 }
 
 /**
- * Panel -> player document: replace the lecture's on-video subtitles. An empty
- * `cues` list removes them. Times are video-relative milliseconds.
+ * Worker -> player document: replace the lecture's on-video subtitles. An
+ * empty `cues` list removes them. Times are video-relative milliseconds.
  */
 export interface PlayerCaptionTrack {
   readonly version: 1;
@@ -321,17 +321,41 @@ export interface PlayerCaptionTrack {
 export function isPlayerCaptionTrack(
   value: unknown,
 ): value is PlayerCaptionTrack {
-  if (
-    !object(value) ||
-    value.version !== 1 ||
-    value.type !== "PLAYBACK_CAPTION_TRACK" ||
-    Object.keys(value).length !== 3 ||
-    !Array.isArray(value.cues) ||
-    value.cues.length > 20000
-  )
-    return false;
+  return (
+    object(value) &&
+    value.version === 1 &&
+    value.type === "PLAYBACK_CAPTION_TRACK" &&
+    Object.keys(value).length === 3 &&
+    captionCues(value.cues)
+  );
+}
+/** Panel -> worker: forward a caption track to one document of a tab. */
+export interface CaptionTrackForward {
+  readonly version: 1;
+  readonly type: "PLAYBACK_CAPTION_FORWARD";
+  readonly tabId: number;
+  readonly documentId: string;
+  readonly cues: readonly CaptionCue[];
+}
+export function isCaptionTrackForward(
+  value: unknown,
+): value is CaptionTrackForward {
+  return (
+    object(value) &&
+    value.version === 1 &&
+    value.type === "PLAYBACK_CAPTION_FORWARD" &&
+    Object.keys(value).length === 5 &&
+    Number.isSafeInteger(value.tabId) &&
+    Number(value.tabId) >= 0 &&
+    typeof value.documentId === "string" &&
+    /^[\w-]{1,64}$/.test(value.documentId) &&
+    captionCues(value.cues)
+  );
+}
+function captionCues(value: unknown): value is readonly CaptionCue[] {
+  if (!Array.isArray(value) || value.length > 20000) return false;
   let size = 0;
-  return value.cues.every((cue: unknown) => {
+  return value.every((cue: unknown) => {
     if (
       !object(cue) ||
       Object.keys(cue).length !== 3 ||

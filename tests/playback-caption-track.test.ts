@@ -7,7 +7,7 @@ import {
   paddedCueText,
   showCaptionTrack,
 } from "../src/playback/caption-track";
-import { isPlayerCaptionTrack } from "../src/playback/bridge";
+import { isCaptionTrackForward, isPlayerCaptionTrack } from "../src/playback/bridge";
 
 class FakeCue {
   constructor(
@@ -77,6 +77,12 @@ it("adds one Korean subtitles track and replaces its cues on every delivery", ()
   expect(paddedCueText("윗줄\n아랫줄")).toBe("\u2002윗줄\u2002\n\u2002아랫줄\u2002");
 });
 
+it("shows transcript markup characters literally instead of as WebVTT tags", () => {
+  const { video, tracks } = lectureVideo();
+  showCaptionTrack(video, [{ start: 0, end: 1000, text: "<vector> & &lt;" }]);
+  expect(tracks[0]!.texts).toEqual([[0, 1, "\u2002&lt;vector&gt; &amp; &amp;lt;\u2002"]]);
+});
+
 it("reuses a track left by an earlier script and clears it on teardown", () => {
   const leftover = new FakeTrack("subtitles", CAPTION_TRACK_LABEL, "ko");
   leftover.mode = "disabled";
@@ -137,4 +143,19 @@ it.each([
 it("accepts cues and the empty clear message", () => {
   expect(isPlayerCaptionTrack({ version: 1, type: "PLAYBACK_CAPTION_TRACK", cues })).toBe(true);
   expect(isPlayerCaptionTrack({ version: 1, type: "PLAYBACK_CAPTION_TRACK", cues: [] })).toBe(true);
+});
+
+it("routes a panel forward only to a concrete tab document", () => {
+  const forward = { version: 1, type: "PLAYBACK_CAPTION_FORWARD", tabId: 7, documentId: "ABC123", cues };
+  expect(isCaptionTrackForward(forward)).toBe(true);
+  expect(isCaptionTrackForward({ ...forward, cues: [] })).toBe(true);
+  for (const bad of [
+    { ...forward, tabId: -1 },
+    { ...forward, tabId: 1.5 },
+    { ...forward, documentId: "" },
+    { ...forward, documentId: "https://x" },
+    { ...forward, frameId: 0 },
+    { ...forward, cues: [{ start: 5, end: 4, text: "a" }] },
+  ])
+    expect(isCaptionTrackForward(bad)).toBe(false);
 });

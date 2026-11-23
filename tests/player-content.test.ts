@@ -165,7 +165,7 @@ afterEach(() => {
   Reflect.deleteProperty(document, "visibilityState");
 });
 
-it("shows panel-delivered subtitles on the lecture video without any playback run", async () => {
+it("shows worker-forwarded subtitles on the lecture video without any playback run", async () => {
   // Given: no playback run, so the background refuses the handshake.
   const fixture = setup({ hello: Promise.resolve({ ok: false }) });
   const tracks: { label: string; mode: string }[] = [];
@@ -197,11 +197,11 @@ it("shows panel-delivered subtitles on the lecture video without any playback ru
     type: "PLAYBACK_CAPTION_TRACK",
     cues: [{ start: 1000, end: 2000, text: "첫 자막" }],
   };
-  // When: a background sender tries it, then the panel delivers it.
-  fixture.listeners[0]!(message, sender, vi.fn());
+  // When: the panel tries it directly, then the worker forwards it.
+  fixture.listeners[0]!(message, panel, vi.fn());
   expect(tracks).toHaveLength(0);
   const respond = vi.fn();
-  fixture.listeners[0]!(message, panel, respond);
+  fixture.listeners[0]!(message, sender, respond);
   // Then
   expect(respond).toHaveBeenCalledWith({ ok: true });
   expect(tracks).toMatchObject([{ label: "uniDock 자막", mode: "showing", cues: [{ startTime: 1, endTime: 2, text: "\u2002첫 자막\u2002" }] }]);
