@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0 - 2026-11-24
+
+- Show timed official (VTT) and AI captions on the KU lecture video as a native
+  subtitle track, in windowed and fullscreen playback. Untimed screen scripts
+  stay off the video.
+- Add a settings toggle for on-video captions, on by default. Turning it off
+  removes subtitles already shown, even after the panel was closed.
+- Keep video-relative cue start and end times. Older cached AI captions still
+  load but are not shown on the video.
+- Show AI caption progress as preparing, queued, and generating before the
+  percentage appears, without server status details.
+- Update bundled release notes, privacy-policy version labels and data notes,
+  and release documentation.
+
 ## 0.5.9 - 2026-11-23
 
 - Play recordings that are posted as learning-module items, accepting KU's
