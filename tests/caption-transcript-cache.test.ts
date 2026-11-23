@@ -40,6 +40,23 @@ it("restores full captions for the same lecture and misses a different one", asy
   expect(await hasCachedTranscripts()).toBe(true);
 });
 
+it("keeps cue timing and still loads entries cached before timing existed", async () => {
+  const timed: CachedTranscript = {
+    ...value,
+    items: [{ index: 0, time: "00:01", text: "시간 있음", startMs: 1000, endMs: 2500 }],
+  };
+  await saveCachedTranscript(key(1), timed);
+  expect(await loadCachedTranscript(key(1))).toEqual(timed);
+  stored[CAPTION_TRANSCRIPT_CACHE_KEY] = {
+    [key(2)]: value,
+    [key(3)]: { ...value, items: [{ ...value.items[0], startMs: 2000, endMs: 1000 }] },
+    [key(4)]: { ...value, items: [{ ...value.items[0], startMs: 1.5, endMs: 3 }] },
+  };
+  expect(await loadCachedTranscript(key(2))).toEqual(value);
+  expect(await loadCachedTranscript(key(3))).toBeNull();
+  expect(await loadCachedTranscript(key(4))).toBeNull();
+});
+
 it("rejects expired and malformed stored captions", async () => {
   await saveCachedTranscript(key(1), value);
   vi.setSystemTime(new Date(value.expiresAt));

@@ -634,7 +634,7 @@ it("discards unsent statistics and the popup opt-in before the existing clear-da
   });
   expect(order).toEqual([
     "erase:unidock.analytics.v2,unidock.analytics-counters.v1,unidock.analytics.v1",
-    "erase:unidock.popup-auto-close.v1",
+    "erase:unidock.popup-auto-close.v1,unidock.video-captions.v1",
     "erase:unidock.caption-session.v1,unidock.caption-install-salt.v1,unidock.caption-active-job.v1,unidock.caption-transcripts.v1",
     "playback",
   ]);
@@ -1940,4 +1940,148 @@ it("still notifies once when the first event after a cold start recovers the sav
   expect(
     (f.local[PLAYBACK_STORAGE_KEY] as typeof savedPlayer).player,
   ).toBeNull();
+});
+
+const captionPanel = { id: "test", url: "chrome-extension://test/sidepanel.html" };
+const captionCues = [{ start: 1000, end: 2000, text: "첫 자막" }];
+const captionForward = (cues: readonly unknown[]) => ({
+  version: 1,
+  type: "PLAYBACK_CAPTION_FORWARD",
+  tabId: 7,
+  documentId: "player",
+  cues,
+});
+const playerTrack = (cues: readonly unknown[]) => [
+  7,
+  { version: 1, type: "PLAYBACK_CAPTION_TRACK", cues },
+  { documentId: "player" },
+];
+function videoCaptionFixture() {
+  const local: Record<string, unknown> = {};
+  const session: Record<string, unknown> = {};
+  const pick =
+    (store: Record<string, unknown>) =>
+    async (keys?: string | string[] | null) =>
+      Object.fromEntries(
+        (keys == null ? Object.keys(store) : [keys].flat())
+          .filter((key) => key in store)
+          .map((key) => [key, store[key]]),
+      );
+  const onMessage = vi.fn();
+  const changed = vi.fn();
+  const removed = vi.fn();
+  const sendMessage = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener: onMessage },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get: pick(local),
+        set: async (values: Record<string, unknown>) => {
+          Object.assign(local, values);
+        },
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        get: pick(session),
+        set: async (values: Record<string, unknown>) => {
+          Object.assign(session, values);
+        },
+        remove: async (key: string) => {
+          delete session[key];
+        },
+      },
+      onChanged: { addListener: changed },
+    },
+    tabs: { sendMessage, onRemoved: { addListener: removed } },
+  });
+  // Each boot is a fresh worker over the same storage; only its own listeners fire.
+  const boot = () => {
+    const from = [onMessage, changed, removed].map((spy) => spy.mock.calls.length);
+    background.main();
+    const receive = onMessage.mock.calls[from[0]!]![0];
+    return {
+      forward: (message: unknown, sender: chrome.runtime.MessageSender = captionPanel) =>
+        new Promise<unknown>((resolve) => receive(message, sender, resolve)),
+      settingOff: () => {
+        local["unidock.video-captions.v1"] = false;
+        for (const [listener] of changed.mock.calls.slice(from[1]))
+          listener({ "unidock.video-captions.v1": { newValue: false } }, "local");
+      },
+      tabRemoved: (tabId: number) => {
+        for (const [listener] of removed.mock.calls.slice(from[2])) listener(tabId, {});
+      },
+    };
+  };
+  return { session, sendMessage, boot };
+}
+
+it("forwards panel subtitles through the worker and clears them after a restart when the setting goes off", async () => {
+  const fixture = videoCaptionFixture();
+  const worker = fixture.boot();
+  // Given: a page cannot route subtitles; the panel can.
+  expect(
+    await worker.forward(captionForward(captionCues), {
+      id: "test",
+      url: "https://mylms.korea.ac.kr/",
+    }),
+  ).toEqual({ ok: false });
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: true });
+  expect(fixture.sendMessage.mock.calls).toEqual([playerTrack(captionCues)]);
+  // When: the worker restarts, then the setting goes off.
+  const restarted = fixture.boot();
+  const cleared = new Promise<unknown[]>((resolve) =>
+    fixture.sendMessage.mockImplementationOnce(async (...call: unknown[]) => {
+      resolve(call);
+      return { ok: true };
+    }),
+  );
+  restarted.settingOff();
+  // Then: the restarted worker clears the document it never saw shown.
+  expect(await cleared).toEqual(playerTrack([]));
+  expect(fixture.session).toEqual({});
+  expect(await restarted.forward(captionForward(captionCues))).toEqual({ ok: false });
+  expect(fixture.sendMessage).toHaveBeenCalledTimes(2);
+});
+
+it("records a document before showing it subtitles and forgets it only after a clear succeeds", async () => {
+  const fixture = videoCaptionFixture();
+  const worker = fixture.boot();
+  // Given: the record cannot be written.
+  vi.spyOn(chrome.storage.session, "set").mockRejectedValueOnce(new Error("QUOTA"));
+  // Then: nothing reaches the document, so no subtitles are left unrecorded.
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: false });
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: true });
+  // When: a clear does not reach the document.
+  fixture.sendMessage.mockRejectedValueOnce(new Error("GONE"));
+  expect(await worker.forward(captionForward([]))).toEqual({ ok: false });
+  // Then: the record stays until a clear succeeds.
+  expect(fixture.session).toEqual({
+    "unidock.video-caption-targets.v1": [{ tabId: 7, documentId: "player" }],
+  });
+  expect(await worker.forward(captionForward([]))).toEqual({ ok: true });
+  expect(fixture.session).toEqual({});
+});
+
+it("forgets the subtitles of a closed tab", async () => {
+  const fixture = videoCaptionFixture();
+  const worker = fixture.boot();
+  await worker.forward(captionForward(captionCues));
+  expect(fixture.session).toEqual({
+    "unidock.video-caption-targets.v1": [{ tabId: 7, documentId: "player" }],
+  });
+  // When: the tab closes, then the setting goes off.
+  worker.tabRemoved(7);
+  worker.settingOff();
+  // Then: changes run in order, so this refusal settles after both; nothing was sent to the closed tab.
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: false });
+  expect(fixture.sendMessage).toHaveBeenCalledTimes(1);
+  expect(fixture.session).toEqual({});
 });

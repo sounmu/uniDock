@@ -116,6 +116,7 @@ it.each([
     title: "3주차 강의",
     tabId: 7,
     windowId: 1,
+    documentId: "player",
   });
   expect(executeScript).toHaveBeenCalledWith(
     expect.objectContaining({ target: { tabId: 7, allFrames: true }, world: "MAIN" }),

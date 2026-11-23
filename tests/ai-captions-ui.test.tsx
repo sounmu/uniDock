@@ -184,14 +184,15 @@ it("sends a signed-out user straight to the AI settings to log in", async () => 
   expect(onSettings).toHaveBeenCalledOnce();
 });
 
-it("shows the weekly quota, an offline worker and transcription progress", async () => {
+it("shows the weekly quota, a plain queue state and transcription progress", async () => {
   current = { ...base, phase: "failed", errorCode: "QUOTA_EXCEEDED" };
   await render();
   expect(ui.host.textContent).toContain("주 7회");
   await ui.unmount();
   current = { ...base, phase: "queued", workerOffline: true };
   await render();
-  expect(ui.host.textContent).toContain("처리 서버가 꺼져 있어");
+  expect(ui.host.textContent).toContain("대기열에 있어요");
+  expect(ui.host.textContent).not.toContain("서버");
   await ui.unmount();
   current = { ...base, phase: "running", serverProgress: { stage: "transcribing", done: 600, total: 3938 } };
   await render();
@@ -206,12 +207,14 @@ it("marks finished steps and tells whether the panel may close", async () => {
   current = { ...base, phase: "uploading", progress: 5 * 1024 * 1024 };
   await render();
   const steps = [...ui.host.querySelectorAll(".ai-steps li")];
-  expect(steps.map((li) => li.className)).toEqual(["done", "done", "now", "", ""]);
-  expect(steps[2]?.textContent).toContain("5.0MB");
+  expect(steps.map((li) => li.className)).toEqual(["now", "", ""]);
+  expect(steps[0]?.textContent).not.toContain("MB");
   expect(ui.host.textContent).toContain("패널을 열어 두세요");
   await ui.unmount();
   current = { ...base, phase: "queued" };
   await render();
+  const queued = [...ui.host.querySelectorAll(".ai-steps li")];
+  expect(queued.map((li) => li.className)).toEqual(["done", "now", ""]);
   expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
 });
 

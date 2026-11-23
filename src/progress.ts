@@ -78,10 +78,10 @@ export interface ProgressText {
 }
 
 const captionText: Partial<Record<JobPhase, readonly [string, string, ProgressTone]>> = {
-  identifying: ["AI 자막 준비 중", "강의 영상을 확인하고 있어요", "run"],
-  extracting: ["AI 자막 준비 중", "강의 음성을 분리하고 있어요", "run"],
-  uploading: ["AI 자막 준비 중", "음성을 보내고 있어요", "run"],
-  queued: ["AI 자막 대기 중", "처리 순서를 기다리고 있어요", "wait"],
+  identifying: ["AI 자막 준비 중", "자막 만들 준비를 하고 있어요", "run"],
+  extracting: ["AI 자막 준비 중", "자막 만들 준비를 하고 있어요", "run"],
+  uploading: ["AI 자막 준비 중", "자막 만들 준비를 하고 있어요", "run"],
+  queued: ["AI 자막 대기 중", "대기열에 있어요", "wait"],
   running: ["AI 자막 만드는 중", "자막을 만들고 있어요", "run"],
   succeeded: ["AI 자막이 준비됐어요", "패널의 자막 추출에서 볼 수 있어요", "done"],
   failed: ["AI 자막을 만들지 못했어요", "패널의 자막 추출에서 다시 시도하세요", "error"],
@@ -101,8 +101,6 @@ export function progressText(item: ProgressItem): ProgressText | null {
     const text = captionText[item.phase];
     if (!text) return null;
     const [title, detail, tone] = text;
-    if (item.phase === "queued" && item.workerOffline)
-      return { title, detail: "자막 서버가 연결되면 바로 시작해요", tone, percent: null };
     if (item.phase === "running" && item.percent !== null)
       return { title, detail: `${item.percent}% 완료`, tone, percent: item.percent };
     return { title, detail, tone, percent: null };

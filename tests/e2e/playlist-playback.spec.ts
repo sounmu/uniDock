@@ -2497,3 +2497,121 @@ test("a production stale watchdog delivery cannot stop its replacement", async (
     await rm(profile, { recursive: true, force: true });
   }
 });
+
+test("panel subtitles reach the KU player video as one native track", async ({
+  playwright,
+}) => {
+  await stat(path.join(extensionPath, "manifest.json"));
+  const profile = await mkdtemp(path.join(tmpdir(), "unidock-caption-track-"));
+  let context: BrowserContext | undefined;
+  try {
+    context = await playwright.chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: process.env.CI === "true",
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`,
+      ],
+    });
+    await context.route(`${origin}/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: `<!doctype html><html><body><iframe src="${kuPlayer}/em/caption-lecture" width="640" height="360"></iframe></body></html>`,
+      }),
+    );
+    await context.route(`${kuPlayer}/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: '<!doctype html><html><body><div class="vc-vplay-container"><video class="vc-vplay-video1" muted></video></div></body></html>',
+      }),
+    );
+    // Given: a lecture page whose KU player frame runs no playback run.
+    const lms = await context.newPage();
+    await lms.goto(`${origin}/courses/101/modules/items/501`);
+    const worker =
+      context.serviceWorkers()[0] ??
+      (await context.waitForEvent("serviceworker"));
+    const extensionId = new URL(worker.url()).host;
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    // `viaWorker` is the panel's real path; `false` messages the frame directly.
+    const deliver = (
+      cues: { start: number; end: number; text: string }[],
+      viaWorker = true,
+    ) =>
+      panel.evaluate(
+        async ({ lmsOrigin, playerOrigin, cues, viaWorker }) => {
+          const [tab] = await chrome.tabs.query({ url: `${lmsOrigin}/*` });
+          const frames = await chrome.scripting.executeScript({
+            target: { tabId: tab!.id!, allFrames: true },
+            func: () => location.origin,
+          });
+          const player = frames.find((frame) => frame.result === playerOrigin);
+          try {
+            return viaWorker
+              ? await chrome.runtime.sendMessage({
+                  version: 1,
+                  type: "PLAYBACK_CAPTION_FORWARD",
+                  tabId: tab!.id!,
+                  documentId: player!.documentId,
+                  cues,
+                })
+              : await chrome.tabs.sendMessage(
+                  tab!.id!,
+                  { version: 1, type: "PLAYBACK_CAPTION_TRACK", cues },
+                  { documentId: player!.documentId },
+                );
+          } catch {
+            return null;
+          }
+        },
+        { lmsOrigin: origin, playerOrigin: kuPlayer, cues, viaWorker },
+      );
+    const cues = [
+      { start: 0, end: 2000, text: "첫 자막" },
+      { start: 2000, end: 4000, text: "둘째 자막" },
+    ];
+    const frame = () =>
+      lms.frames().find((entry) => entry.url().startsWith(kuPlayer))!;
+    const tracks = () =>
+      frame().evaluate(() =>
+        [...document.querySelector("video")!.textTracks].map((track) => ({
+          kind: track.kind,
+          label: track.label,
+          language: track.language,
+          mode: track.mode,
+          cues: track.cues?.length ?? null,
+        })),
+      );
+    // When: the panel delivers cues (the content script may still be starting).
+    await expect.poll(() => deliver(cues)).toEqual({ ok: true });
+    // Then: one Korean subtitles track shows them.
+    expect(await tracks()).toEqual([
+      { kind: "subtitles", label: "uniDock 자막", language: "ko", mode: "showing", cues: 2 },
+    ]);
+    // When delivered again, the same track is reused with the new cues.
+    expect(await deliver(cues.slice(1))).toEqual({ ok: true });
+    expect(await tracks()).toEqual([
+      { kind: "subtitles", label: "uniDock 자막", language: "ko", mode: "showing", cues: 1 },
+    ]);
+    // The panel cannot reach the frame around the worker.
+    expect(await deliver([], false)).not.toEqual({ ok: true });
+    expect((await tracks())[0]).toMatchObject({ mode: "showing", cues: 1 });
+    // An empty delivery removes them.
+    expect(await deliver([])).toEqual({ ok: true });
+    expect(await tracks()).toEqual([
+      { kind: "subtitles", label: "uniDock 자막", language: "ko", mode: "disabled", cues: null },
+    ]);
+    // When the setting goes off, the worker clears what it delivered.
+    expect(await deliver(cues)).toEqual({ ok: true });
+    await panel.evaluate(() =>
+      chrome.storage.local.set({ "unidock.video-captions.v1": false }),
+    );
+    await expect.poll(async () => (await tracks())[0]?.mode).toBe("disabled");
+  } finally {
+    await context?.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

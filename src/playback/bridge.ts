@@ -3,6 +3,11 @@ import type { PlaybackCandidate, PlaylistItem } from "./playlist";
 import { LMS_ORIGINS } from "../security/policy";
 import { KOREA_ORIGINS } from "../security/origins";
 import { navigationUrl } from "../security/navigation";
+import {
+  MAX_CUE_TEXT,
+  validCueRange,
+  type CaptionCue,
+} from "../captions/transcript";
 
 export type PlaybackCommand =
   | {
@@ -306,6 +311,67 @@ export function isPlayerBinding(value: unknown): value is PlayerBinding {
     typeof value.deadline === "number" &&
     Number.isFinite(value.deadline)
   );
+}
+
+/**
+ * Worker -> player document: replace the lecture's on-video subtitles. An
+ * empty `cues` list removes them. Times are video-relative milliseconds.
+ */
+export interface PlayerCaptionTrack {
+  readonly version: 1;
+  readonly type: "PLAYBACK_CAPTION_TRACK";
+  readonly cues: readonly CaptionCue[];
+}
+export function isPlayerCaptionTrack(
+  value: unknown,
+): value is PlayerCaptionTrack {
+  return (
+    object(value) &&
+    value.version === 1 &&
+    value.type === "PLAYBACK_CAPTION_TRACK" &&
+    Object.keys(value).length === 3 &&
+    captionCues(value.cues)
+  );
+}
+/** Panel -> worker: forward a caption track to one document of a tab. */
+export interface CaptionTrackForward {
+  readonly version: 1;
+  readonly type: "PLAYBACK_CAPTION_FORWARD";
+  readonly tabId: number;
+  readonly documentId: string;
+  readonly cues: readonly CaptionCue[];
+}
+export function isCaptionTrackForward(
+  value: unknown,
+): value is CaptionTrackForward {
+  return (
+    object(value) &&
+    value.version === 1 &&
+    value.type === "PLAYBACK_CAPTION_FORWARD" &&
+    Object.keys(value).length === 5 &&
+    Number.isSafeInteger(value.tabId) &&
+    Number(value.tabId) >= 0 &&
+    typeof value.documentId === "string" &&
+    /^[\w-]{1,64}$/.test(value.documentId) &&
+    captionCues(value.cues)
+  );
+}
+function captionCues(value: unknown): value is readonly CaptionCue[] {
+  if (!Array.isArray(value) || value.length > 20000) return false;
+  let size = 0;
+  return value.every((cue: unknown) => {
+    if (
+      !object(cue) ||
+      Object.keys(cue).length !== 3 ||
+      !validCueRange(cue.start, cue.end) ||
+      typeof cue.text !== "string" ||
+      !cue.text ||
+      cue.text.length > MAX_CUE_TEXT
+    )
+      return false;
+    size += cue.text.length;
+    return size <= 1000000;
+  });
 }
 
 export function isPlayerControl(value: unknown): value is PlayerControl {

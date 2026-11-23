@@ -31,7 +31,8 @@ export function exportTranscript(value: Transcript): {
     pageTitle: value.pageTitle,
     extractedAt: value.extractedAt,
     itemCount: items.length,
-    items,
+    // The saved file format keeps display times only; cue timing is for the video.
+    items: items.map(({ index, time, text }) => ({ index, time, text })),
   };
   return {
     json: JSON.stringify(transcript, null, 2) + "\n",

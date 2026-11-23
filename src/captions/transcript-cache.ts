@@ -1,4 +1,4 @@
-import type { Transcript } from "./transcript";
+import { validCueRange, type Transcript } from "./transcript";
 import { CAPTION_SESSION_EPOCH_KEY } from "../caption-server-settings";
 
 export const CAPTION_TRANSCRIPT_CACHE_KEY = "unidock.caption-transcripts.v1";
@@ -53,7 +53,19 @@ function parse(value: unknown): CachedTranscript | null {
       typeof item.time !== "string" || item.time.length > 32 ||
       typeof item.text !== "string" || item.text.length > 20000
     ) return null;
-    items.push({ index: item.index, time: item.time, text: item.text });
+    // Entries cached before cue timing existed have neither field; they still
+    // load, but only for the panel.
+    if (item.startMs === undefined && item.endMs === undefined)
+      items.push({ index: item.index, time: item.time, text: item.text });
+    else if (validCueRange(item.startMs, item.endMs))
+      items.push({
+        index: item.index,
+        time: item.time,
+        text: item.text,
+        startMs: item.startMs as number,
+        endMs: item.endMs as number,
+      });
+    else return null;
   }
   return {
     items,

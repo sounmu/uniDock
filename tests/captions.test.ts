@@ -191,15 +191,18 @@ it("bounds oversized and failed fetches", async () => {
   });
 });
 it("preserves start time, joins cue lines and removes milliseconds", () =>
-  expect(parseVtt(vtt)).toEqual(items));
+  expect(parseVtt(vtt)).toEqual([
+    { ...items[0], startMs: 36000, endMs: 40000 },
+    { ...items[1], startMs: 40123, endMs: 44567 },
+  ]));
 it("preserves repeated cues, hour timestamps and decodes VTT markup", () => {
   expect(
     parseVtt(
       "WEBVTT\r\n\r\nNOTE note\r\nignore\r\n\r\nSTYLE\r\n::cue {}\r\n\r\n1\r\n01:02:03.444 --> 01:02:04.555\r\n<v Speaker><b>가</b> &amp; 나</v>\r\n\r\n2\r\n01:02:04.555 --> 01:02:05.555\r\n가 &amp; 나",
     ),
   ).toEqual([
-    { index: 0, time: "01:02:03", text: "가 & 나" },
-    { index: 1, time: "01:02:04", text: "가 & 나" },
+    { index: 0, time: "01:02:03", text: "가 & 나", startMs: 3723444, endMs: 3724555 },
+    { index: 1, time: "01:02:04", text: "가 & 나", startMs: 3724555, endMs: 3725555 },
   ]);
 });
 it.each([
@@ -213,6 +216,8 @@ it("exports exactly the requested JSON fields and readable TXT", () => {
     secret: "not exported",
   } as Transcript);
   expect(JSON.parse(result.json)).toEqual(transcript);
+  const timed = exportTranscript({ ...transcript, items: parseVtt(vtt) });
+  expect(JSON.parse(timed.json).items).toEqual(items);
   expect(result.text).toBe(
     "00:36 안녕하십니까? 이번 시간에는 국제법 주제에서\n00:40 국가에 버금가는 중요성을...\n",
   );

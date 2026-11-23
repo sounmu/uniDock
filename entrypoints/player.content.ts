@@ -5,12 +5,14 @@ import { observeKuResume } from "../src/playback/ku-resume";
 import {
   backgroundSender,
   isPlayerBinding,
+  isPlayerCaptionTrack,
   isPlayerControl,
   object,
   playerPage,
   PLAYBACK_PLAYER_REVOKE,
   type PlayerBinding,
 } from "../src/playback/bridge";
+import { CaptionTrackController } from "../src/playback/caption-track";
 import { LMS_MATCHES } from "../src/security/policy";
 import { KOREA_ORIGINS } from "../src/security/origins";
 import { playbackDiagnostic as diagnostic } from "../src/security/logger";
@@ -75,6 +77,16 @@ export default defineContentScript({
       });
       return { videos, eligible, candidates };
     };
+    // Subtitles follow the lecture element itself, loaded or not, and stay
+    // independent of any playback authorization.
+    const captions = new CaptionTrackController(() => {
+      const { videos, eligible } = candidateSelection();
+      return kuPlayer
+        ? (eligible[0] ?? null)
+        : videos.length === 1
+          ? videos[0]!
+          : null;
+    }, document.documentElement);
     const selectCandidate = (): HTMLVideoElement | null => {
       const { candidates } = candidateSelection();
       return candidates.length === 1 ? candidates[0]! : null;
@@ -467,8 +479,17 @@ export default defineContentScript({
     discoveryTimer = setTimeout(probe, 500);
     window.addEventListener("resize", connect);
     window.addEventListener("pagehide", stop, { once: true });
+    window.addEventListener("pagehide", () => captions.dispose(), {
+      once: true,
+    });
     chrome.runtime.onMessage.addListener(
       (message: unknown, sender, respond) => {
+        // The worker forwards panel subtitles; nothing else may set them.
+        if (backgroundSender(sender) && isPlayerCaptionTrack(message)) {
+          captions.deliver(message.cues);
+          respond({ ok: true });
+          return false;
+        }
         if (!backgroundSender(sender) || !object(message)) return false;
         if (
           message.version === PLAYBACK_PLAYER_REVOKE.version &&

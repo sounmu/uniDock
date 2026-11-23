@@ -1,31 +1,40 @@
-import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { timedCues } from "../../src/captions/transcript";
+import type { VideoCaptionDelivery } from "./useVideoCaptions";
 import { downloadCaption, exportTranscript } from "../../src/captions/download";
 import { coreResult, startOperation } from "./analytics";
 import { useAiCaptions, type AiCaptionState } from "./useAiCaptions";
 import { useCaptionSession } from "./useCaptionSession";
 import { AiCaptionReader } from "./AiCaptionReader";
 
+// Before the server starts, only show what the user can act on: preparing
+// (keep the panel open), waiting in line, then generating.
 const steps = [
-  ["identifying", "영상 확인"],
-  ["extracting", "음성 분리"],
-  ["uploading", "업로드"],
-  ["queued", "대기"],
-  ["running", "자막 생성"],
+  [["identifying", "extracting", "uploading"], "준비"],
+  [["queued"], "대기"],
+  [["running"], "자막 생성"],
 ] as const;
 
 const phaseText: Record<string, string> = {
-  identifying: "강의 영상을 확인하고 있어요",
-  extracting: "강의 음성을 분리하고 있어요",
-  uploading: "음성을 보내고 있어요",
-  queued: "처리 순서를 기다리고 있어요",
+  identifying: "자막 만들 준비를 하고 있어요",
+  extracting: "자막 만들 준비를 하고 있어요",
+  uploading: "자막 만들 준비를 하고 있어요",
+  queued: "대기열에 있어요",
   running: "자막을 만들고 있어요",
 };
 
 const heroText: Record<string, string> = {
-  identifying: "영상 확인 중",
-  extracting: "음성 분리 중",
-  uploading: "업로드 중",
-  queued: "순서 기다리는 중",
+  identifying: "준비 중",
+  extracting: "준비 중",
+  uploading: "준비 중",
+  queued: "대기 중",
   running: "자막 생성 중",
 };
 
@@ -87,12 +96,6 @@ function durationLabel(seconds: number): string {
   return minutes ? `${hours}시간 ${minutes}분` : `${hours}시간`;
 }
 
-function sizeLabel(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-    : `${Math.max(1, Math.round(bytes / 1024))}KB`;
-}
-
 function expiryLabel(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -149,6 +152,7 @@ interface AiCaptionsProps {
   readonly onSettings?: () => void;
   readonly reason?: "NO_CAPTIONS" | "UNSAFE_CAPTION";
   readonly restoreOnly?: boolean;
+  readonly onVideoCaptions?: (delivery: VideoCaptionDelivery | null) => void;
 }
 
 /** The card fills the panel down to the tab bar, so it needs its own document
@@ -180,6 +184,15 @@ export function AiCaptionsSection(props: AiCaptionsProps = {}) {
   const flow = useAiCaptions();
   const [cardRef, top] = useDocumentTop();
   const phase = flow.state.phase;
+  const result = phase === "succeeded" ? flow.state.result : null;
+  const cues = useMemo(
+    () => (result ? timedCues(result.transcript.items) : null),
+    [result],
+  );
+  const { onVideoCaptions } = props;
+  useEffect(() => {
+    onVideoCaptions?.(flow.player && cues ? { target: flow.player, cues } : null);
+  }, [flow.player, cues, onVideoCaptions]);
   if (props.restoreOnly && (phase === "idle" || phase === "cancelled"))
     return null;
   return (
@@ -331,14 +344,13 @@ function AiCaptionsContent({
 
   if (running) {
     const percent = state.phase === "running" ? serverPercent(state.serverProgress) : null;
-    const current = steps.findIndex(([phase]) => phase === state.phase);
-    const detail = (phase: string) => {
-      if (phase !== state.phase) return "";
-      if ((phase === "extracting" || phase === "uploading") && state.progress)
-        return sizeLabel(state.progress);
-      if (phase === "running") return serverMinutes(state.serverProgress);
-      return "";
-    };
+    const current = steps.findIndex(([phases]) =>
+      (phases as readonly string[]).includes(state.phase),
+    );
+    const detail = (index: number) =>
+      index === current && state.phase === "running"
+        ? serverMinutes(state.serverProgress)
+        : "";
     const accepted = state.phase === "queued" || state.phase === "running";
     return (
       <div className="ai-job" aria-live="polite" aria-busy="true">
@@ -347,11 +359,9 @@ function AiCaptionsContent({
           foot={
             <div className="ai-run-foot">
               <p className="ai-note">
-                {state.phase === "queued" && state.workerOffline
-                  ? "처리 서버가 꺼져 있어 기다리고 있어요. 켜지면 이어서 처리해요."
-                  : accepted
-                    ? "패널을 닫아도 계속 진행돼요"
-                    : "음성을 보내는 동안 패널을 열어 두세요"}
+                {accepted
+                  ? "패널을 닫아도 계속 진행돼요"
+                  : "준비가 끝날 때까지 패널을 열어 두세요"}
               </p>
               <button className="btn-ghost" onClick={() => cancel()}>
                 취소
@@ -377,15 +387,15 @@ function AiCaptionsContent({
             <i style={percent === null ? undefined : { width: `${percent}%` }} />
           </div>
           <ol className="ai-steps">
-            {steps.map(([phase, label], index) => (
+            {steps.map(([, label], index) => (
               <li
-                key={phase}
+                key={label}
                 className={index < current ? "done" : index === current ? "now" : undefined}
                 aria-current={index === current ? "step" : undefined}
               >
                 <span className="ai-dot">{index < current && checkIcon}</span>
                 <span>{label}</span>
-                <small>{detail(phase)}</small>
+                <small>{detail(index)}</small>
               </li>
             ))}
           </ol>

@@ -7,38 +7,66 @@ const detect = vi.hoisted(() => vi.fn());
 const downloadCaption = vi.hoisted(() => vi.fn());
 vi.mock("../src/captions/service", () => ({ detectCaptions: detect }));
 vi.mock("../src/captions/download", () => ({ downloadCaption }));
-vi.mock("../entrypoints/sidepanel/AiCaptionsSection", () => ({
-  AiCaptionsSection: ({ onSettings, restoreOnly }: { onSettings?: () => void; restoreOnly?: boolean }) => restoreOnly ? null : (
-    <section className="ai-offer">
-      AI 자막 섹션
-      {onSettings && <button onClick={onSettings}>AI 자막 설정</button>}
-    </section>
-  ),
+// Like the real section, the mock publishes its finished AI delivery on mount.
+const aiDelivery = vi.hoisted(() => ({
+  current: null as VideoCaptionDelivery | null,
 }));
+vi.mock("../entrypoints/sidepanel/AiCaptionsSection", async () => {
+  const { useEffect } = await import("react");
+  return {
+    AiCaptionsSection: ({
+      onSettings,
+      restoreOnly,
+      onVideoCaptions,
+    }: {
+      onSettings?: () => void;
+      restoreOnly?: boolean;
+      onVideoCaptions?: (delivery: VideoCaptionDelivery | null) => void;
+    }) => {
+      useEffect(() => {
+        if (aiDelivery.current) onVideoCaptions?.(aiDelivery.current);
+      }, [onVideoCaptions]);
+      return restoreOnly ? null : (
+        <section className="ai-offer">
+          AI 자막 섹션
+          {onSettings && <button onClick={onSettings}>AI 자막 설정</button>}
+        </section>
+      );
+    },
+  };
+});
 import { CaptionsPanel } from "../entrypoints/sidepanel/CaptionsPanel";
+import type { VideoCaptionDelivery } from "../entrypoints/sidepanel/useVideoCaptions";
 import { App } from "../entrypoints/sidepanel/App";
 const updated = { addListener: vi.fn(), removeListener: vi.fn() };
 const activated = { addListener: vi.fn(), removeListener: vi.fn() };
 const removed = { addListener: vi.fn(), removeListener: vi.fn() };
 let ui: Awaited<ReturnType<typeof mount>>;
-const result: CaptionResult = {
-  status: "success",
-  blocked: false,
-  captions: [
-    {
-      sourceUrl: "https://kucom.korea.ac.kr/em/lecture",
-      pageTitle: "강의",
-      extractedAt: "2026-09-12T06:00:00Z",
-      label: "강의 자막",
-      source: "caption_script_dom",
-      itemCount: 1,
-      items: [{ index: 0, time: "00:01", text: "본문" }],
-    },
-  ],
+const screenCaption = {
+  sourceUrl: "https://kucom.korea.ac.kr/em/lecture",
+  pageTitle: "강의",
+  extractedAt: "2026-09-12T06:00:00Z",
+  label: "강의 자막",
+  source: "caption_script_dom",
+  itemCount: 1,
+  items: [{ index: 0, time: "00:01", text: "본문" }],
+  documentId: "player",
 };
+const result: CaptionResult = { status: "success", blocked: false, captions: [screenCaption] };
+const sendMessage = vi.fn();
+const storageChanged = { addListener: vi.fn(), removeListener: vi.fn() };
+let preferences: Record<string, unknown>;
 beforeEach(() => {
+  preferences = {};
+  aiDelivery.current = null;
+  sendMessage.mockResolvedValue({ ok: true });
   vi.stubGlobal("chrome", {
+    runtime: { sendMessage },
     tabs: { onUpdated: updated, onActivated: activated, onRemoved: removed },
+    storage: {
+      local: { get: vi.fn(async (name: string) => ({ [name]: preferences[name] })) },
+      onChanged: storageChanged,
+    },
   });
   detect.mockImplementation(async (onTarget) => {
     onTarget({ tabId: 7, windowId: 1 });
@@ -51,6 +79,178 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+const officialTrack: CaptionResult = {
+  status: "success",
+  blocked: false,
+  captions: [
+    {
+      ...screenCaption,
+      source: "player_vtt",
+      itemCount: 2,
+      items: [
+        { index: 0, time: "00:01", text: "첫 자막", startMs: 1000, endMs: 2500 },
+        { index: 1, time: "00:03", text: "둘째 자막", startMs: 3000, endMs: 4000 },
+      ],
+    },
+  ],
+};
+const trackMessages = () =>
+  sendMessage.mock.calls.map(([message]) => ({
+    tabId: message.tabId,
+    documentId: message.documentId,
+    cues: message.cues.map((cue: { text: string }) => cue.text),
+  }));
+it("shows an official track on the lecture video and removes it when the setting goes off", async () => {
+  // Given: the lecture's own VTT track was detected in the player document.
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  // When
+  await click("자막 감지");
+  // Then: the worker is asked to forward the timed cues to exactly that document once.
+  expect(trackMessages()).toEqual([
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+  ]);
+  expect(sendMessage.mock.calls[0]![0]).toEqual({
+    version: 1,
+    type: "PLAYBACK_CAPTION_FORWARD",
+    tabId: 7,
+    documentId: "player",
+    cues: [{ start: 1000, end: 2500, text: "첫 자막" }, { start: 3000, end: 4000, text: "둘째 자막" }],
+  });
+  // When: the user turns on-video captions off.
+  await act(async () => {
+    for (const [listener] of storageChanged.addListener.mock.calls)
+      listener({ "unidock.video-captions.v1": { newValue: false } }, "local");
+  });
+  // Then: the same document is told to clear its track.
+  expect(trackMessages()[1]).toEqual({ tabId: 7, documentId: "player", cues: [] });
+});
+
+it("lets go of the previous lecture's video when the next detection finds no track", async () => {
+  // Given: lecture A's official track is on its video.
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  // When: the next detection finds no captions.
+  detect.mockResolvedValue({ status: "error", code: "NO_CAPTIONS" });
+  await click("자막 감지");
+  // Then: A's subtitles are cleared instead of outranking the next delivery.
+  expect(trackMessages()).toEqual([
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+    { tabId: 7, documentId: "player", cues: [] },
+  ]);
+});
+it("lets go of the previous lecture's AI subtitles when the next detection finds only a script", async () => {
+  // Given: lecture A had no captions and its AI transcript is on its video.
+  detect.mockResolvedValue({ status: "error", code: "NO_CAPTIONS" });
+  ui = await mount(<CaptionsPanel />);
+  aiDelivery.current = {
+    target: { tabId: 7, documentId: "lecture-a" },
+    cues: [{ start: 0, end: 1000, text: "AI 자막" }],
+  };
+  await click("자막 감지");
+  aiDelivery.current = null;
+  // When: lecture B's detection returns an untimed script.
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return result;
+  });
+  await click("자막 감지");
+  // Then: A's AI subtitles are cleared and never delivered again.
+  expect(trackMessages()).toEqual([
+    { tabId: 7, documentId: "lecture-a", cues: ["AI 자막"] },
+    { tabId: 7, documentId: "lecture-a", cues: [] },
+  ]);
+});
+it("retries a refused delivery with backoff until the player accepts it, and counts it shown only then", async () => {
+  vi.useFakeTimers();
+  // Given: the player listener is not ready for the first two deliveries.
+  sendMessage
+    .mockResolvedValueOnce({ ok: false })
+    .mockResolvedValueOnce({ ok: false })
+    .mockResolvedValue({ ok: true });
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  // When
+  await click("자막 감지");
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTime(499));
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTime(1));
+  expect(sendMessage).toHaveBeenCalledTimes(2);
+  await act(async () => vi.advanceTimersByTime(1000));
+  // Then: the third attempt lands, and nothing more is sent.
+  await act(async () => vi.advanceTimersByTime(60000));
+  expect(trackMessages()).toEqual([
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+  ]);
+});
+it("gives up after a bounded number of refused deliveries", async () => {
+  vi.useFakeTimers();
+  sendMessage.mockResolvedValue({ ok: false });
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  // The async variant lets each refusal settle and schedule the next retry.
+  await act(() => vi.advanceTimersByTimeAsync(600000));
+  // The first attempt plus retries after 0.5, 1, 2 and 4 seconds.
+  expect(sendMessage).toHaveBeenCalledTimes(5);
+});
+it.each(["unmount", "target change"])(
+  "stops retrying a refused delivery on %s",
+  async (action) => {
+    vi.useFakeTimers();
+    sendMessage.mockResolvedValueOnce({ ok: false }).mockResolvedValue({ ok: true });
+    detect.mockImplementation(async (onTarget) => {
+      onTarget({ tabId: 7, windowId: 1 });
+      return officialTrack;
+    });
+    ui = await mount(<CaptionsPanel />);
+    await click("자막 감지");
+    if (action === "unmount") await ui.unmount();
+    else
+      await act(async () => {
+        updated.addListener.mock.calls[0]![0](7, { status: "loading" });
+      });
+    await act(async () => vi.advanceTimersByTime(60000));
+    // Only the refused delivery, then the clear a target change sends; no retry.
+    expect(trackMessages()).toEqual(
+      action === "unmount"
+        ? [{ tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] }]
+        : [
+            { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+            { tabId: 7, documentId: "player", cues: [] },
+          ],
+    );
+  },
+);
+it("saves the setting as a plain storage write and leaves clearing videos to the worker", async () => {
+  const set = vi.fn(async () => {});
+  (chrome.storage.local as unknown as { set: typeof set }).set = set;
+  const { saveVideoCaptions } = await import("../src/video-captions");
+  await saveVideoCaptions(false);
+  expect(set).toHaveBeenCalledWith({ "unidock.video-captions.v1": false });
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+it("never puts screen-script captions on the video", async () => {
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  expect(sendMessage).not.toHaveBeenCalled();
 });
 it("keeps captions across unrelated updates and tab switches", async () => {
   ui = await mount(<CaptionsPanel />);
