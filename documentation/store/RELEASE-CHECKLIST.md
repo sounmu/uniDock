@@ -14,11 +14,12 @@
   재생 중인 KU 플레이어 문서로만 가고 외부 서버로는 가지 않습니다. 새 저장 항목은
   `unidock.video-captions.v1`(local, boolean)과 `unidock.video-caption-targets.v1`
   (session, 탭·문서 번호)입니다. 권한과 외부 전송 범위는 바뀌지 않았습니다.
-- 실제 자막·통계 서버 주소와 `UNIDOCK_PLAYBACK=1`, `UNIDOCK_AI_CAPTIONS=1`로
-  `npm run release`를 실행합니다. 테스트 서버 주소나 개발용 key가 ZIP에
-  포함되지 않는지 패키징 검사로 확인합니다.
-- PR의 CI가 통과한 뒤 `main`에 병합하고 해당 커밋에 `v0.6.0` 태그를 겁니다.
-  ZIP과 SHA-256 inventory를 GitHub 릴리스에 첨부합니다.
+- PR의 CI가 통과한 뒤 `main`에 병합합니다.
+- 병합 커밋을 체크아웃하고 실제 자막·통계 서버 주소와 `UNIDOCK_PLAYBACK=1`,
+  `UNIDOCK_AI_CAPTIONS=1`로 `npm run release`를 실행합니다. 테스트 서버 주소나
+  개발용 key가 ZIP에 포함되지 않는지 패키징 검사로 확인합니다.
+- 같은 병합 커밋에 `v0.6.0` 태그를 걸고, 그 커밋에서 만든 ZIP과 SHA-256
+  inventory를 GitHub 릴리스에 첨부합니다.
 - Chrome Web Store 제출과 운영 서버 배포는 이 GitHub 릴리스에 포함하지 않습니다.
 
 ## 0.5.9 GitHub 릴리스
