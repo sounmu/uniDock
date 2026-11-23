@@ -1196,27 +1196,40 @@ input[type="checkbox"] {
   padding-left: var(--space-1);
   cursor: pointer;
 }
+/* Mirrors .list-row: each span is one text line box (title, then meta) with a
+   bar drawn in it, so the placeholder has the loaded row's height. */
 .skeleton-row {
-  display: grid;
-  align-content: center;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
   min-height: var(--row-h);
   padding: var(--row-pad-y) var(--space-3);
 }
 .skeleton-row span {
-  display: block;
+  display: flex;
+  align-items: center;
+}
+.skeleton-row span:first-child {
+  height: calc(var(--fs-md) * var(--lh-tight));
+}
+.skeleton-row span:last-child {
+  height: calc(var(--fs-sm) * var(--lh-body));
+}
+.skeleton-row span::before {
+  content: "";
   height: 10px;
   border-radius: var(--r-full);
   background: var(--line);
 }
-.skeleton-row span:last-child {
-  width: 40%;
-}
-.skeleton-row span:first-child {
+.skeleton-row span:first-child::before {
   width: 75%;
 }
+.skeleton-row span:last-child::before {
+  width: 40%;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .skeleton-row span {
+  .skeleton-row span::before {
     animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
   }
 }

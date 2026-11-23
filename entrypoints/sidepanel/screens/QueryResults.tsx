@@ -50,7 +50,7 @@ export function QueryResults({
           과제·녹화·자료를 확인할 수 있습니다.
         </Notice>
       )}
-      {state.status === "loading" && <Skeleton />}
+      {state.status === "loading" && <Skeleton countLine />}
       {state.status === "error" && (
         <Notice error>
           <strong>
@@ -178,16 +178,20 @@ function CourseResults({
     </>
   );
 }
-export function Skeleton() {
+/** `countLine` keeps the empty slot of the "조회 완료" line so rows start where results will. */
+export function Skeleton({ countLine = false }: { readonly countLine?: boolean }) {
   return (
-    <ul aria-hidden="true">
-      {[0, 1, 2, 3, 4, 5].map((row) => (
-        <li key={row} className="skeleton-row">
-          <span />
-          <span />
-        </li>
-      ))}
-    </ul>
+    <>
+      {countLine && <p className="count" aria-hidden="true">{"\u00a0"}</p>}
+      <ul aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((row) => (
+          <li key={row} className="skeleton-row">
+            <span />
+            <span />
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 export function Refresh({ model }: { readonly model: PanelModel }) {
