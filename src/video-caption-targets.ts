@@ -48,7 +48,11 @@ async function send(
 export class VideoCaptionTargets {
   private queue: Promise<unknown> = Promise.resolve();
 
-  /** Empty `cues` removes the subtitles. Cues are refused while the setting is off. */
+  /**
+   * Empty `cues` removes the subtitles. Cues are refused while the setting is
+   * off. A document is recorded before it may show cues and forgotten only
+   * after it confirms the removal, so a later clear always reaches it.
+   */
   deliver(
     target: VideoCaptionTarget,
     cues: readonly CaptionCue[],
@@ -57,12 +61,18 @@ export class VideoCaptionTargets {
       if (cues.length) {
         const setting = await chrome.storage.local.get(videoCaptionsKey);
         if (setting[videoCaptionsKey] === false) return false;
+        await this.update((targets) =>
+          targets.some((entry) => sameTarget(entry, target))
+            ? targets
+            : [...targets, target],
+        );
+        return send(target, cues);
       }
       const ok = await send(target, cues);
-      await this.update((targets) => {
-        const rest = targets.filter((entry) => !sameTarget(entry, target));
-        return ok && cues.length ? [...rest, target] : rest;
-      });
+      if (ok)
+        await this.update((targets) =>
+          targets.filter((entry) => !sameTarget(entry, target)),
+        );
       return ok;
     });
   }

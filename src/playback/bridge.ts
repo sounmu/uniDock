@@ -3,7 +3,11 @@ import type { PlaybackCandidate, PlaylistItem } from "./playlist";
 import { LMS_ORIGINS } from "../security/policy";
 import { KOREA_ORIGINS } from "../security/origins";
 import { navigationUrl } from "../security/navigation";
-import { validCueRange, type CaptionCue } from "../captions/transcript";
+import {
+  MAX_CUE_TEXT,
+  validCueRange,
+  type CaptionCue,
+} from "../captions/transcript";
 
 export type PlaybackCommand =
   | {
@@ -362,7 +366,7 @@ function captionCues(value: unknown): value is readonly CaptionCue[] {
       !validCueRange(cue.start, cue.end) ||
       typeof cue.text !== "string" ||
       !cue.text ||
-      cue.text.length > 20000
+      cue.text.length > MAX_CUE_TEXT
     )
       return false;
     size += cue.text.length;

@@ -10,6 +10,8 @@ export interface TranscriptItem {
   startMs?: number;
   endMs?: number;
 }
+/** The longest cue text the player document accepts; longer cues stay in the panel only. */
+export const MAX_CUE_TEXT = 20000;
 /** One on-video subtitle cue in video-relative milliseconds. */
 export interface CaptionCue {
   readonly start: number;
@@ -98,20 +100,26 @@ function cueMs(raw: string): number {
     Number(fraction)
   );
 }
-/** Timed items as on-video cues, ordered by start; untimed items and exact repeats are dropped. */
+/**
+ * Timed items as on-video cues, ordered by start. Untimed items, exact repeats
+ * and cues too long for the player are dropped.
+ */
 export function timedCues(items: readonly TranscriptItem[]): CaptionCue[] {
+  const seen = new Set<string>();
   const cues: CaptionCue[] = [];
-  for (const item of items)
-    if (validCueRange(item.startMs, item.endMs) && item.text)
-      cues.push({ start: item.startMs!, end: item.endMs!, text: item.text });
-  cues.sort((a, b) => a.start - b.start || a.end - b.end);
-  return cues.filter(
-    (cue, index) =>
-      index === 0 ||
-      cue.start !== cues[index - 1]!.start ||
-      cue.end !== cues[index - 1]!.end ||
-      cue.text !== cues[index - 1]!.text,
-  );
+  for (const item of items) {
+    if (
+      !validCueRange(item.startMs, item.endMs) ||
+      !item.text ||
+      item.text.length > MAX_CUE_TEXT
+    )
+      continue;
+    const key = JSON.stringify([item.startMs, item.endMs, item.text]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cues.push({ start: item.startMs!, end: item.endMs!, text: item.text });
+  }
+  return cues.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 export function parseVtt(raw: string): TranscriptItem[] {
   if (raw.length > 1000000) throw new Error("LIMIT");

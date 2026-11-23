@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import {
+  MAX_CUE_TEXT,
   parseMediaScript,
   projectServerSegments,
   timedCues,
@@ -46,6 +47,29 @@ it("builds ordered video cues and drops untimed items and exact repeats", () => 
     { start: 5000, end: 6000, text: "둘" },
     { start: 5000, end: 7000, text: "둘" },
   ]);
+});
+
+it("drops a repeat that is not adjacent within simultaneous cues and keeps distinct ones", () => {
+  expect(
+    timedCues([
+      { index: 0, time: "00:01", text: "가", startMs: 1000, endMs: 2000 },
+      { index: 1, time: "00:01", text: "나", startMs: 1000, endMs: 2000 },
+      { index: 2, time: "00:01", text: "가", startMs: 1000, endMs: 2000 },
+    ]),
+  ).toEqual([
+    { start: 1000, end: 2000, text: "가" },
+    { start: 1000, end: 2000, text: "나" },
+  ]);
+});
+
+it("keeps a cue too long for the player off the video only", () => {
+  const long = "가".repeat(MAX_CUE_TEXT + 1);
+  const items = projectServerSegments([
+    { start_ms: 0, end_ms: 1000, text: long },
+    { start_ms: 1000, end_ms: 2000, text: "가".repeat(MAX_CUE_TEXT) },
+  ]);
+  expect(items.map((item) => item.text.length)).toEqual([MAX_CUE_TEXT + 1, MAX_CUE_TEXT]);
+  expect(timedCues(items).map((cue) => cue.start)).toEqual([1000]);
 });
 
 it("never times KU wall-clock or untimed scripts", () => {

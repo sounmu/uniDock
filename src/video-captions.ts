@@ -43,11 +43,14 @@ export async function saveVideoCaptions(enabled: boolean): Promise<void> {
   await chrome.storage.local.set({ [videoCaptionsKey]: enabled });
 }
 
-/** Empty `cues` removes the subtitles. The worker forwards them to the document. */
+/**
+ * Empty `cues` removes the subtitles. The worker forwards them to the document
+ * and resolves true only when the document applied them.
+ */
 export async function sendVideoCaptions(
   target: VideoCaptionTarget,
   cues: readonly CaptionCue[],
-): Promise<void> {
+): Promise<boolean> {
   const message: CaptionTrackForward = {
     version: 1,
     type: "PLAYBACK_CAPTION_FORWARD",
@@ -56,8 +59,15 @@ export async function sendVideoCaptions(
     cues,
   };
   try {
-    await chrome.runtime.sendMessage(message);
+    const response: unknown = await chrome.runtime.sendMessage(message);
+    return (
+      typeof response === "object" &&
+      response !== null &&
+      "ok" in response &&
+      response.ok === true
+    );
   } catch {
     // A worker that cannot answer leaves the video as it was.
+    return false;
   }
 }

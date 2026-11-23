@@ -2050,6 +2050,26 @@ it("forwards panel subtitles through the worker and clears them after a restart 
   expect(fixture.sendMessage).toHaveBeenCalledTimes(2);
 });
 
+it("records a document before showing it subtitles and forgets it only after a clear succeeds", async () => {
+  const fixture = videoCaptionFixture();
+  const worker = fixture.boot();
+  // Given: the record cannot be written.
+  vi.spyOn(chrome.storage.session, "set").mockRejectedValueOnce(new Error("QUOTA"));
+  // Then: nothing reaches the document, so no subtitles are left unrecorded.
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: false });
+  expect(fixture.sendMessage).not.toHaveBeenCalled();
+  expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: true });
+  // When: a clear does not reach the document.
+  fixture.sendMessage.mockRejectedValueOnce(new Error("GONE"));
+  expect(await worker.forward(captionForward([]))).toEqual({ ok: false });
+  // Then: the record stays until a clear succeeds.
+  expect(fixture.session).toEqual({
+    "unidock.video-caption-targets.v1": [{ tabId: 7, documentId: "player" }],
+  });
+  expect(await worker.forward(captionForward([]))).toEqual({ ok: true });
+  expect(fixture.session).toEqual({});
+});
+
 it("forgets the subtitles of a closed tab", async () => {
   const fixture = videoCaptionFixture();
   const worker = fixture.boot();
