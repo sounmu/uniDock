@@ -10,6 +10,7 @@ export default ts.config(
       ".store-v052-build/**",
       ".store-screens-build/**",
       ".store-playback-build/**",
+      "store/assets/**",
       "release/**",
       "output/**",
     ],
