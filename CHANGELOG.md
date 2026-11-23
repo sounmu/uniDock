@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.9 - 2026-11-23
+
+- Play recordings that are posted as learning-module items, accepting KU's
+  saved-position prompt so playback continues from the saved position and still
+  advances when that position is near the end.
+- Generate AI captions for learning-module lectures.
+- Report lectures without a provided caption file as having no captions instead
+  of unreadable captions.
+- Start playback faster by checking up to three courses' lecture lists at once.
+- Remove the full to-do shortcut from Home; the full list stays in Schedule.
+- Keep the AI caption card above the bottom tab bar.
+- Update bundled release notes, privacy-policy version labels, and release
+  documentation.
+
 ## 0.5.8 - 2026-11-12
 
 - Organize the panel into Home, Courses, Schedule, and Settings, with the nearest

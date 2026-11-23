@@ -1,5 +1,21 @@
 # 배포 절차 및 남은 입력
 
+## 0.5.9 GitHub 릴리스
+
+- 대상: 학습 모듈 항목 강의의 자동 재생(시작 단계 이어보기 확인창 수락과
+  저장 위치 기반 완료 판정)과 AI 자막 생성, 자막 파일이 없는 강의의 자막 없음
+  안내, 자동 재생 시작 속도 개선, 홈의 전체 할 일 버튼 제거, AI 자막 카드 위치 조정.
+- 산출물: `release/uniDock-0.5.9-chrome-mv3.zip`, `release/inventory.json`.
+- 버전 원본은 `package.json`과 `package-lock.json`이며 manifest는 빌드에서 생성합니다.
+- 개인정보처리방침 기준일과 적용 버전은 2026-11-23, 0.5.9입니다.
+  데이터 처리 범위는 바뀌지 않았습니다.
+- 실제 자막·통계 서버 주소와 `UNIDOCK_PLAYBACK=1`, `UNIDOCK_AI_CAPTIONS=1`로
+  `npm run release`를 실행합니다. 테스트 서버 주소나 개발용 key가 ZIP에
+  포함되지 않는지 패키징 검사로 확인합니다.
+- PR의 CI가 통과한 뒤 `main`에 병합하고 해당 커밋에 `v0.5.9` 태그를 겁니다.
+  ZIP과 SHA-256 inventory를 GitHub 릴리스에 첨부합니다.
+- Chrome Web Store 제출과 운영 서버 배포는 이 GitHub 릴리스에 포함하지 않습니다.
+
 ## 0.5.8 GitHub 릴리스
 
 - 대상: 홈·내 과목·일정·설정 탐색 구조, 강의 상세의 재생·자막 진입,
