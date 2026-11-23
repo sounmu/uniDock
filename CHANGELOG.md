@@ -6,8 +6,8 @@
   saved-position prompt so playback continues from the saved position and still
   advances when that position is near the end.
 - Generate AI captions for learning-module lectures.
-- Report lectures without a provided caption file as having no captions instead
-  of unreadable captions.
+- Show no captions instead of unreadable captions when KU answers a missing
+  caption file with its HTML page, as some learning-module lectures do.
 - Start playback faster by checking up to three courses' lecture lists at once.
 - Remove the full to-do shortcut from Home; the full list stays in Schedule.
 - Keep the AI caption card above the bottom tab bar.
