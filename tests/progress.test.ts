@@ -34,7 +34,7 @@ it("describes caption and playback work in Korean with progress only while known
     percent: 42,
   });
   expect(progressText({ ...running, phase: "queued", percent: null, workerOffline: true })?.detail)
-    .toBe("자막 서버가 연결되면 바로 시작해요");
+    .toBe("대기열에 있어요");
   expect(progressText({ ...running, phase: "cancelled" })).toBeNull();
   const item = playbackProgressItem(playback("playing"))!;
   expect(progressText(item)?.detail).toBe("3주차 강의 · 남은 영상 1개");

@@ -165,6 +165,50 @@ afterEach(() => {
   Reflect.deleteProperty(document, "visibilityState");
 });
 
+it("shows panel-delivered subtitles on the lecture video without any playback run", async () => {
+  // Given: no playback run, so the background refuses the handshake.
+  const fixture = setup({ hello: Promise.resolve({ ok: false }) });
+  const tracks: { label: string; mode: string }[] = [];
+  Object.defineProperty(fixture.video, "textTracks", { value: tracks });
+  Object.defineProperty(fixture.video, "addTextTrack", {
+    value: (kind: string, label: string) => {
+      const cues: unknown[] = [];
+      const track = {
+        kind,
+        label,
+        mode: "hidden",
+        get cues() {
+          return this.mode === "disabled" ? null : [...cues];
+        },
+        addCue: (cue: unknown) => cues.push(cue),
+        removeCue: (cue: unknown) => cues.splice(cues.indexOf(cue), 1),
+      };
+      tracks.push(track);
+      return track;
+    },
+  });
+  vi.stubGlobal("VTTCue", class { constructor(readonly startTime: number, readonly endTime: number, readonly text: string) {} });
+  document.body.append(fixture.video);
+  page.main();
+  await fixture.sendMessage.mock.results[0]?.value;
+  const panel = { id: extension, url: `chrome-extension://${extension}/sidepanel.html` };
+  const message = {
+    version: 1,
+    type: "PLAYBACK_CAPTION_TRACK",
+    cues: [{ start: 1000, end: 2000, text: "첫 자막" }],
+  };
+  // When: a background sender tries it, then the panel delivers it.
+  fixture.listeners[0]!(message, sender, vi.fn());
+  expect(tracks).toHaveLength(0);
+  const respond = vi.fn();
+  fixture.listeners[0]!(message, panel, respond);
+  // Then
+  expect(respond).toHaveBeenCalledWith({ ok: true });
+  expect(tracks).toMatchObject([{ label: "uniDock 자막", mode: "showing", cues: [{ startTime: 1, endTime: 2, text: "\u2002첫 자막\u2002" }] }]);
+  window.dispatchEvent(new Event("pagehide"));
+  expect(tracks[0]!.mode).toBe("disabled");
+});
+
 it("does not advertise native continuation after an unverified end", async () => {
   const fixture = setup();
   const notify = nativeSignals(fixture.video);

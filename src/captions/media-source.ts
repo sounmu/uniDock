@@ -28,6 +28,8 @@ export interface MediaSource {
   title: string;
   tabId: number;
   windowId: number;
+  /** The KU player document that holds the media. */
+  documentId: string;
 }
 
 /**
@@ -120,7 +122,13 @@ export async function identifyMedia(): Promise<MediaSource> {
   for (const entry of results) {
     const found = entry.result;
     if (found && allowedCaptionMediaUrl(found.mediaUrl))
-      return { ...found, title: tab.title ?? "", tabId: tab.id, windowId: tab.windowId };
+      return {
+        ...found,
+        title: tab.title ?? "",
+        tabId: tab.id,
+        windowId: tab.windowId,
+        documentId: entry.documentId,
+      };
   }
   throw new MediaSourceError("UNSUPPORTED_MEDIA");
 }

@@ -34,6 +34,7 @@ import {
   takeUpdateBadge,
 } from "../src/update-notice";
 import { ANALYTICS_ALARM, isAnalyticsCommand } from "../src/analytics/contract";
+import { videoCaptionsKey } from "../src/video-captions";
 import {
   applyPopupAutoCloseChange,
   isPopupAutoCloseGet,
@@ -673,7 +674,7 @@ export default defineBackground(() => {
           // Playback erases only its own keys; reset the popup opt-in too.
           const erase = async () => {
             if (!playback) return chrome.storage.local.clear();
-            await chrome.storage.local.remove(popupAutoCloseKey);
+            await chrome.storage.local.remove([popupAutoCloseKey, videoCaptionsKey]);
             if (__UNIDOCK_AI_CAPTIONS__)
               await chrome.storage.local.remove([
                 CAPTION_SESSION_KEY,

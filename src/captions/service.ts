@@ -9,6 +9,8 @@ import {
 export interface Caption extends Transcript {
   label: string;
   source: string;
+  /** The verified document the caption came from; never exported. */
+  documentId: string;
 }
 export type CaptionResult =
   | { status: "success"; captions: Caption[]; blocked: boolean }
@@ -283,6 +285,7 @@ export async function detectCaptions(
             items,
             label: displayText(row.label) || "화면 자막",
             source: row.source,
+            documentId: provenance.documentId,
           });
           contributors.set(provenance.documentId, provenance);
         } catch {

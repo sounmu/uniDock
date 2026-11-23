@@ -1,8 +1,28 @@
-/** The exported transcript format. Times are cue starts, without milliseconds. */
+/**
+ * The transcript format. `time` is the displayed cue start, without
+ * milliseconds. `startMs`/`endMs` exist only for video-relative cues (VTT and
+ * AI segments); untimed or wall-clock sources never carry them.
+ */
 export interface TranscriptItem {
   index: number;
   time: string;
   text: string;
+  startMs?: number;
+  endMs?: number;
+}
+/** One on-video subtitle cue in video-relative milliseconds. */
+export interface CaptionCue {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+export function validCueRange(start: unknown, end: unknown): boolean {
+  return (
+    Number.isSafeInteger(start) &&
+    Number.isSafeInteger(end) &&
+    (start as number) >= 0 &&
+    (end as number) > (start as number)
+  );
 }
 export interface Transcript {
   sourceUrl: string;
@@ -63,8 +83,35 @@ export function normalizeItems(input: unknown): TranscriptItem[] {
     size += text.length;
     if (size > 1000000) throw new Error("LIMIT");
     if (!text) throw new Error("INVALID_CAPTION");
-    return { index, time: row.time === "" ? "" : formatTime(row.time), text };
+    const time = row.time === "" ? "" : formatTime(row.time);
+    return validCueRange(row.startMs, row.endMs)
+      ? { index, time, text, startMs: row.startMs as number, endMs: row.endMs as number }
+      : { index, time, text };
   });
+}
+function cueMs(raw: string): number {
+  const [seconds = "", ...rest] = raw.split(":").reverse();
+  const [minutes = "0", hours = "0"] = rest;
+  const [whole = "0", fraction = "0"] = seconds.split(".");
+  return (
+    ((Number(hours) * 60 + Number(minutes)) * 60 + Number(whole)) * 1000 +
+    Number(fraction)
+  );
+}
+/** Timed items as on-video cues, ordered by start; untimed items and exact repeats are dropped. */
+export function timedCues(items: readonly TranscriptItem[]): CaptionCue[] {
+  const cues: CaptionCue[] = [];
+  for (const item of items)
+    if (validCueRange(item.startMs, item.endMs) && item.text)
+      cues.push({ start: item.startMs!, end: item.endMs!, text: item.text });
+  cues.sort((a, b) => a.start - b.start || a.end - b.end);
+  return cues.filter(
+    (cue, index) =>
+      index === 0 ||
+      cue.start !== cues[index - 1]!.start ||
+      cue.end !== cues[index - 1]!.end ||
+      cue.text !== cues[index - 1]!.text,
+  );
 }
 export function parseVtt(raw: string): TranscriptItem[] {
   if (raw.length > 1000000) throw new Error("LIMIT");
@@ -73,7 +120,7 @@ export function parseVtt(raw: string): TranscriptItem[] {
     .replace(/\r\n?/g, "\n")
     .trim();
   if (!/^WEBVTT(?:[ \t]|\n|$)/.test(content)) throw new Error("INVALID_VTT");
-  const items: { time: string; text: string }[] = [];
+  const items: { time: string; text: string; startMs: number; endMs: number }[] = [];
   for (const block of content.split(/\n[ \t]*\n/)) {
     const lines = block.split("\n");
     if (/^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)/.test(lines[0] ?? "")) continue;
@@ -87,7 +134,13 @@ export function parseVtt(raw: string): TranscriptItem[] {
     if (!match) throw new Error("INVALID_VTT");
     formatTime(match[2]!);
     const text = cleanText(lines.slice(at + 1).join(" "));
-    if (text) items.push({ time: formatTime(match[1]!), text });
+    if (text)
+      items.push({
+        time: formatTime(match[1]!),
+        text,
+        startMs: cueMs(match[1]!),
+        endMs: cueMs(match[2]!),
+      });
   }
   return normalizeItems(items);
 }
@@ -140,7 +193,7 @@ export function projectServerSegments(
   segments: { start_ms: number; end_ms: number; text: string }[],
   durationMs?: number,
 ): TranscriptItem[] {
-  const rows: { time: string; text: string }[] = [];
+  const rows: { time: string; text: string; startMs: number; endMs: number }[] = [];
   let previousStart = -1;
   for (const segment of segments) {
     if (
@@ -154,7 +207,13 @@ export function projectServerSegments(
       throw new Error("INVALID_TRANSCRIPT");
     previousStart = segment.start_ms;
     const text = segment.text.replace(/\s+/g, " ").trim();
-    if (text) rows.push({ time: clock(segment.start_ms), text });
+    if (text)
+      rows.push({
+        time: clock(segment.start_ms),
+        text,
+        startMs: Math.round(segment.start_ms),
+        endMs: Math.round(segment.end_ms),
+      });
   }
   return normalizeItems(rows);
 }

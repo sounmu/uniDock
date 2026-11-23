@@ -21,24 +21,29 @@ const updated = { addListener: vi.fn(), removeListener: vi.fn() };
 const activated = { addListener: vi.fn(), removeListener: vi.fn() };
 const removed = { addListener: vi.fn(), removeListener: vi.fn() };
 let ui: Awaited<ReturnType<typeof mount>>;
-const result: CaptionResult = {
-  status: "success",
-  blocked: false,
-  captions: [
-    {
-      sourceUrl: "https://kucom.korea.ac.kr/em/lecture",
-      pageTitle: "강의",
-      extractedAt: "2026-09-12T06:00:00Z",
-      label: "강의 자막",
-      source: "caption_script_dom",
-      itemCount: 1,
-      items: [{ index: 0, time: "00:01", text: "본문" }],
-    },
-  ],
+const screenCaption = {
+  sourceUrl: "https://kucom.korea.ac.kr/em/lecture",
+  pageTitle: "강의",
+  extractedAt: "2026-09-12T06:00:00Z",
+  label: "강의 자막",
+  source: "caption_script_dom",
+  itemCount: 1,
+  items: [{ index: 0, time: "00:01", text: "본문" }],
+  documentId: "player",
 };
+const result: CaptionResult = { status: "success", blocked: false, captions: [screenCaption] };
+const sendMessage = vi.fn();
+const storageChanged = { addListener: vi.fn(), removeListener: vi.fn() };
+let preferences: Record<string, unknown>;
 beforeEach(() => {
+  preferences = {};
+  sendMessage.mockResolvedValue({ ok: true });
   vi.stubGlobal("chrome", {
-    tabs: { onUpdated: updated, onActivated: activated, onRemoved: removed },
+    tabs: { onUpdated: updated, onActivated: activated, onRemoved: removed, sendMessage },
+    storage: {
+      local: { get: vi.fn(async (name: string) => ({ [name]: preferences[name] })) },
+      onChanged: storageChanged,
+    },
   });
   detect.mockImplementation(async (onTarget) => {
     onTarget({ tabId: 7, windowId: 1 });
@@ -51,6 +56,77 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+const officialTrack: CaptionResult = {
+  status: "success",
+  blocked: false,
+  captions: [
+    {
+      ...screenCaption,
+      source: "player_vtt",
+      itemCount: 2,
+      items: [
+        { index: 0, time: "00:01", text: "첫 자막", startMs: 1000, endMs: 2500 },
+        { index: 1, time: "00:03", text: "둘째 자막", startMs: 3000, endMs: 4000 },
+      ],
+    },
+  ],
+};
+const trackMessages = () =>
+  sendMessage.mock.calls.map(([tabId, message, options]) => ({
+    tabId,
+    documentId: options.documentId,
+    cues: message.cues.map((cue: { text: string }) => cue.text),
+  }));
+it("shows an official track on the lecture video and removes it when the setting goes off", async () => {
+  // Given: the lecture's own VTT track was detected in the player document.
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  // When
+  await click("자막 감지");
+  // Then: exactly that document gets the timed cues once.
+  expect(trackMessages()).toEqual([
+    { tabId: 7, documentId: "player", cues: ["첫 자막", "둘째 자막"] },
+  ]);
+  expect(sendMessage.mock.calls[0]![1]).toMatchObject({
+    version: 1,
+    type: "PLAYBACK_CAPTION_TRACK",
+    cues: [{ start: 1000, end: 2500, text: "첫 자막" }, { start: 3000, end: 4000, text: "둘째 자막" }],
+  });
+  // When: the user turns on-video captions off.
+  await act(async () => {
+    for (const [listener] of storageChanged.addListener.mock.calls)
+      listener({ "unidock.video-captions.v1": { newValue: false } }, "local");
+  });
+  // Then: the same document is told to clear its track.
+  expect(trackMessages()[1]).toEqual({ tabId: 7, documentId: "player", cues: [] });
+});
+
+it("clears the video track when the setting goes off after the captions view closed", async () => {
+  // Given: subtitles are on the video and the user left the captions view.
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  await ui.unmount();
+  const set = vi.fn(async () => {});
+  (chrome.storage.local as unknown as { set: typeof set }).set = set;
+  const { saveVideoCaptions } = await import("../src/video-captions");
+  // When: the setting is turned off from the settings screen.
+  await saveVideoCaptions(false);
+  // Then: the document still showing them is told to clear.
+  expect(set).toHaveBeenCalledWith({ "unidock.video-captions.v1": false });
+  expect(trackMessages().at(-1)).toEqual({ tabId: 7, documentId: "player", cues: [] });
+});
+it("never puts screen-script captions on the video", async () => {
+  ui = await mount(<CaptionsPanel />);
+  await click("자막 감지");
+  expect(sendMessage).not.toHaveBeenCalled();
 });
 it("keeps captions across unrelated updates and tab switches", async () => {
   ui = await mount(<CaptionsPanel />);

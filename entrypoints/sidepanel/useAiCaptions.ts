@@ -25,6 +25,7 @@ import {
 } from "../../src/captions/job-record";
 import { isTerminal, type JobPhase } from "../../src/captions/job-state";
 import type { Transcript } from "../../src/captions/transcript";
+import type { VideoCaptionTarget } from "../../src/video-captions";
 import { safeLog } from "../../src/security/logger";
 import { KOREA_ORIGINS } from "../../src/security/origins";
 import type { ErrorCode } from "../../src/analytics/report";
@@ -106,6 +107,8 @@ function statisticsCode(code: string): ErrorCode {
 
 export function useAiCaptions() {
   const [state, setState] = useState<AiCaptionState>(IDLE);
+  /** The player document of the lecture this flow belongs to. */
+  const [player, setPlayer] = useState<VideoCaptionTarget | null>(null);
   const controller = useRef<AbortController | null>(null);
   const jobId = useRef<string | null>(null);
   const jobTab = useRef<{ tabId: number; windowId: number } | null>(null);
@@ -130,6 +133,7 @@ export function useAiCaptions() {
     phase.current = "idle";
     stopLocal();
     setState(IDLE);
+    setPlayer(null);
   }, [stopLocal]);
 
   /** Cancel or source-document loss: stop local work and cancel the server job. */
@@ -335,6 +339,7 @@ export function useAiCaptions() {
         durationS = media.durationS;
         source = { tabId: media.tabId, windowId: media.windowId };
         jobTab.current = source;
+        setPlayer({ tabId: media.tabId, documentId: media.documentId });
         key = await captionJobKey(media.contentId);
       } catch {
         return;
@@ -406,6 +411,7 @@ export function useAiCaptions() {
       const media = await identifyMedia();
       if (!live()) return;
       jobTab.current = { tabId: media.tabId, windowId: media.windowId };
+      setPlayer({ tabId: media.tabId, documentId: media.documentId });
       lectureTitle.current = media.title;
       set({ title: media.title || null, durationS: media.durationS || null });
       const key = await captionJobKey(media.contentId);
@@ -485,5 +491,5 @@ export function useAiCaptions() {
   }, [state]);
   useEffect(() => () => publishCaptionActivity(null), []);
 
-  return { state, generate, cancel };
+  return { state, player, generate, cancel };
 }

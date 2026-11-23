@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { timedCues } from "../../src/captions/transcript";
+import type { VideoCaptionTarget } from "../../src/video-captions";
+import { useVideoCaptions, type VideoCaptionDelivery } from "./useVideoCaptions";
 import {
   detectCaptions,
   type CaptionTarget,
@@ -38,6 +41,18 @@ export function CaptionsPanel({
   const [notice, setNotice] = useState("");
   const [exportPending, setExportPending] = useState(false);
   const { detail, open, back } = useDetail<number>();
+  const [videoTarget, setVideoTarget] = useState<VideoCaptionTarget | null>(null);
+  const [aiVideo, setAiVideo] = useState<VideoCaptionDelivery | null>(null);
+  // Only official VTT tracks carry video-relative timing; once the panel lets
+  // the transcript go after five minutes, the video keeps what it shows.
+  const videoCues = useMemo(() => {
+    if (state.status !== "success" || !videoTarget) return null;
+    const caption = state.captions.find(
+      (row) => row.source === "player_vtt" && row.documentId === videoTarget.documentId,
+    );
+    return caption ? timedCues(caption.items) : null;
+  }, [state, videoTarget]);
+  useVideoCaptions(videoTarget ? { target: videoTarget, cues: videoCues } : aiVideo);
   const selected =
     state.status === "success" && detail !== null
       ? state.captions[detail]
@@ -59,6 +74,7 @@ export function CaptionsPanel({
       exportLocked.current = false;
       target.current = null;
       setState({ status: "idle" });
+      setVideoTarget(null);
       setExportPending(false);
       setNotice("");
     };
@@ -137,6 +153,16 @@ export function CaptionsPanel({
       detection.current = null;
       op.result(result);
       setState(result);
+      if (result.status === "success") {
+        const timed = result.captions.find(
+          (row) => row.source === "player_vtt" && timedCues(row.items).length,
+        );
+        setVideoTarget(
+          timed && target.current
+            ? { tabId: target.current.tabId, documentId: timed.documentId }
+            : null,
+        );
+      }
     }
   }
   async function download() {
@@ -226,6 +252,7 @@ export function CaptionsPanel({
                 reason={aiOffer ?? undefined}
                 restoreOnly={!aiOffer}
                 onSettings={onConnectionSettings}
+                onVideoCaptions={setAiVideo}
               />
           )}
           {state.status === "success" && (

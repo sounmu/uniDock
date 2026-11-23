@@ -2,6 +2,7 @@ import { AnalyticsSettings } from "../AnalyticsSettings";
 import { CaptionServerSettings } from "../CaptionServerSettings";
 import { LocalDataSettings } from "../LocalDataSettings";
 import { PopupSettings } from "../PopupSettings";
+import { VideoCaptionSettings } from "../VideoCaptionSettings";
 import type { useAnalytics } from "../useAnalytics";
 import { DetailView } from "../ui/DetailView";
 import { Icon } from "../ui/icons";
@@ -16,6 +17,7 @@ export function SettingsScreen({
   return (
     <DetailView title="설정" backLabel="돌아가기" onBack={onBack}>
       <PopupSettings />
+      {__UNIDOCK_PLAYBACK__ && <VideoCaptionSettings />}
       {__UNIDOCK_AI_CAPTIONS__ && <CaptionServerSettings />}
       <section className="settings-group" aria-labelledby="privacy-title">
         <h3 id="privacy-title" className="settings-label">개인정보·데이터</h3>
