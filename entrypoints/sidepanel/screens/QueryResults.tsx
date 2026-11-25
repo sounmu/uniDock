@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Course } from "../../../src/domain";
 import { ResultList } from "../ResultList";
 import type { useSidepanelQuery } from "../useSidepanelQuery";
@@ -50,7 +50,7 @@ export function QueryResults({
           과제·녹화·자료를 확인할 수 있습니다.
         </Notice>
       )}
-      {state.status === "loading" && <Skeleton countLine />}
+      {state.status === "loading" && <Skeleton head={skeletonHead(model.view)} />}
       {state.status === "error" && (
         <Notice error>
           <strong>
@@ -178,16 +178,41 @@ function CourseResults({
     </>
   );
 }
-/** `countLine` keeps the empty slot of the "조회 완료" line so rows start where results will. */
-export function Skeleton({ countLine = false }: { readonly countLine?: boolean }) {
+/** Empty slots for what each loaded list draws above its rows: assignment and
+    recording lists start with their rows, the to-do list has its view settings
+    and count line, and the other lists have the count line. */
+function skeletonHead(view: PanelModel["view"]) {
+  if (view === "ASSIGNMENTS_LIST" || view === "RECORDINGS_LIST") return undefined;
+  const count = <p className="count">{"\u00a0"}</p>;
+  if (view !== "TODO_LIST") return count;
   return (
     <>
-      {countLine && <p className="count" aria-hidden="true">{"\u00a0"}</p>}
+      <div className="view-settings">
+        <div className="skeleton-summary">{"\u00a0"}</div>
+      </div>
+      {count}
+    </>
+  );
+}
+/** Placeholder rows sized like loaded list rows. `head` holds empty slots for the
+    lines a loaded list draws above its rows so rows start where results will;
+    `metaLines` matches rows whose meta stacks on more than one line. */
+export function Skeleton({
+  head,
+  metaLines = 1,
+}: {
+  readonly head?: ReactNode;
+  readonly metaLines?: 1 | 2;
+}) {
+  return (
+    <>
+      {head && <div aria-hidden="true">{head}</div>}
       <ul aria-hidden="true">
         {[0, 1, 2, 3, 4, 5].map((row) => (
           <li key={row} className="skeleton-row">
             <span />
             <span />
+            {metaLines === 2 && <span />}
           </li>
         ))}
       </ul>

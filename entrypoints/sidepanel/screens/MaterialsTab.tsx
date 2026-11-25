@@ -137,7 +137,9 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
             </button>
           )}
         </div>
-        {refreshing && !model.pendingResult && <Skeleton />}
+        {refreshing && !model.pendingResult && (
+          <Skeleton head={<p className="module-heading">{"\u00a0"}</p>} />
+        )}
         {state.status === "error" && (
           <Notice error>{messages[state.code]}</Notice>
         )}

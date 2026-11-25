@@ -301,7 +301,8 @@ p {
 .btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
   opacity: 0.9;
 }
-.playback-choice {
+.playback-choice,
+.skeleton-choice {
   display: grid;
   grid-template-columns: var(--icon-size) minmax(0, 1fr) var(--space-5);
   align-items: center;
@@ -309,6 +310,8 @@ p {
   min-height: 44px;
   padding: var(--space-2);
   border-radius: var(--r-sm);
+}
+.playback-choice {
   cursor: pointer;
 }
 .playback-choice input {
@@ -391,7 +394,8 @@ p {
 .playback-selection-group + .playback-selection-group {
   margin-top: var(--space-5);
 }
-.playback-selection-group h3 {
+.playback-selection-group h3,
+.playback-selection-group .skeleton-heading {
   margin: 0 var(--space-2) var(--space-2);
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -927,7 +931,8 @@ details[open] > summary::before {
   margin: 0;
   padding: 0 var(--space-3) var(--space-3);
 }
-.view-settings > summary {
+.view-settings > summary,
+.view-settings > .skeleton-summary {
   padding: var(--space-2) var(--space-3);
   color: var(--ink);
   font-weight: 600;
@@ -1256,10 +1261,12 @@ input[type="checkbox"]:disabled {
 .skeleton-row span:first-child {
   height: calc(var(--fs-md) * var(--lh-tight));
 }
-.skeleton-row span:last-child {
+.skeleton-row span:not(:first-child),
+.skeleton-choice span:last-child {
   height: calc(var(--fs-sm) * var(--lh-body));
 }
-.skeleton-row span::before {
+.skeleton-row span::before,
+.skeleton-choice span:last-child::before {
   content: "";
   height: 10px;
   border-radius: var(--r-full);
@@ -1268,11 +1275,30 @@ input[type="checkbox"]:disabled {
 .skeleton-row span:first-child::before {
   width: 75%;
 }
-.skeleton-row span:last-child::before {
+.skeleton-row span:not(:first-child)::before {
   width: 40%;
 }
+.skeleton-row span:nth-child(3)::before {
+  width: 30%;
+}
+/* Playback choices: the checkbox square, then one title line. */
+.skeleton-choice span {
+  display: flex;
+  align-items: center;
+}
+.skeleton-choice span:first-child {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  background: var(--line);
+}
+.skeleton-choice span:last-child::before {
+  width: 70%;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .skeleton-row span::before {
+  .skeleton-row span::before,
+  .skeleton-choice span::before,
+  .skeleton-choice span:first-child {
     animation: skeleton-pulse 1.2s ease-in-out infinite alternate;
   }
 }
