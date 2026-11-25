@@ -1,4 +1,4 @@
-import { access, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 // site:demo writes into a folder that belongs to another repository, so it
@@ -12,6 +12,29 @@ const isOwnFile = (file) =>
   !file.includes("\\") &&
   !path.isAbsolute(file) &&
   !file.split("/").includes("..");
+
+const exists = (file) =>
+  lstat(file).then(
+    () => true,
+    (error) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+
+// rm follows symlinked directories, so a listed file must not sit under one.
+async function assertNoLinkedParent(outDir, file) {
+  const parts = file.split("/").slice(0, -1);
+  for (let i = 1; i <= parts.length; i++) {
+    const parent = path.join(outDir, ...parts.slice(0, i));
+    const stat = await lstat(parent).catch((error) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (stat?.isSymbolicLink())
+      throw new Error(`${parent} is a symbolic link; site:demo only updates plain folders.`);
+  }
+}
 
 // Returns the files a previous run left in outDir ([] for a missing or empty folder).
 export async function readDemoOutput(outDir) {
@@ -50,15 +73,12 @@ export async function publishDemoOutput(buildDir, outDir, previous) {
   const owned = new Set(previous);
   for (const file of files) {
     if (owned.has(file)) continue;
-    const exists = await access(path.join(outDir, file)).then(
-      () => true,
-      () => false,
-    );
-    if (exists)
+    if (await exists(path.join(outDir, file)))
       throw new Error(
         `${path.join(outDir, file)} was not made by site:demo; move it before updating.`,
       );
   }
+  for (const file of previous) await assertNoLinkedParent(outDir, file);
   for (const file of previous)
     await rm(path.join(outDir, file), { force: true });
   await mkdir(outDir, { recursive: true });

@@ -4,6 +4,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -85,6 +86,45 @@ it("refuses a build file that would overwrite a file it did not make", async () 
     "added by hand",
   );
   expect(await readDemoOutput(out)).toEqual(["index.html"]);
+});
+
+it("keeps the previous output when a hand-made file blocks a build folder", async () => {
+  const out = folder();
+  await publishDemoOutput(
+    build({ "index.html": "v1" }),
+    out,
+    await readDemoOutput(out),
+  );
+  write(out, "assets", "a file, not a folder");
+
+  await expect(
+    publishDemoOutput(
+      build({ "index.html": "v2", "assets/new.js": "new" }),
+      out,
+      await readDemoOutput(out),
+    ),
+  ).rejects.toThrow();
+
+  expect(readFileSync(path.join(out, "index.html"), "utf8")).toBe("v1");
+  expect(await readDemoOutput(out)).toEqual(["index.html"]);
+});
+
+it("refuses to remove listed files through a symlinked folder", async () => {
+  const out = folder();
+  const outside = folder();
+  write(outside, "victim.txt", "keep");
+  symlinkSync(outside, path.join(out, "assets"), "dir");
+  write(out, manifestName, JSON.stringify(["assets/victim.txt"]));
+
+  await expect(
+    publishDemoOutput(
+      build({ "index.html": "v1" }),
+      out,
+      await readDemoOutput(out),
+    ),
+  ).rejects.toThrow("is a symbolic link");
+
+  expect(readFileSync(path.join(outside, "victim.txt"), "utf8")).toBe("keep");
 });
 
 it("replaces only the files of the previous run", async () => {
