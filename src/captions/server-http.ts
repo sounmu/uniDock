@@ -60,7 +60,11 @@ export function captionServerBase(): string {
   return __UNIDOCK_CAPTION_SERVER__;
 }
 
-/** A request whose body upload reports the bytes sent so far. */
+/**
+ * An upload that reports how many body bytes fetch has taken so far. The Blob
+ * is the body of record: every attempt (a token retry included) builds its
+ * own stream from it, since a consumed stream cannot be sent again.
+ */
 export interface UploadInit {
   method: string;
   headers: Record<string, string>;
@@ -70,92 +74,91 @@ export interface UploadInit {
 
 export type ServerInit = RequestInit | UploadInit;
 
+/** A stream body needs `duplex`, which the DOM typings do not declare yet. */
+interface StreamingRequestInit extends RequestInit {
+  duplex: "half";
+}
+
+const FETCH_OPTIONS = {
+  credentials: "omit",
+  redirect: "error",
+  referrerPolicy: "no-referrer",
+  cache: "no-store",
+} as const satisfies RequestInit;
+
+const UPLOAD_SLICE_BYTES = 64 * 1024;
+
+/**
+ * Chrome streams a request body only over HTTP/2 or later; over HTTP/1.1 it
+ * rejects the fetch with a TypeError before sending it. After the first such
+ * rejection, uploads from this document send plain Blob bodies.
+ */
+let streamingUploads = true;
+
+const failure = (signal: AbortSignal | null | undefined) =>
+  new CaptionServerError(signal?.aborted ? "ABORTED" : "NETWORK");
+
+/** Reads the Blob one slice at a time as fetch pulls it, reporting the running total. */
+function progressBody(
+  blob: Blob,
+  onProgress: (sentBytes: number) => void,
+): ReadableStream<Uint8Array> {
+  let sent = 0;
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (sent >= blob.size) {
+          controller.close();
+          return;
+        }
+        const slice = new Uint8Array(
+          await blob.slice(sent, sent + UPLOAD_SLICE_BYTES).arrayBuffer(),
+        );
+        sent += slice.byteLength;
+        controller.enqueue(slice);
+        onProgress(sent);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+async function send(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw failure(init.signal);
+  }
+}
+
 export async function serverFetch(
   path: string,
   init: ServerInit,
   signal?: AbortSignal,
 ): Promise<Response> {
   const url = `${captionServerBase()}${path}`;
-  try {
-    return await ("onUploadProgress" in init
-      ? sendWithProgress(url, init, signal)
-      : fetch(url, {
-          ...init,
-          credentials: "omit",
-          redirect: "error",
-          referrerPolicy: "no-referrer",
-          cache: "no-store",
-          signal,
-        }));
-  } catch {
-    throw new CaptionServerError(signal?.aborted ? "ABORTED" : "NETWORK");
-  }
-}
-
-const NULL_BODY_STATUSES = [204, 205, 304];
-
-function xhrResponse(xhr: XMLHttpRequest): Response {
-  const headers = new Headers();
-  for (const line of xhr.getAllResponseHeaders().split("\r\n")) {
-    const colon = line.indexOf(":");
-    if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
-  }
-  const body = NULL_BODY_STATUSES.includes(xhr.status) ? null : xhr.responseText;
-  return new Response(body, { status: xhr.status, headers });
-}
-
-/**
- * fetch reports no upload progress, so an upload goes through XMLHttpRequest
- * (side panel only; never called where it does not exist). It matches the
- * options fetch gets above:
- * - credentials "omit": withCredentials stays false, and the broker is always
- *   another origin than the extension page, so no cookies are sent.
- * - redirect "error": XHR follows redirects itself; a response from any other
- *   URL is rejected like fetch rejects a redirect. connect-src in the
- *   extension CSP blocks a redirect off the broker origin before it is sent.
- * - referrerPolicy "no-referrer": XHR cannot set it. The default policy sends
- *   another origin at most the extension origin, which Origin already carries.
- * - cache "no-store": a PATCH is never read from or stored in the HTTP cache.
- * Failures reject like fetch (AbortError on abort, TypeError otherwise).
- */
-function sendWithProgress(
-  url: string,
-  init: UploadInit,
-  signal?: AbortSignal,
-): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException("aborted", "AbortError"));
-      return;
-    }
-    // responseURL is the parsed, serialized URL; compare like with like.
-    const requested = new URL(url).href;
-    const xhr = new XMLHttpRequest();
-    const abort = () => xhr.abort();
-    const fail = (error: Error) => {
-      signal?.removeEventListener("abort", abort);
-      reject(error);
+  if (!("onUploadProgress" in init)) return send(url, { ...init, ...FETCH_OPTIONS, signal });
+  const { onUploadProgress, ...upload } = init;
+  if (streamingUploads) {
+    const streamed: StreamingRequestInit = {
+      ...upload,
+      ...FETCH_OPTIONS,
+      signal,
+      body: progressBody(upload.body, onUploadProgress),
+      duplex: "half",
     };
-    xhr.open(init.method, url);
-    for (const [name, value] of Object.entries(init.headers)) xhr.setRequestHeader(name, value);
-    xhr.upload.addEventListener("progress", (event) => init.onUploadProgress(event.loaded));
-    xhr.addEventListener("load", () => {
-      signal?.removeEventListener("abort", abort);
-      if (xhr.responseURL !== requested) reject(new TypeError("redirected"));
-      else {
-        try {
-          resolve(xhrResponse(xhr));
-        } catch (error) {
-          reject(error);
-        }
-      }
-    });
-    xhr.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError")));
-    xhr.addEventListener("error", () => fail(new TypeError("network")));
-    xhr.addEventListener("timeout", () => fail(new TypeError("timeout")));
-    signal?.addEventListener("abort", abort, { once: true });
-    xhr.send(init.body);
-  });
+    try {
+      return await fetch(url, streamed);
+    } catch (error) {
+      if (signal?.aborted || !(error instanceof TypeError)) throw failure(signal);
+      // Resending once with the Blob is safe. The broker reads the whole body
+      // before its transaction, so an attempt rejected before the body was
+      // sent stored nothing; if the broker did commit and only the answer was
+      // lost, the resend meets an offset mismatch and uploadAudio resyncs.
+      streamingUploads = false;
+    }
+  }
+  return send(url, { ...upload, ...FETCH_OPTIONS, signal });
 }
 
 export async function readJson(

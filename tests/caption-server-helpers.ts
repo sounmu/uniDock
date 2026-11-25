@@ -24,105 +24,79 @@ export const json = (body: unknown, status = 200, headers: Record<string, string
     headers: { "content-type": "application/json", ...headers },
   });
 
+/** A streamed request body that the test reads; each read is a pull by fetch. */
+export interface HeldBody {
+  /** Read one more slice; its upload progress has been reported when this resolves. */
+  pull(): Promise<void>;
+  /** Read the rest and return the whole body. */
+  drain(): Promise<Blob>;
+}
+
 export interface Call {
   url: string;
   path: string;
   method: string;
   headers: Record<string, string>;
+  /** A streamed body is drained into a Blob first, unless the server holds streams. */
   body: RequestInit["body"];
+  /** Sent as a ReadableStream body. */
+  streamed: boolean;
+  /** The stream, when the server holds streams for the test to read. */
+  held?: HeldBody;
+  redirect: RequestInit["redirect"];
   signal: AbortSignal | null | undefined;
-  /** Only for a request sent through XMLHttpRequest: report body bytes sent. */
-  progress?: (loaded: number) => void;
 }
 
 type Handler = (call: Call) => Response | Promise<Response>;
 
-/**
- * An XMLHttpRequest that hands each request to the same handler as the fetch
- * stub. Upload progress fires only when the test calls `call.progress`; the
- * answer arrives as a load event with the handler's status, headers and body.
- */
-function fakeXhr(handler: Handler, calls: Call[]) {
-  return class FakeXhr extends EventTarget {
-    readonly upload = new EventTarget();
-    status = 0;
-    responseText = "";
-    responseURL = "";
-    private method = "GET";
-    private url = "";
-    private headers: Record<string, string> = {};
-    private responseHeaders = "";
-    private readonly controller = new AbortController();
-
-    open(method: string, url: string) {
-      this.method = method;
-      this.url = url;
-    }
-
-    setRequestHeader(name: string, value: string) {
-      this.headers[name] = value;
-    }
-
-    getAllResponseHeaders() {
-      return this.responseHeaders;
-    }
-
-    abort() {
-      this.controller.abort();
-    }
-
-    send(body: Blob) {
-      const { signal } = this.controller;
-      const call: Call = {
-        url: this.url,
-        path: new URL(this.url).pathname,
-        method: this.method,
-        headers: { ...this.headers },
-        body,
-        signal,
-        progress: (loaded) =>
-          this.upload.dispatchEvent(Object.assign(new Event("progress"), { loaded })),
-      };
-      calls.push(call);
-      signal.addEventListener("abort", () => this.dispatchEvent(new Event("abort")), {
-        once: true,
-      });
-      void (async () => {
-        let response: Response;
-        try {
-          response = await handler(call);
-        } catch {
-          if (!signal.aborted) this.dispatchEvent(new Event("error"));
-          return;
-        }
-        if (signal.aborted) return;
-        this.status = response.status;
-        this.responseURL = this.url;
-        this.responseText = await response.text();
-        this.responseHeaders = [...response.headers]
-          .map(([name, value]) => `${name}: ${value}`)
-          .join("\r\n");
-        this.dispatchEvent(new Event("load"));
-      })();
-    }
+function holdBody(stream: ReadableStream<Uint8Array<ArrayBuffer>>): HeldBody {
+  const reader = stream.getReader();
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let done = false;
+  const pull = async () => {
+    if (done) return;
+    const next = await reader.read();
+    if (next.done) done = true;
+    else parts.push(next.value);
+  };
+  return {
+    pull,
+    async drain() {
+      while (!done) await pull();
+      return new Blob(parts);
+    },
   };
 }
 
-export function mockServer(handler: Handler) {
+/**
+ * Stubs fetch with `handler`. Requests reach the handler in the order they
+ * were sent. A ReadableStream body is read to the end before the handler runs,
+ * or, with `holdStreams`, left for the test to read through `call.held`.
+ */
+export function mockServer(handler: Handler, { holdStreams = false } = {}) {
   const calls: Call[] = [];
-  vi.stubGlobal("XMLHttpRequest", fakeXhr(handler, calls));
+  let arrived = Promise.resolve();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
+      const stream = init.body instanceof ReadableStream ? holdBody(init.body) : undefined;
       const call: Call = {
         url,
         path: new URL(url).pathname,
         method: init.method ?? "GET",
         headers: { ...(init.headers as Record<string, string>) },
         body: init.body,
+        streamed: stream !== undefined,
+        held: holdStreams ? stream : undefined,
+        redirect: init.redirect,
         signal: init.signal,
       };
-      calls.push(call);
+      const turn = arrived.then(async () => {
+        if (stream && !holdStreams) call.body = await stream.drain();
+        calls.push(call);
+      });
+      arrived = turn;
+      await turn;
       return handler(call);
     }),
   );
