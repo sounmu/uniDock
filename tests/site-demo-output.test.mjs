@@ -127,6 +127,32 @@ it("refuses to remove listed files through a symlinked folder", async () => {
   expect(readFileSync(path.join(outside, "victim.txt"), "utf8")).toBe("keep");
 });
 
+it("refuses a symlinked file list", async () => {
+  const out = folder();
+  const outside = folder();
+  write(outside, "list.json", "[]");
+  symlinkSync(path.join(outside, "list.json"), path.join(out, manifestName));
+
+  await expect(readDemoOutput(out)).rejects.toThrow("is a symbolic link");
+  expect(readFileSync(path.join(outside, "list.json"), "utf8")).toBe("[]");
+});
+
+it("refuses to copy a build file through a symlinked folder", async () => {
+  const out = folder();
+  const outside = folder();
+  write(out, manifestName, "[]");
+  symlinkSync(outside, path.join(out, "assets"), "dir");
+
+  await expect(
+    publishDemoOutput(
+      build({ "assets/new.js": "new" }),
+      out,
+      await readDemoOutput(out),
+    ),
+  ).rejects.toThrow("is a symbolic link");
+  expect(readdirSync(outside)).toEqual([]);
+});
+
 it("replaces only the files of the previous run", async () => {
   const out = folder();
   await publishDemoOutput(

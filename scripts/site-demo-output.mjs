@@ -47,9 +47,10 @@ export async function readDemoOutput(outDir) {
     throw new Error(
       `${outDir} is not empty and was not made by site:demo; choose an empty or dedicated folder.`,
     );
-  const files = JSON.parse(
-    await readFile(path.join(outDir, manifestName), "utf8"),
-  );
+  const manifest = path.join(outDir, manifestName);
+  if ((await lstat(manifest)).isSymbolicLink())
+    throw new Error(`${manifest} is a symbolic link; site:demo only updates plain files.`);
+  const files = JSON.parse(await readFile(manifest, "utf8"));
   if (!Array.isArray(files) || !files.every(isOwnFile))
     throw new Error(`${path.join(outDir, manifestName)} is not a file list.`);
   return files;
@@ -78,7 +79,8 @@ export async function publishDemoOutput(buildDir, outDir, previous) {
         `${path.join(outDir, file)} was not made by site:demo; move it before updating.`,
       );
   }
-  for (const file of previous) await assertNoLinkedParent(outDir, file);
+  for (const file of [...previous, ...files])
+    await assertNoLinkedParent(outDir, file);
   for (const file of previous)
     await rm(path.join(outDir, file), { force: true });
   await mkdir(outDir, { recursive: true });
