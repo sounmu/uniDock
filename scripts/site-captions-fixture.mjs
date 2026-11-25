@@ -29,7 +29,9 @@ export const captionTranscript = {
 };
 
 // Installed before the real sidepanel/main.tsx loads in a fresh browser context.
-export function installCaptionFixture() {
+// `persist` keeps storage across reloads (sessionStorage); the site demo turns
+// it off so each iframe starts from the same state and never shares storage.
+export function installCaptionFixture({ persist = true } = {}) {
   const pageUrl = "https://kucom.korea.ac.kr/em/site-caption-fixture";
   const tab = {
     id: 7,
@@ -48,7 +50,9 @@ export function installCaptionFixture() {
       email: "demo@example.test",
     },
     "unidock.caption-install-salt.v1": "ab".repeat(32),
-    ...JSON.parse(globalThis.sessionStorage.getItem("site-caption-storage") ?? "{}"),
+    ...(persist
+      ? JSON.parse(globalThis.sessionStorage.getItem("site-caption-storage") ?? "{}")
+      : {}),
   };
   const event = { addListener() {}, removeListener() {} };
   const connect = ({ name }) => {
@@ -93,7 +97,8 @@ export function installCaptionFixture() {
     get: async (key) => ({ [key]: values[key] }),
     set: async (patch) => {
       Object.assign(values, patch);
-      globalThis.sessionStorage.setItem("site-caption-storage", JSON.stringify(values));
+      if (persist)
+        globalThis.sessionStorage.setItem("site-caption-storage", JSON.stringify(values));
     },
     remove: async (key) => {
       delete values[key];
