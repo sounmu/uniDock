@@ -60,24 +60,102 @@ export function captionServerBase(): string {
   return __UNIDOCK_CAPTION_SERVER__;
 }
 
+/** A request whose body upload reports the bytes sent so far. */
+export interface UploadInit {
+  method: string;
+  headers: Record<string, string>;
+  body: Blob;
+  onUploadProgress: (sentBytes: number) => void;
+}
+
+export type ServerInit = RequestInit | UploadInit;
+
 export async function serverFetch(
   path: string,
-  init: RequestInit,
+  init: ServerInit,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const base = captionServerBase();
+  const url = `${captionServerBase()}${path}`;
   try {
-    return await fetch(`${base}${path}`, {
-      ...init,
-      credentials: "omit",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-      cache: "no-store",
-      signal,
-    });
+    return await ("onUploadProgress" in init
+      ? sendWithProgress(url, init, signal)
+      : fetch(url, {
+          ...init,
+          credentials: "omit",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+          cache: "no-store",
+          signal,
+        }));
   } catch {
     throw new CaptionServerError(signal?.aborted ? "ABORTED" : "NETWORK");
   }
+}
+
+const NULL_BODY_STATUSES = [204, 205, 304];
+
+function xhrResponse(xhr: XMLHttpRequest): Response {
+  const headers = new Headers();
+  for (const line of xhr.getAllResponseHeaders().split("\r\n")) {
+    const colon = line.indexOf(":");
+    if (colon > 0) headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
+  }
+  const body = NULL_BODY_STATUSES.includes(xhr.status) ? null : xhr.responseText;
+  return new Response(body, { status: xhr.status, headers });
+}
+
+/**
+ * fetch reports no upload progress, so an upload goes through XMLHttpRequest
+ * (side panel only; never called where it does not exist). It matches the
+ * options fetch gets above:
+ * - credentials "omit": withCredentials stays false, and the broker is always
+ *   another origin than the extension page, so no cookies are sent.
+ * - redirect "error": XHR follows redirects itself; a response from any other
+ *   URL is rejected like fetch rejects a redirect. connect-src in the
+ *   extension CSP blocks a redirect off the broker origin before it is sent.
+ * - referrerPolicy "no-referrer": XHR cannot set it. The default policy sends
+ *   another origin at most the extension origin, which Origin already carries.
+ * - cache "no-store": a PATCH is never read from or stored in the HTTP cache.
+ * Failures reject like fetch (AbortError on abort, TypeError otherwise).
+ */
+function sendWithProgress(
+  url: string,
+  init: UploadInit,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("aborted", "AbortError"));
+      return;
+    }
+    // responseURL is the parsed, serialized URL; compare like with like.
+    const requested = new URL(url).href;
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const fail = (error: Error) => {
+      signal?.removeEventListener("abort", abort);
+      reject(error);
+    };
+    xhr.open(init.method, url);
+    for (const [name, value] of Object.entries(init.headers)) xhr.setRequestHeader(name, value);
+    xhr.upload.addEventListener("progress", (event) => init.onUploadProgress(event.loaded));
+    xhr.addEventListener("load", () => {
+      signal?.removeEventListener("abort", abort);
+      if (xhr.responseURL !== requested) reject(new TypeError("redirected"));
+      else {
+        try {
+          resolve(xhrResponse(xhr));
+        } catch (error) {
+          reject(error);
+        }
+      }
+    });
+    xhr.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError")));
+    xhr.addEventListener("error", () => fail(new TypeError("network")));
+    xhr.addEventListener("timeout", () => fail(new TypeError("timeout")));
+    signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(init.body);
+  });
 }
 
 export async function readJson(

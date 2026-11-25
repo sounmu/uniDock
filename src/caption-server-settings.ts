@@ -4,6 +4,7 @@ import {
   readJson,
   serverErrorCode,
   serverFetch,
+  type ServerInit,
 } from "./captions/server-http";
 
 // Only the broker session is stored; Google tokens never reach the extension's storage.
@@ -346,7 +347,7 @@ async function usableSession(loginId?: string): Promise<CaptionSession> {
   return next;
 }
 
-function withBearer(init: RequestInit, bearer: string): RequestInit {
+function withBearer<T extends ServerInit>(init: T, bearer: string): T {
   return {
     ...init,
     headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${bearer}` },
@@ -361,7 +362,7 @@ function withBearer(init: RequestInit, bearer: string): RequestInit {
  */
 export async function authorizedFetch(
   path: string,
-  init: RequestInit,
+  init: ServerInit,
   signal?: AbortSignal,
   /** Send only under this login; another login means LOGIN_REQUIRED. */
   loginId?: string,

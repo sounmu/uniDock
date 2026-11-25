@@ -170,42 +170,58 @@ async function uploadOffset(id: string, total: number, signal?: AbortSignal) {
 
 interface Chunk {
   end: number;
+  length: number;
+  /** Body bytes sent so far by the current attempt. */
+  sent: number;
   /** Sent while the chunk before it was still unanswered. */
   ahead: boolean;
   settled: boolean;
   response: Promise<Response>;
 }
 
-function sendChunk(
-  id: string,
-  audio: Blob,
-  start: number,
-  ahead: boolean,
-  signal: AbortSignal,
-): Chunk {
-  const total = audio.size;
+/** One round of an upload: where chunks go and who hears of sent bytes. */
+interface ChunkTarget {
+  id: string;
+  audio: Blob;
+  signal: AbortSignal;
+  onSent: () => void;
+}
+
+function sendChunk(target: ChunkTarget, start: number, ahead: boolean): Chunk {
+  const total = target.audio.size;
   const end = Math.min(start + UPLOAD_CHUNK_BYTES, total);
-  const response = authorizedFetch(
-    `${jobPath(id)}/audio`,
-    {
-      method: "PATCH",
-      headers: {
-        "Tus-Resumable": TUS,
-        "Content-Type": "application/offset+octet-stream",
-        "Upload-Offset": String(start),
-        "Upload-Length": String(total),
+  const chunk: Chunk = {
+    end,
+    length: end - start,
+    sent: 0,
+    ahead,
+    settled: false,
+    response: authorizedFetch(
+      `${jobPath(target.id)}/audio`,
+      {
+        method: "PATCH",
+        headers: {
+          "Tus-Resumable": TUS,
+          "Content-Type": "application/offset+octet-stream",
+          "Upload-Offset": String(start),
+          "Upload-Length": String(total),
+        },
+        body: target.audio.slice(start, end),
+        // A retried attempt (refreshed token) starts again from zero.
+        onUploadProgress: (sent) => {
+          chunk.sent = Math.min(sent, chunk.length);
+          target.onSent();
+        },
       },
-      body: audio.slice(start, end),
-    },
-    signal,
-  );
-  const chunk: Chunk = { end, ahead, settled: false, response };
+      target.signal,
+    ),
+  };
   // Awaited in order, possibly after it already failed; an early rejection is
   // not an unhandled one.
   const settle = () => {
     chunk.settled = true;
   };
-  response.then(settle, settle);
+  chunk.response.then(settle, settle);
   return chunk;
 }
 
@@ -221,6 +237,10 @@ const offsetMismatch = async (response: Response) =>
  * chunk at a time for the rest of the upload. A mismatch on the oldest chunk re-reads the
  * offset a few times instead of restarting. Whatever is cancelled mid-flight
  * is never assumed stored: the upload resumes from a HEAD offset.
+ *
+ * `onProgress` gets the committed offset plus the bytes sent of the chunks in
+ * flight that continue it without a gap. It never goes down (a resync or a
+ * retried chunk keeps the highest value) and ends at the total.
  */
 export async function uploadAudio(
   id: string,
@@ -234,16 +254,34 @@ export async function uploadAudio(
   let resyncs = 0;
   let window = MAX_CHUNKS_IN_FLIGHT;
   let reported = 0;
+  const report = (bytes: number) => {
+    if (bytes <= reported) return;
+    reported = bytes;
+    onProgress?.(bytes);
+  };
   while (offset < total) {
     const inFlight = new AbortController();
     const cancel = () => inFlight.abort();
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) inFlight.abort();
     const chunks: Chunk[] = [];
+    const target: ChunkTarget = {
+      id,
+      audio,
+      signal: inFlight.signal,
+      onSent: () => {
+        let bytes = offset;
+        for (const chunk of chunks) {
+          bytes += chunk.sent;
+          if (chunk.sent < chunk.length) break;
+        }
+        report(bytes);
+      },
+    };
     let sent = offset;
     const fill = () => {
       while (chunks.length < window && sent < total) {
-        const chunk = sendChunk(id, audio, sent, chunks.length > 0, inFlight.signal);
+        const chunk = sendChunk(target, sent, chunks.length > 0);
         chunks.push(chunk);
         sent = chunk.end;
       }
@@ -272,11 +310,8 @@ export async function uploadAudio(
         if (next === undefined || next <= offset || next > total)
           throw new CaptionServerError("RESPONSE");
         offset = next;
-        if (offset > reported) {
-          reported = offset;
-          onProgress?.(offset);
-        }
         chunks.shift();
+        report(offset);
         // A short commit leaves any chunk still in flight at the wrong offset.
         if (next !== chunk.end) {
           resync = chunks.length > 0;

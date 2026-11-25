@@ -310,6 +310,110 @@ it("cancels both chunks in flight when the upload is aborted", async () => {
   expect(calls.slice(1).every((call) => call.signal?.aborted)).toBe(true);
 });
 
+it("reports sent bytes of the chunks in flight that continue the committed offset", async () => {
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = c + 10;
+  const answers: ReturnType<typeof deferred<Response>>[] = [];
+  const bothSent = deferred<void>();
+  const calls = mockServer((call) => {
+    if (call.method === "HEAD") return headResponse(0, total);
+    const answer = deferred<Response>();
+    answers.push(answer);
+    if (answers.length === 2) bothSent.resolve();
+    return answer.promise;
+  });
+  const progress: number[] = [];
+  const upload = uploadAudio("j", new Blob([audioBytes(total)]), undefined, (bytes) =>
+    progress.push(bytes),
+  );
+  await bothSent.promise;
+  const [head, ahead] = [calls[1]!, calls[2]!];
+  // The ahead chunk counts only once the head chunk is fully sent.
+  ahead.progress!(4);
+  head.progress!(1000);
+  head.progress!(c);
+  ahead.progress!(10);
+  answers[0]!.resolve(patched(c));
+  answers[1]!.resolve(patched(total));
+  await upload;
+  expect(progress).toEqual([1000, c + 4, total]);
+});
+
+it("never reports less after a resync restarts from the stored offset", async () => {
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = c + 10;
+  let committed = 0;
+  const bothSent = deferred<void>();
+  const headAnswer = deferred<Response>();
+  const calls = mockServer((call) => {
+    if (call.method === "HEAD") return headResponse(committed, total);
+    if (calls.length === 2) return headAnswer.promise;
+    if (calls.length === 3) {
+      bothSent.resolve();
+      return untilAborted(call.signal);
+    }
+    call.progress!(1);
+    committed = Number(call.headers["Upload-Offset"]) + (call.body as Blob).size;
+    return patched(committed);
+  });
+  const progress: number[] = [];
+  const upload = uploadAudio("j", new Blob([audioBytes(total)]), undefined, (bytes) =>
+    progress.push(bytes),
+  );
+  await bothSent.promise;
+  calls[1]!.progress!(c);
+  calls[2]!.progress!(5);
+  committed = 2;
+  headAnswer.resolve(mismatch(committed));
+  await upload;
+  expect(calls.map((call) => `${call.method}:${call.headers["Upload-Offset"] ?? ""}`)).toEqual([
+    "HEAD:",
+    "PATCH:0",
+    `PATCH:${c}`,
+    "HEAD:",
+    "PATCH:2",
+    `PATCH:${c + 2}`,
+  ]);
+  expect(progress).toEqual([c, c + 5, total]);
+});
+
+it("refreshes an expired token for an upload chunk and resends it", async () => {
+  const total = 10;
+  const progress: number[] = [];
+  const calls = mockServer((call) => {
+    if (call.path === "/v1/auth/refresh") return json(fixture("session.json"));
+    if (call.method === "HEAD") return headResponse(0, total);
+    if (call.headers.Authorization === `Bearer at_seed_${"s".repeat(40)}`) {
+      call.progress!(total);
+      return json(fixture("error-token-expired.json"), 401);
+    }
+    call.progress!(4);
+    return patched(total);
+  });
+  await uploadAudio("j", new Blob([new Uint8Array(total)]), undefined, (bytes) =>
+    progress.push(bytes),
+  );
+  expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+    "HEAD /v1/transcription-jobs/j/audio",
+    "PATCH /v1/transcription-jobs/j/audio",
+    "POST /v1/auth/refresh",
+    "PATCH /v1/transcription-jobs/j/audio",
+  ]);
+  expect(calls[3]!.headers.Authorization).toBe(`Bearer ${fixture("session.json").access_token}`);
+  // The resent chunk starts from zero again; progress keeps the highest value.
+  expect(progress).toEqual([total]);
+});
+
+it("maps a failed upload request to a network error", async () => {
+  mockServer((call) => {
+    if (call.method === "HEAD") return headResponse(0, 10);
+    throw new TypeError("offline");
+  });
+  await expect(uploadAudio("j", new Blob([new Uint8Array(10)]))).rejects.toMatchObject({
+    code: "NETWORK",
+  });
+});
+
 it("cancels the ahead chunk and resyncs from HEAD after a head-of-line mismatch", async () => {
   const total = PIPELINED_TOTAL;
   let committed = 0;
