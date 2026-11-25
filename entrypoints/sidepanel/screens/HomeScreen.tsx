@@ -35,7 +35,7 @@ export function HomeScreen({
         <section aria-labelledby="home-deadlines" aria-busy={state.status === "loading"}>
           <h2 id="home-deadlines">다가오는 마감</h2>
           {state.status === "idle" && <Notice>LMS 탭을 선택하고 새로고침하면 남은 과제를 확인할 수 있습니다.</Notice>}
-          {state.status === "loading" && <Skeleton />}
+          {state.status === "loading" && <Skeleton metaLines={2} />}
           {state.status === "error" && <Notice error>{messages[state.code]}</Notice>}
           {upcoming && (upcoming.length ? (
             <ul>

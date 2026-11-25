@@ -3,7 +3,24 @@ import { useId, useState } from "react";
 import { Select } from "../ui/Select";
 import { Icon } from "../ui/icons";
 import { courseFolderName } from "../../../src/security/download";
-import { Skeleton } from "./QueryResults";
+
+/** Placeholder group shaped like the loaded choices: a module heading, then
+    rows with a checkbox and one title line. */
+function ChoiceSkeleton() {
+  return (
+    <div className="playback-selection-group" aria-hidden="true">
+      <p className="skeleton-heading">{"\u00a0"}</p>
+      <ul className="playback-selection">
+        {[0, 1, 2, 3, 4, 5].map((row) => (
+          <li key={row} className="skeleton-choice">
+            <span />
+            <span />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export function PlaybackConfirmation({
   model: m,
@@ -67,7 +84,7 @@ export function PlaybackConfirmation({
         onChange={(event) => setSearch(event.target.value)}
       />
       <div className="playback-selection-groups" aria-busy={m.pending}>
-        {m.pending && !m.startPending ? <Skeleton /> : [...groups].map(([module, items], index) => (
+        {m.pending && !m.startPending ? <ChoiceSkeleton /> : [...groups].map(([module, items], index) => (
           <section className="playback-selection-group" key={module}
             aria-labelledby={`${courseId}-group-${index}`}>
             <h3 id={`${courseId}-group-${index}`}>{module}</h3>
