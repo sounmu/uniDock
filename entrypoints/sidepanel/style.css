@@ -1202,12 +1202,28 @@ input[type="checkbox"]::before {
   clip-path: polygon(14% 44%, 0 59%, 39% 96%, 100% 22%, 85% 8%, 38% 66%);
   transform: scale(0);
 }
-input[type="checkbox"]:checked {
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
   border-color: var(--check);
   background: var(--check);
 }
-input[type="checkbox"]:checked::before {
+input[type="checkbox"]:checked::before,
+input[type="checkbox"]:indeterminate::before {
   transform: scale(1);
+}
+/* Partial selection (select-all with some items checked) shows a dash. */
+input[type="checkbox"]:indeterminate::before {
+  clip-path: inset(40% 0);
+}
+/* Forced colors repaint both fills with one system color, which would hide the
+   drawn mark; the native box keeps its own system-colored indicator. */
+@media (forced-colors: active) {
+  input[type="checkbox"] {
+    appearance: auto;
+  }
+  input[type="checkbox"]::before {
+    content: none;
+  }
 }
 input[type="checkbox"]:disabled {
   opacity: 0.5;
