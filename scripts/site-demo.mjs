@@ -2,11 +2,13 @@ import { build, preview } from "vite";
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 import console from "node:console";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { URL } from "node:url";
 import { captionOrigin } from "./site-captions-fixture.mjs";
+import { publishDemoOutput, readDemoOutput } from "./site-demo-output.mjs";
 
 // Usage: npm run site:demo -- ../website/public/demo
 // Builds the real side panel as a static page for unidock.co.kr with every
@@ -18,40 +20,46 @@ if (!target || rest.length) {
   process.exit(1);
 }
 const outDir = path.resolve(target);
-const existing = await readdir(outDir).catch(() => []);
-if (existing.length && !existing.includes("index.html")) {
-  console.error(
-    `${outDir} is not empty and is not a site demo; choose a dedicated folder.`,
-  );
+let previous;
+try {
+  previous = await readDemoOutput(outDir);
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
+const buildDir = await mkdtemp(path.join(os.tmpdir(), "unidock-site-demo-"));
 const sidepanel = path.resolve("entrypoints/sidepanel");
 const runtime = path.resolve("scripts/site-demo-runtime.mjs");
-await build({
-  configFile: false,
-  logLevel: "error",
-  root: sidepanel,
-  base: "./",
-  plugins: [
-    {
-      name: "site-demo-runtime",
-      transform(code, id) {
-        if (id !== path.join(sidepanel, "main.tsx")) return;
-        return {
-          code: `import ${JSON.stringify(runtime)};\n${code}`,
-          map: null,
-        };
+try {
+  await build({
+    configFile: false,
+    logLevel: "error",
+    root: sidepanel,
+    base: "./",
+    plugins: [
+      {
+        name: "site-demo-runtime",
+        transform(code, id) {
+          if (id !== path.join(sidepanel, "main.tsx")) return;
+          return {
+            code: `import ${JSON.stringify(runtime)};\n${code}`,
+            map: null,
+          };
+        },
       },
+    ],
+    define: {
+      __UNIDOCK_PLAYBACK__: "false",
+      __UNIDOCK_AI_CAPTIONS__: "true",
+      __UNIDOCK_CAPTION_SERVER__: JSON.stringify(captionOrigin),
+      __UNIDOCK_STATS_SERVER__: '""',
     },
-  ],
-  define: {
-    __UNIDOCK_PLAYBACK__: "false",
-    __UNIDOCK_AI_CAPTIONS__: "true",
-    __UNIDOCK_CAPTION_SERVER__: JSON.stringify(captionOrigin),
-    __UNIDOCK_STATS_SERVER__: '""',
-  },
-  build: { outDir, emptyOutDir: true },
-});
+    build: { outDir: buildDir, emptyOutDir: true },
+  });
+  await publishDemoOutput(buildDir, outDir, previous);
+} finally {
+  await rm(buildDir, { recursive: true, force: true });
+}
 
 // Smoke check: every screen opens, with no page errors and no request that
 // leaves the static assets.
