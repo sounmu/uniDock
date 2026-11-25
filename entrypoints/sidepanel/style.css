@@ -182,6 +182,7 @@ select {
 button,
 a,
 summary,
+label,
 input,
 select {
   -webkit-tap-highlight-color: transparent;
@@ -1176,15 +1177,57 @@ dd {
   font-size: var(--fs-sm);
   margin: var(--space-3) var(--space-1);
 }
-/* Square checkboxes mark real selection; they stay native and neutral so a
-   checked box is never confused with a round status icon or a brand state. */
+/* Square checkboxes mark real selection; they stay neutral so a checked box is
+   never confused with a round status icon or a brand state. They are drawn here
+   rather than natively: a press on the wider label hit area puts the box in
+   :active, and the native pressed paint showed as a detached gray square. */
 input[type="checkbox"] {
-  accent-color: var(--check);
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
   margin: 0;
+  border: 1.5px solid var(--line-input);
   border-radius: var(--r-xs);
+  background: var(--surface);
+  cursor: pointer;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  clip-path: polygon(14% 44%, 0 59%, 39% 96%, 100% 22%, 85% 8%, 38% 66%);
+  transform: scale(0);
+}
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  border-color: var(--check);
+  background: var(--check);
+}
+input[type="checkbox"]:checked::before,
+input[type="checkbox"]:indeterminate::before {
+  transform: scale(1);
+}
+/* Partial selection (select-all with some items checked) shows a dash. */
+input[type="checkbox"]:indeterminate::before {
+  clip-path: inset(40% 0);
+}
+/* Forced colors repaint both fills with one system color, which would hide the
+   drawn mark; the native box keeps its own system-colored indicator. */
+@media (forced-colors: active) {
+  input[type="checkbox"] {
+    appearance: auto;
+  }
+  input[type="checkbox"]::before {
+    content: none;
+  }
+}
+input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .check-hit {
   display: flex;
