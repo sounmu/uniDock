@@ -62,6 +62,7 @@ export const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
 const MAX_SEGMENTS = 20000;
 const MAX_OFFSET_RESYNCS = 3;
+const MAX_CHUNKS_IN_FLIGHT = 2;
 const TUS = "1.0.0";
 
 const str = (value: unknown): string =>
@@ -167,10 +168,59 @@ async function uploadOffset(id: string, total: number, signal?: AbortSignal) {
   return offset;
 }
 
+interface Chunk {
+  end: number;
+  /** Sent while the chunk before it was still unanswered. */
+  ahead: boolean;
+  settled: boolean;
+  response: Promise<Response>;
+}
+
+function sendChunk(
+  id: string,
+  audio: Blob,
+  start: number,
+  ahead: boolean,
+  signal: AbortSignal,
+): Chunk {
+  const total = audio.size;
+  const end = Math.min(start + UPLOAD_CHUNK_BYTES, total);
+  const response = authorizedFetch(
+    `${jobPath(id)}/audio`,
+    {
+      method: "PATCH",
+      headers: {
+        "Tus-Resumable": TUS,
+        "Content-Type": "application/offset+octet-stream",
+        "Upload-Offset": String(start),
+        "Upload-Length": String(total),
+      },
+      body: audio.slice(start, end),
+    },
+    signal,
+  );
+  const chunk: Chunk = { end, ahead, settled: false, response };
+  // Awaited in order, possibly after it already failed; an early rejection is
+  // not an unhandled one.
+  const settle = () => {
+    chunk.settled = true;
+  };
+  response.then(settle, settle);
+  return chunk;
+}
+
+const offsetMismatch = async (response: Response) =>
+  response.status === 409 &&
+  (await serverErrorCode(response.clone())) === "UPLOAD_OFFSET_MISMATCH";
+
 /**
  * tus core upload: resume from the server's offset, send 8 MiB chunks, and
- * declare the total size on every PATCH (the first one sets it). An offset
- * mismatch re-reads the offset a few times instead of restarting.
+ * declare the total size on every PATCH (the first one sets it). Two chunks
+ * stay in flight: each accepted answer sends the next chunk right away. A
+ * broker that answers such an ahead chunk with an offset mismatch gets one
+ * chunk at a time for the rest of the upload. A mismatch on the oldest chunk re-reads the
+ * offset a few times instead of restarting. Whatever is cancelled mid-flight
+ * is never assumed stored: the upload resumes from a HEAD offset.
  */
 export async function uploadAudio(
   id: string,
@@ -182,35 +232,66 @@ export async function uploadAudio(
   if (total < 1 || total > MAX_AUDIO_BYTES) throw new CaptionServerError("TOO_LARGE");
   let offset = await uploadOffset(id, total, signal);
   let resyncs = 0;
+  let window = MAX_CHUNKS_IN_FLIGHT;
+  let reported = 0;
   while (offset < total) {
-    const end = Math.min(offset + UPLOAD_CHUNK_BYTES, total);
-    const response = await authorizedFetch(
-      `${jobPath(id)}/audio`,
-      {
-        method: "PATCH",
-        headers: {
-          "Tus-Resumable": TUS,
-          "Content-Type": "application/offset+octet-stream",
-          "Upload-Offset": String(offset),
-          "Upload-Length": String(total),
-        },
-        body: audio.slice(offset, end),
-      },
-      signal,
-    );
-    if (response.status === 409 && resyncs < MAX_OFFSET_RESYNCS) {
-      if ((await serverErrorCode(response.clone())) === "UPLOAD_OFFSET_MISMATCH") {
-        resyncs++;
-        offset = await uploadOffset(id, total, signal);
-        continue;
+    const inFlight = new AbortController();
+    const cancel = () => inFlight.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) inFlight.abort();
+    const chunks: Chunk[] = [];
+    let sent = offset;
+    const fill = () => {
+      while (chunks.length < window && sent < total) {
+        const chunk = sendChunk(id, audio, sent, chunks.length > 0, inFlight.signal);
+        chunks.push(chunk);
+        sent = chunk.end;
       }
+    };
+    let resync = false;
+    try {
+      fill();
+      for (let chunk = chunks[0]; chunk; chunk = chunks[0]) {
+        const response = await chunk.response;
+        if (await offsetMismatch(response)) {
+          // The chunk before this one was committed, so the broker refused
+          // only the overlap: it does not wait for an ahead chunk.
+          if (chunk.ahead) {
+            window = 1;
+            resync = true;
+            break;
+          }
+          if (resyncs < MAX_OFFSET_RESYNCS) {
+            resyncs++;
+            resync = true;
+            break;
+          }
+        }
+        await ok(response);
+        const next = headerCount(response, "Upload-Offset");
+        if (next === undefined || next <= offset || next > total)
+          throw new CaptionServerError("RESPONSE");
+        offset = next;
+        if (offset > reported) {
+          reported = offset;
+          onProgress?.(offset);
+        }
+        chunks.shift();
+        // A short commit leaves any chunk still in flight at the wrong offset.
+        if (next !== chunk.end) {
+          resync = chunks.length > 0;
+          break;
+        }
+        // An answer already in is read first: a refused ahead chunk must not
+        // be followed by another.
+        if (!chunks[0]?.settled) fill();
+      }
+    } finally {
+      inFlight.abort();
+      signal?.removeEventListener("abort", cancel);
+      await Promise.allSettled(chunks.map((chunk) => chunk.response));
     }
-    await ok(response);
-    const next = headerCount(response, "Upload-Offset");
-    if (next === undefined || next <= offset || next > total)
-      throw new CaptionServerError("RESPONSE");
-    offset = next;
-    onProgress?.(offset);
+    if (resync) offset = await uploadOffset(id, total, signal);
   }
 }
 
