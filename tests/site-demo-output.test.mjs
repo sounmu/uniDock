@@ -59,6 +59,32 @@ it("rejects a file list that points outside the folder", async () => {
   const out = folder();
   write(out, manifestName, JSON.stringify(["../outside.txt"]));
   await expect(readDemoOutput(out)).rejects.toThrow("is not a file list");
+  write(out, manifestName, JSON.stringify(["..\\outside.txt"]));
+  await expect(readDemoOutput(out)).rejects.toThrow("is not a file list");
+});
+
+it("refuses a build file that would overwrite a file it did not make", async () => {
+  const out = folder();
+  await publishDemoOutput(
+    build({ "index.html": "v1" }),
+    out,
+    await readDemoOutput(out),
+  );
+  write(out, "notes.txt", "added by hand");
+
+  await expect(
+    publishDemoOutput(
+      build({ "index.html": "v2", "notes.txt": "from build" }),
+      out,
+      await readDemoOutput(out),
+    ),
+  ).rejects.toThrow("was not made by site:demo");
+
+  expect(readFileSync(path.join(out, "index.html"), "utf8")).toBe("v1");
+  expect(readFileSync(path.join(out, "notes.txt"), "utf8")).toBe(
+    "added by hand",
+  );
+  expect(await readDemoOutput(out)).toEqual(["index.html"]);
 });
 
 it("replaces only the files of the previous run", async () => {

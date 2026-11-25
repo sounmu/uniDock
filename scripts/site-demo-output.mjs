@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 // site:demo writes into a folder that belongs to another repository, so it
@@ -9,6 +9,7 @@ export const manifestName = ".site-demo-files.json";
 const isOwnFile = (file) =>
   typeof file === "string" &&
   file !== "" &&
+  !file.includes("\\") &&
   !path.isAbsolute(file) &&
   !file.split("/").includes("..");
 
@@ -32,9 +33,9 @@ export async function readDemoOutput(outDir) {
 }
 
 // Removes the previous run's files, copies the new build in and records it.
+// A build file that would overwrite a file it did not make stops the update
+// before anything changes.
 export async function publishDemoOutput(buildDir, outDir, previous) {
-  for (const file of previous)
-    await rm(path.join(outDir, file), { force: true });
   const files = (
     await readdir(buildDir, { recursive: true, withFileTypes: true })
   )
@@ -46,6 +47,20 @@ export async function publishDemoOutput(buildDir, outDir, previous) {
         .join("/"),
     )
     .sort();
+  const owned = new Set(previous);
+  for (const file of files) {
+    if (owned.has(file)) continue;
+    const exists = await access(path.join(outDir, file)).then(
+      () => true,
+      () => false,
+    );
+    if (exists)
+      throw new Error(
+        `${path.join(outDir, file)} was not made by site:demo; move it before updating.`,
+      );
+  }
+  for (const file of previous)
+    await rm(path.join(outDir, file), { force: true });
   await mkdir(outDir, { recursive: true });
   await cp(buildDir, outDir, { recursive: true });
   await writeFile(
