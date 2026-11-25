@@ -61,8 +61,8 @@ export async function downloadCaption(
     options.variant === "ai" ? captionFileTitle(value.pageTitle) : "";
   // Chrome's uniquify keeps repeated downloads of one lecture apart.
   const stem = title
-    ? `output/${title} - AI 자막`
-    : `output/uniDock-${options.variant === "ai" ? "AI-" : ""}${timestamp}-${nonce}`;
+    ? `uniDock/${title} - AI 자막`
+    : `uniDock/uniDock-${options.variant === "ai" ? "AI-" : ""}${timestamp}-${nonce}`;
   let accepted: 0 | 1 | 2 = 0;
   const canContinue = () =>
     !options.signal?.aborted && (options.isCurrent?.() ?? true);

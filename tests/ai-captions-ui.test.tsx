@@ -115,7 +115,7 @@ it("previews the transcript and downloads each file on success", async () => {
     expect.objectContaining({ itemCount: 2 }),
     { variant: "ai", only: "txt" },
   );
-  expect(ui.host.textContent).toContain("output/ 폴더로 TXT 다운로드를 시작했어요.");
+  expect(ui.host.textContent).toContain("uniDock/ 폴더로 TXT 다운로드를 시작했어요.");
   await click("JSON 받기");
   expect(downloadCaption).toHaveBeenLastCalledWith(
     expect.objectContaining({ itemCount: 2 }),

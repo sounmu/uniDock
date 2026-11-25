@@ -246,13 +246,13 @@ it("downloads matching UTF-8 pairs with distinct names even at the same timestam
   expect(download.mock.calls.map((call) => call[0])).toEqual([
     {
       url: "blob:txt",
-      filename: "output/uniDock-20260912T060000Z-123456781234.txt",
+      filename: "uniDock/uniDock-20260912T060000Z-123456781234.txt",
       conflictAction: "uniquify",
       saveAs: false,
     },
     {
       url: "blob:json",
-      filename: "output/uniDock-20260912T060000Z-123456781234.json",
+      filename: "uniDock/uniDock-20260912T060000Z-123456781234.json",
       conflictAction: "uniquify",
       saveAs: false,
     },
@@ -289,12 +289,12 @@ it("names AI captions after the lecture title as written", async () => {
     { variant: "ai" },
   );
   expect(download.mock.calls.map(([options]) => options.filename)).toEqual([
-    "output/[국제법] 3주차 1차시_ 조약법 - AI 자막.txt",
-    "output/[국제법] 3주차 1차시_ 조약법 - AI 자막.json",
+    "uniDock/[국제법] 3주차 1차시_ 조약법 - AI 자막.txt",
+    "uniDock/[국제법] 3주차 1차시_ 조약법 - AI 자막.json",
   ]);
   await downloadCaption({ ...transcript, pageTitle: " ..// " }, { variant: "ai" });
   expect(download.mock.calls[2]![0].filename).toMatch(
-    /^output\/uniDock-AI-20260912T060000Z-[0-9a-f]{12}\.txt$/,
+    /^uniDock\/uniDock-AI-20260912T060000Z-[0-9a-f]{12}\.txt$/,
   );
 });
 it.each([

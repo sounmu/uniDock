@@ -154,7 +154,7 @@ ${code}`,
       await expect(download).toBeVisible();
       await download.click();
       await expect(
-        page.getByText(`output/ 폴더로 ${format} 다운로드를 시작했어요.`, {
+        page.getByText(`uniDock/ 폴더로 ${format} 다운로드를 시작했어요.`, {
           exact: true,
         }),
       ).toBeVisible();

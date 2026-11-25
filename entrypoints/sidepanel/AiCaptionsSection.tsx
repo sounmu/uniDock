@@ -249,7 +249,7 @@ function AiCaptionsContent({
       } else op.failure("PARTIAL");
       setNotice(
         outcome.status === "complete"
-          ? `output/ 폴더로 ${only.toUpperCase()} 다운로드를 시작했어요.`
+          ? `uniDock/ 폴더로 ${only.toUpperCase()} 다운로드를 시작했어요.`
           : "다운로드를 요청하지 못했어요. 다운로드 목록을 확인하세요.",
       );
     } catch {
