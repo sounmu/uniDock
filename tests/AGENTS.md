@@ -32,7 +32,7 @@ Vitest unit/UI suites (flat, ~60 files) plus `e2e/` (Playwright, own AGENTS.md) 
 - Coverage thresholds are 80% across statements, branches, functions, and lines, scoped to `src/**` + `entrypoints/**` (except `entrypoints/sidepanel/main.tsx`). CI runs `npm run test -- --coverage`.
 - `chrome` is stubbed per test with `vi.stubGlobal("chrome", ...)` and torn down in `afterEach` with `vi.unstubAllGlobals()` (often plus `vi.restoreAllMocks()`). Races use `deferred()` from `ui-helpers.tsx` (10 suites) or `vi.useFakeTimers` (20 suites).
 - UI assertions select by visible Korean text and accessible names (`click(label)` matches exact button/summary text). Lifecycle-sensitive UI tests wrap in React StrictMode.
-- `server-contract-pin.test.mjs` is the only `.mjs` suite. It imports `scripts/check-server-contract.mjs` directly and mutates copies in `os.tmpdir()`.
+- The `.mjs` suites test `scripts/` modules directly and work on copies in `os.tmpdir()`: `server-contract-pin.test.mjs` (`scripts/check-server-contract.mjs`) and `site-demo-output.test.mjs` (`scripts/site-demo-output.mjs`).
 
 ## ANTI-PATTERNS
 - Hand-editing `python-contract.json`, `python-captions.json`, or `analytics-report-contract.json`: regenerate them or re-vendor them, then re-pin.
