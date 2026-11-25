@@ -8,10 +8,13 @@ export const lmsTab = {
   title: "자료구조 · 주차학습",
 };
 const day = 86400000;
+// The panel shows dates in Asia/Seoul (UTC+9, no DST), so build each time from
+// the Korean calendar date rather than the visitor's local one.
+const seoulOffset = 9 * 3600000;
 const at = (days, hour = 23, minute = 59) => {
-  const date = new Date(Date.now() + days * day);
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
+  const date = new Date(Date.now() + seoulOffset + days * day);
+  const utc = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hour, minute);
+  return new Date(utc - seoulOffset).toISOString();
 };
 const handle = (index) =>
   `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
