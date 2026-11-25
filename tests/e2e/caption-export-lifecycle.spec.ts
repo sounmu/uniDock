@@ -159,7 +159,7 @@ test("a rapid caption export produces one matching TXT/JSON pair with real bytes
       window.captionExportGate!.requested(),
     );
     expect(requested).toHaveLength(2);
-    expect(requested.every((filename) => filename.startsWith("output/"))).toBe(
+    expect(requested.every((filename) => filename.startsWith("uniDock/"))).toBe(
       true,
     );
     const names = requested

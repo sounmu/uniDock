@@ -192,7 +192,7 @@ export function CaptionsPanel({
       } else op.failure(result.accepted === 1 ? "PARTIAL" : "DOWNLOAD_FAILED");
       if (result.status === "complete") {
         setNotice(
-          "output/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
+          "uniDock/에 TXT·JSON 다운로드를 요청했습니다. 브라우저 다운로드 목록을 확인하세요.",
         );
       } else if (result.accepted === 1) {
         setNotice(
@@ -242,7 +242,7 @@ export function CaptionsPanel({
           <summary>자막 찾는 방법</summary>
           <p className="hint">
             강의 플레이어 탭에서 감지하세요. 감지는 서버로 보내지 않으며, 자막은
-            output/ 폴더에 TXT·JSON으로 저장합니다(JSON에 강의 URL·제목 포함).
+            uniDock/ 폴더에 TXT·JSON으로 저장합니다(JSON에 강의 URL·제목 포함).
             {__UNIDOCK_AI_CAPTIONS__ && " 자막이 없으면 AI로 만들 수 있습니다."}
           </p>
         </details>
