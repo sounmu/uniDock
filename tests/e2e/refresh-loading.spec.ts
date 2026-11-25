@@ -30,11 +30,15 @@ test("list loading keeps placeholders and accessible icon refresh controls", asy
     const panel = await context.newPage();
     await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
     await lms.bringToFront();
+    // Hold the list reads only: the identity check aborts after 1s by design
+    // (src/api/account.ts), so holding it too would end loading in NETWORK.
+    const listRead = (url: URL) =>
+      url.pathname.startsWith("/api/") && url.pathname !== "/api/v1/users/self";
 
     for (const screen of ["courses", "assignments", "recordings", "materials", "tasks"] as const) {
       let release = () => {};
       const held = new Promise<void>((resolve) => { release = resolve; });
-      await context.route("**/api/**", async (route) => {
+      await context.route(listRead, async (route) => {
         await held;
         await route.continue();
       });
@@ -74,7 +78,7 @@ test("list loading keeps placeholders and accessible icon refresh controls", asy
         release();
       }
       await expect(panel.locator(".skeleton-row")).toHaveCount(0);
-      await context.unroute("**/api/**");
+      await context.unroute(listRead);
       await expect(panel.getByRole("button", { name: /새로고침$/ })).toHaveAttribute("aria-busy", "false");
     }
   } finally {
