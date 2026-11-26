@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { expect, vi } from "vitest";
 export async function mount(element: ReactNode) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  if (typeof ResizeObserver === "undefined")
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);

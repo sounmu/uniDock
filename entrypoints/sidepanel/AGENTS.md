@@ -1,7 +1,7 @@
 # entrypoints/sidepanel/ - React side panel UI
 
 ## OVERVIEW
-The main uniDock UI (React 19). WXT builds it into `sidepanel.html` and the manifest `side_panel` entry. Boot chain: `index.html` -> `main.tsx` (StrictMode) -> `App.tsx`.
+The main uniDock UI (React 19). WXT builds it into `sidepanel.html` and the manifest `side_panel` entry. Boot chain: `index.html` -> `main.tsx` (StrictMode) -> `App.tsx`. In playback or AI caption builds `main.tsx` also calls `announcePanel` (`src/panel-presence.ts`): the page holds a port for as long as it is open, and the worker hides the LMS progress pill in this page's window meanwhile.
 
 Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-folders, its own design-token stylesheet, and the extension's whole user-facing surface.
 

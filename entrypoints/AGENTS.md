@@ -25,6 +25,7 @@ Why this file exists: it is the root of the subtree, and the extension surface (
 | Message routing and sender checks (`panelSender`, `backgroundSender`) | `background.ts` `chrome.runtime.onMessage` (~L541); `src/protocol.ts`, `src/playback/bridge.ts` |
 | Install/update handling (badge, reinjecting LMS scripts) | `background.ts` `onInstalled`; `src/update-notice.ts` |
 | Playback runtime (alarms-driven) | `createChromePlaybackRuntime` in `background.ts`, `src/playback/` |
+| LMS progress pill delivery and panel windows | `background.ts` wires `ProgressHub` to `PanelPresence` (`runtime.onConnect` for `PANEL_PORT`, checked with `panelSender`) and to `tabs.onUpdated` / `tabs.onAttached`; `sidepanel/main.tsx` calls `announcePanel`; `src/progress-hub.ts`, `src/panel-presence.ts` |
 | LMS message, cache and capability lifecycle | `lms.content.ts`; account reads and playback discovery live in `src/api/account.ts` and `src/api/playback-discovery.ts` |
 | Native-video control in KUCOM frames | `player.content.ts`, `src/playback/player.ts`, `ku-player.ts` |
 | Unit tests | `tests/background.test.ts`, `tests/content.test.ts`, `tests/player-content.test.ts` |

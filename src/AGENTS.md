@@ -31,12 +31,13 @@ src/
 | LMS popup auto-close | `lms-popup.ts`, `popup-settings.ts` | optional host permission `POPUP_PERMISSION` |
 | AI caption server auth/session | `caption-server-settings.ts` | `signIn`, `authorizedFetch`, `signOutEverywhere` |
 | Update badge | `update-notice.ts` | |
+| LMS progress pill | `progress.ts`, `progress-hub.ts`, `progress-toast.ts`, `panel-presence.ts` | `ProgressHub` sends work to extension pages and LMS top frames; `PanelPresence` (port `PANEL_PORT`, window id in the port name) tells it which windows have a panel page open, and those windows' LMS tabs get an empty list; `panelWork` phases are shown on LMS pages only while some panel page is open |
 | Build-time constants | `build-flags.d.ts` | `__UNIDOCK_PLAYBACK__`, `__UNIDOCK_AI_CAPTIONS__`, `__UNIDOCK_CAPTION_SERVER__`, `__UNIDOCK_STATS_SERVER__` (replaced by `wxt.config.ts`) |
 
 ## CONVENTIONS
 - Flat kebab-case modules; a folder only when a feature spans several files. No `index.ts` barrels: import the exact file (`../security/policy`).
 - Dependency direction: root modules and feature dirs import `security/` freely; `security/` reaches back only to `protocol.ts` (`validDate`) and `documents.ts`. Root -> feature imports are rare and deliberate: `download-tab.ts` -> `playback/bridge` (`object` guard), `caption-server-settings.ts` -> `captions/server-http`.
-- Boolean feature flags (`__UNIDOCK_PLAYBACK__`, `__UNIDOCK_AI_CAPTIONS__`) gate at call sites in `entrypoints/` (`background.ts`, `lms.content.ts`, `sidepanel/App.tsx`), never inside `src/`, so dead code drops from release builds. Only the string origin `__UNIDOCK_CAPTION_SERVER__` is read inside `src/` (empty => `NO_SERVER`).
+- Boolean feature flags (`__UNIDOCK_PLAYBACK__`, `__UNIDOCK_AI_CAPTIONS__`) gate at call sites in `entrypoints/` (`background.ts`, `lms.content.ts`, `sidepanel/App.tsx`, `sidepanel/main.tsx`), never inside `src/`, so dead code drops from release builds. Only the string origin `__UNIDOCK_CAPTION_SERVER__` is read inside `src/` (empty => `NO_SERVER`).
 - Untrusted input (LMS JSON, page/MAIN-world results, messages) enters as `unknown` and passes `is*`/`parse*` guards; JSON bodies via `api/body.ts` `readJsonBounded`.
 - `chrome.*` is touched by a limited set of files (storage, scripting, tabs, alarms); pure modules stay testable under Vitest without chrome mocks.
 - Tests are flat in `/tests`, named after the module (`documents.test.ts`, `playback-runtime.test.ts`, `caption-job-client.test.ts`).

@@ -110,6 +110,10 @@
   );
   /* Fallback document top of the AI caption card until it measures its own. */
   --captions-card-top: 108px;
+  /* Page-coloured, blurred backing for sticky bars (work strip, playback
+     header, material actions); useStickyHeight publishes --work-strip-h and
+     --material-bar-h. */
+  --sticky-surface: color-mix(in srgb, var(--page) 82%, transparent);
   --focus-width: 2px;
   --focus-offset: 2px;
   --motion-fast: 150ms;
@@ -120,6 +124,9 @@
   font-size: var(--fs-md);
   line-height: var(--lh-body);
   color-scheme: light dark;
+  scroll-padding-top: calc(
+    var(--work-strip-h, 0px) + var(--material-bar-h, 0px) + var(--space-3)
+  );
   scroll-padding-bottom: var(--tabbar-space);
 }
 @media (prefers-color-scheme: dark) {
@@ -438,7 +445,7 @@ p {
   flex-shrink: 0;
 }
 .caption-queue {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
   padding: var(--space-3);
 }
 .caption-queue-head {
@@ -618,15 +625,33 @@ p {
   background: var(--brand);
   box-shadow: 0 0 0 2px var(--glass-strong);
 }
-/* Work in progress outside the current screen: one glass row each, above the
-   screen content; the row opens that screen. */
+/* Work in progress outside the current screen and the lecture open in the
+   active tab: one glass row each in a bar that stays under the top edge while
+   the document scrolls; a row opens its screen. */
+.work-strip {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  gap: var(--space-2);
+  margin: calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--sticky-surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.work-strip:empty {
+  display: none;
+}
+.work-strip > .progress-strip {
+  margin: 0;
+}
 .progress-strip {
   display: grid;
   gap: var(--space-2);
   margin-bottom: var(--space-3);
 }
 .progress-row {
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -661,24 +686,22 @@ p {
 .progress-row[data-tone="error"] strong {
   color: var(--danger);
 }
-.progress-row-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: var(--neutral-wash);
+/* The same progress ring as the LMS pill, at the end of the row; the
+   percentage itself stays in the row's second line. */
+.progress-row-ring {
+  flex: 0 0 auto;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-left: auto;
 }
-.progress-row-bar > i {
-  display: block;
-  height: 100%;
-  background: var(--brand);
-  transition: width var(--motion-fast) ease-out;
+.progress-row-ring circle {
+  fill: none;
+  stroke: var(--neutral-wash);
+  stroke-width: 3;
 }
-@media (prefers-reduced-motion: reduce) {
-  .progress-row-bar > i {
-    transition: none;
-  }
+.progress-row-ring circle + circle {
+  stroke: var(--brand);
+  stroke-linecap: round;
 }
 .rail-pending {
   position: relative;
@@ -746,11 +769,11 @@ p {
 }
 .playback-panel > div > .screen-header {
   position: sticky;
-  top: 0;
+  top: var(--work-strip-h, 0px);
   z-index: 1;
   margin-inline: calc(-1 * var(--space-4));
   padding: var(--space-2) var(--space-4);
-  background: color-mix(in srgb, var(--page) 82%, transparent);
+  background: var(--sticky-surface);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
 }
@@ -1539,21 +1562,29 @@ progress {
   color: var(--danger);
 }
 /* Captions without a provided track continue into one AI caption card that
-   fills the panel down to the tab bar, ending the same gap above it as every
-   other screen; taller content grows the card and the page scrolls. The
-   finished card keeps a fixed height so its transcript preview scrolls inside
-   it. AiCaptionsSection sets --captions-card-top to its measured top. */
+   fills the panel down to the several-lecture card, which ends the same gap
+   above the tab bar as every other screen; both stay on one screen and the gap
+   holds as either grows, until taller content scrolls the page. The finished
+   card keeps a fixed height so its transcript preview scrolls inside it.
+   AiCaptionsSection sets --captions-card-top to its measured top and
+   CaptionsPanel sets --caption-queue-space to the space the card below takes. */
 .ai-offer {
   display: flex;
   flex-direction: column;
   margin: var(--space-3) 0 0;
-  min-height: calc(100dvh - var(--captions-card-top) - var(--tabbar-space));
+  min-height: calc(
+    100dvh - var(--captions-card-top) - var(--tabbar-space) -
+      var(--caption-queue-space, 0px)
+  );
 }
 .ai-offer:has(.ai-preview),
 .ai-offer:has(.ai-reader) {
   height: max(
     calc(var(--row-h) * 9),
-    calc(100dvh - var(--captions-card-top) - var(--tabbar-space))
+    calc(
+      100dvh - var(--captions-card-top) - var(--tabbar-space) -
+        var(--caption-queue-space, 0px)
+    )
   );
 }
 .settings-row.row-actions {

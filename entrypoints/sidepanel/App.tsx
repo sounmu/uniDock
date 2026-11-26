@@ -14,6 +14,7 @@ import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ProgressStrip } from "./ProgressStrip";
 import { useActivity } from "./progress-activity";
+import { useStickyHeight } from "./ui/sticky-height";
 import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { markNoticeShown, setAnalyticsEnabled } from "./analytics";
@@ -54,6 +55,7 @@ export function App() {
   const activity = useActivity(__UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__);
   const restoreInfoFocus = useRef(false);
   const toolHeading = useRef<HTMLParagraphElement>(null);
+  const workStrip = useStickyHeight("--work-strip-h");
   useLayoutEffect(() => {
     if (tool.detail) toolHeading.current?.focus({ preventScroll: true });
   }, [tool.detail]);
@@ -120,13 +122,15 @@ export function App() {
       <Rail section={model.section} onSelect={select} onInfo={() => showInfo()}
         info={info} active={activity.length ? ["home"] : []} />
       <main>
-        <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
-        {activeLecture && !info && tool.detail !== "captions" && (
-          <ActiveLectureCard lecture={activeLecture} onOpen={() => {
-            setCaptionEntry({ title: activeLecture.title, detect: true });
-            openTool("captions");
-          }} />
-        )}
+        <div className="work-strip" ref={workStrip}>
+          <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
+          {activeLecture && !info && tool.detail !== "captions" && (
+            <ActiveLectureCard lecture={activeLecture} onOpen={() => {
+              setCaptionEntry({ title: activeLecture.title, detect: true });
+              openTool("captions");
+            }} />
+          )}
+        </div>
         <UpdateNotice />
         {noticeOpen && !noticeDismissed && (
           <aside hidden={info} className="notice" aria-label="사용 통계 안내">
