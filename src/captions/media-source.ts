@@ -101,6 +101,23 @@ export class MediaSourceError extends Error {
   }
 }
 
+/** Whether a tab URL is the KU player or an LMS module item that can host it.
+    Decided from the URL alone so callers can check tabs without injecting. */
+export function isLecturePage(url: string | undefined): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url ?? "");
+  } catch {
+    return false;
+  }
+  const { origin, pathname } = parsed;
+  if (origin === PLAYER_ORIGIN) return pathname.startsWith("/em/");
+  return (
+    PLAYER_TAB_ORIGINS.includes(origin) &&
+    /^\/courses\/[^/]+\/modules\/items\/[^/]+/.test(pathname)
+  );
+}
+
 export async function identifyMedia(): Promise<MediaSource> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (
