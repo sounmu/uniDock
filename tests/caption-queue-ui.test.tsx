@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, StrictMode } from "react";
 import { mount } from "./ui-helpers";
-import { LECTURE_TAB_KEY } from "../src/open-tab";
+import { lectureTabKey } from "../src/open-tab";
 import { CAPTION_SESSION_EPOCH_KEY } from "../src/caption-server-settings";
 import type { useCaptionQueue } from "../entrypoints/sidepanel/useCaptionQueue";
 
@@ -63,7 +63,9 @@ beforeEach(() => {
   storageChanged = undefined;
   vi.stubGlobal("chrome", {
     storage: {
-      session: { get: vi.fn(async () => ({ [LECTURE_TAB_KEY]: 9 })) },
+      session: {
+        get: vi.fn(async (key: string) => (key === lectureTabKey(target.id) ? { [key]: 9 } : {})),
+      },
       onChanged: {
         addListener: (listener: StorageListener) => (storageChanged = listener),
         removeListener: vi.fn(),
@@ -224,7 +226,7 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
   expect(opens()).toHaveLength(1);
 });
 
-it("cancels the job of a lecture whose audio could not be read and goes on", async () => {
+it("cancels the job of a lecture whose audio could not be read before going on", async () => {
   identifyMedia
     .mockImplementationOnce(noPlayer)
     .mockResolvedValueOnce(media("first"))
@@ -235,9 +237,20 @@ it("cancels the job of a lecture whose audio could not be read and goes on", asy
     hooks.onPhase("extracting");
     throw Object.assign(new Error("network"), { code: "MEDIA_NETWORK" });
   });
+  let releaseSlot!: () => void;
+  cancelJob.mockReturnValueOnce(new Promise<void>((resolve) => (releaseSlot = resolve)));
   await render();
-  await act(() => queue.start({ handles: ["a", "b"], target }, String));
-  expect(cancelJob).toHaveBeenCalledWith("job-unread");
+  let run!: Promise<void>;
+  await act(async () => {
+    run = queue.start({ handles: ["a", "b"], target }, String);
+  });
+  await vi.waitFor(() => expect(cancelJob).toHaveBeenCalledWith("job-unread"));
+  expect(opens()).toHaveLength(1);
+  await act(async () => {
+    releaseSlot();
+    await run;
+  });
+  expect(opens()).toHaveLength(2);
   expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "MEDIA_NETWORK" });
   expect(queue.items[1]?.phase).toBe("queued");
 });

@@ -4,11 +4,15 @@ import { TabRateLimiter } from "./security/rate-limit";
 import { allowedPage } from "./security/policy";
 // A person opens lectures one click at a time.
 const opens = new TabRateLimiter(30, 60_000);
-/** Session key holding the id of the one tab caption work opens lectures in. */
-export const LECTURE_TAB_KEY = "unidock-lecture-tab";
+/** Session key holding the id of the one tab caption work from this list tab
+    opens lectures in; panels in other windows work from other list tabs. */
+export function lectureTabKey(source: number): string {
+  return `unidock-lecture-tab:${source}`;
+}
 
 async function openInLectureTab(url: string, source: number): Promise<void> {
-  const saved: unknown = (await chrome.storage.session.get(LECTURE_TAB_KEY))[LECTURE_TAB_KEY];
+  const key = lectureTabKey(source);
+  const saved: unknown = (await chrome.storage.session.get(key))[key];
   // The source tab holds the list being worked through, so it is never reused.
   if (typeof saved === "number" && saved !== source) {
     // A closed tab rejects; a tab the user took elsewhere is left alone.
@@ -20,8 +24,7 @@ async function openInLectureTab(url: string, source: number): Promise<void> {
     }
   }
   const tab = await chrome.tabs.create({ url, active: true });
-  if (tab.id !== undefined)
-    await chrome.storage.session.set({ [LECTURE_TAB_KEY]: tab.id });
+  if (tab.id !== undefined) await chrome.storage.session.set({ [key]: tab.id });
 }
 // Only our top-frame LMS content script can request a canonical LMS navigation.
 export async function openLmsTab(

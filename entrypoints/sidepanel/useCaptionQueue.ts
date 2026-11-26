@@ -15,7 +15,7 @@ import {
   type CaptionJobUpdate,
 } from "../../src/captions/job-monitor";
 import type { JobPhase } from "../../src/captions/job-state";
-import { LECTURE_TAB_KEY } from "../../src/open-tab";
+import { lectureTabKey } from "../../src/open-tab";
 import { queryActive, type QueryTarget } from "../../src/transport";
 
 export type QueuePhase = "waiting" | "opening" | JobPhase;
@@ -40,14 +40,15 @@ const LOST_SELECTION = new Set(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION
 // A run stopped by a sign-in change must not touch the next account's jobs.
 const SESSION_CHANGED = "session-changed";
 
-async function savedLectureTab(): Promise<number | null> {
-  const saved: unknown = (await chrome.storage.session.get(LECTURE_TAB_KEY))[LECTURE_TAB_KEY];
+async function savedLectureTab(source: number): Promise<number | null> {
+  const key = lectureTabKey(source);
+  const saved: unknown = (await chrome.storage.session.get(key))[key];
   return typeof saved === "number" ? saved : null;
 }
 
 /** The player document the lecture tab shows right now, if any. */
-async function lectureDocument(): Promise<string | null> {
-  const tab = await savedLectureTab();
+async function lectureDocument(source: number): Promise<string | null> {
+  const tab = await savedLectureTab(source);
   if (tab === null) return null;
   return (await identifyMedia(tab).catch(() => null))?.documentId ?? null;
 }
@@ -66,10 +67,14 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 
 /** The player in the lecture tab once it shows a document other than the
     previous lecture's; the KU player loads a moment after the page. */
-async function lectureMedia(previous: string | null, signal: AbortSignal): Promise<MediaSource> {
+async function lectureMedia(
+  source: number,
+  previous: string | null,
+  signal: AbortSignal,
+): Promise<MediaSource> {
   const deadline = Date.now() + MEDIA_WAIT_MS;
   for (;;) {
-    const saved = await savedLectureTab();
+    const saved = await savedLectureTab(source);
     if (saved !== null) {
       const media = await identifyMedia(saved).catch(() => null);
       if (media && media.documentId !== previous) return media;
@@ -206,13 +211,13 @@ export function useCaptionQueue() {
         // A job whose audio is not uploaded yet; stopping or failing cancels it
         // so it does not keep holding one of today's uses.
         let unfinished: string | null = null;
-        const release = () => {
-          if (unfinished && signal.reason !== SESSION_CHANGED)
-            void cancelJob(unfinished).catch(() => {});
-        };
+        const release = (): Promise<void> =>
+          unfinished && signal.reason !== SESSION_CHANGED
+            ? cancelJob(unfinished).catch(() => {})
+            : Promise.resolve();
         try {
           // The tab may still show the last lecture until the new page commits.
-          const previous = await lectureDocument();
+          const previous = await lectureDocument(selection.target.id);
           const opened = await queryActive(
             { version: 1, type: "CAPTION_BATCH_OPEN", batch: admitted.batch, index },
             { target: selection.target, signal },
@@ -224,7 +229,7 @@ export function useCaptionQueue() {
             break;
           }
           patch(mine, { phase: "identifying" });
-          const media = await lectureMedia(previous, signal);
+          const media = await lectureMedia(selection.target.id, previous, signal);
           let job: string | null = null;
           const submitted = await submitLecture(media, {
             signal,
@@ -241,15 +246,19 @@ export function useCaptionQueue() {
             onProgress: (bytes) => patch(mine, { progress: bytes }),
           });
           if (!submitted) {
-            release();
+            void release();
             break;
           }
           unfinished = null;
           patch(mine, { phase: "queued", progress: null, jobId: submitted.jobId });
           track(submitted.jobId, submitted.key);
         } catch (error) {
-          release();
-          if (signal.aborted) break;
+          if (signal.aborted) {
+            void release();
+            break;
+          }
+          // The next lecture may need the use this job still holds.
+          await release();
           const code = errorCode(error);
           patch(mine, { phase: "failed", progress: null, errorCode: code });
           if (FATAL.has(code)) {
