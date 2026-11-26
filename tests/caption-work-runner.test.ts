@@ -386,12 +386,19 @@ it("a changed sign-in drops every run and leaves the earlier account's jobs alon
 it("opens each lecture in turn and hands every job over", async () => {
   link.open.mockResolvedValueOnce(opened(null)).mockResolvedValueOnce(opened("DOC1"));
   link.media.mockResolvedValueOnce(found(1)).mockResolvedValueOnce(found(2));
+  const firstUpload = deferred();
+  uploadAudio.mockReturnValueOnce(firstUpload.promise);
   expect(await runner.command(startQueue())).toEqual({ status: "success", accepted: null });
   expect(snapshots[0]!.queue).toMatchObject({ run, tabId: 3, running: true });
   expect(snapshots[0]!.queue!.items.map((item) => [item.title, item.phase])).toEqual([
     ["강의 1", "waiting"],
     ["강의 2", "waiting"],
   ]);
+  // The second lecture opens only once the first one's upload has finished.
+  await until((work) => work.queue?.items[0]?.phase === "uploading");
+  await drained();
+  expect(link.open).toHaveBeenCalledOnce();
+  firstUpload.resolve();
   const done = await queueDone();
 
   expect(link.open.mock.calls).toEqual([
@@ -414,10 +421,6 @@ it("opens each lecture in turn and hands every job over", async () => {
   ]);
   expect(done.unfinished).toEqual([]);
   expect(cancelJob).not.toHaveBeenCalled();
-  // The first lecture was uploaded before the second was opened.
-  expect(uploadAudio.mock.invocationCallOrder[0]!).toBeLessThan(
-    link.open.mock.invocationCallOrder[1]!,
-  );
 });
 
 it("waits for the lecture tab to show the new lecture's player", async () => {
@@ -717,6 +720,47 @@ it.each([
     expect(cancelJob).toHaveBeenCalledOnce();
   },
 );
+
+/** Starts a list and holds the first lecture's hand-over until `handing` settles. */
+async function holdHandOver(handing: Promise<void>) {
+  link.open.mockResolvedValue(opened(null));
+  link.media.mockResolvedValue(found(1));
+  const asked = deferred();
+  link.accept.mockImplementationOnce(() => {
+    asked.resolve();
+    return handing;
+  });
+  await runner.command(startQueue());
+  await asked.promise;
+}
+
+it("stopping during the hand-over of a job the server already had leaves that job alone", async () => {
+  createJob.mockImplementationOnce(async () => job("job-1", "queued"));
+  const handing = deferred();
+  await holdHandOver(handing.promise);
+  expect(uploadAudio).not.toHaveBeenCalled();
+
+  const stopping = runner.command(cancel("queue"));
+  handing.resolve();
+  expect(await stopping).toEqual({ status: "success", accepted: null });
+  await drained();
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(last().unfinished).toEqual([]);
+});
+
+it("a sign-in change during a stopped lecture's hand-over leaves the earlier account's job alone", async () => {
+  const handing = deferred();
+  await holdHandOver(handing.promise);
+
+  const stopping = runner.command(cancel("queue"));
+  await drained();
+  runner.sessionEnded();
+  handing.resolve();
+  expect(await stopping).toEqual({ status: "success", accepted: null });
+  await drained();
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(last()).toEqual({ single: null, queue: null, unfinished: [] });
+});
 
 it("forgets a stopped list on dismiss, but never a running one", async () => {
   const dismiss = { version: 1, type: "CAPTION_WORK_DISMISS", run } as const;

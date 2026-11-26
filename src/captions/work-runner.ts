@@ -53,8 +53,10 @@ interface Run<State> {
       so it does not keep holding one of today's uses. */
   unfinished: string | null;
   /** The job being handed to the worker, or handed over: the server has its
-      audio, so a cancel names it to the caller once the hand-over settles. */
-  handover: Promise<string> | null;
+      audio, so a cancel names it to the caller once the hand-over settles.
+      `uploaded`: this run sent that audio; a job the server already had is
+      not this run's to cancel. */
+  handover: { readonly job: Promise<string>; readonly uploaded: boolean } | null;
 }
 
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -80,6 +82,8 @@ export class CaptionWorkRunner {
   private single: Run<SingleWork> | null = null;
   private queue: Run<QueueWork> | null = null;
   private readonly releasing = new Set<string>();
+  /** Counts sign-in changes, so work begun before one leaves its jobs alone. */
+  private session = 0;
 
   constructor(private readonly link: WorkerLink) {}
 
@@ -163,6 +167,7 @@ export class CaptionWorkRunner {
 
   /** The sign-in changed: the jobs belong to the earlier account and stay untouched. */
   sessionEnded(): void {
+    this.session++;
     for (const run of [this.single, this.queue]) run?.controller.abort();
     this.single = null;
     this.queue = null;
@@ -191,7 +196,7 @@ export class CaptionWorkRunner {
     run.controller.abort();
     const { handover } = run;
     await this.release(run);
-    return { status: "success", accepted: handover ? await handover : null };
+    return { status: "success", accepted: handover ? await handover.job : null };
   }
 
   private async stopQueue(id: string): Promise<CommandOutcome> {
@@ -200,11 +205,15 @@ export class CaptionWorkRunner {
     run.controller.abort();
     this.endQueue(run);
     const { handover } = run;
+    const session = this.session;
     await this.release(run);
     // The lecture in flight was being handed over: no panel cancels a list's
-    // jobs, so once the worker has settled it, it is released here.
-    if (handover) {
-      run.unfinished = await handover;
+    // jobs, so once the worker has settled it, it is released here, unless
+    // the sign-in changed meanwhile and the job belongs to the earlier account.
+    if (handover?.uploaded) {
+      const job = await handover.job;
+      if (this.session !== session) return DONE;
+      run.unfinished = job;
       await this.release(run);
     }
     return DONE;
@@ -266,12 +275,16 @@ export class CaptionWorkRunner {
         hooks.onPhase(phase);
       },
       accept: async (jobId, key) => {
+        const uploaded = run.unfinished === jobId;
         run.unfinished = null;
         const accepting = this.link.accept(jobId, key);
-        run.handover = accepting.then(
-          () => jobId,
-          () => jobId,
-        );
+        run.handover = {
+          job: accepting.then(
+            () => jobId,
+            () => jobId,
+          ),
+          uploaded,
+        };
         try {
           await accepting;
         } catch (error) {
