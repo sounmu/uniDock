@@ -66,10 +66,11 @@ export function useCaptionQueue() {
       const update = message as CaptionJobUpdate;
       if (!tracked.current.has(update.jobId)) return;
       const snapshot = update.snapshot;
+      // An ended job stays with the worker, so another panel that opens it
+      // later finds its result: only this list stops waiting for it.
       if (!snapshot || ENDED.includes(snapshot.phase)) {
         tracked.current.delete(update.jobId);
         finished.current.add(update.jobId);
-        post({ type: "untrack", jobId: update.jobId });
       }
       setFollowed((jobs) => ({
         ...jobs,
@@ -102,6 +103,13 @@ export function useCaptionQueue() {
       closing?.disconnect();
     };
   }, []);
+
+  const running = queue?.running ?? false;
+  // A list running in the worker, started from another panel page, replaces
+  // an attempt of this panel that already ended.
+  useEffect(() => {
+    if (running) setLocal((shown) => (shown?.running ? shown : null));
+  }, [running]);
 
   const run = queue?.run;
   useEffect(() => {
@@ -190,8 +198,9 @@ export function useCaptionQueue() {
     }
   }
 
+  const shown = running && !local?.running ? null : local;
   const items: readonly QueueItem[] =
-    local?.items ??
+    shown?.items ??
     (queue?.items ?? []).map((item) => {
       const job = item.phase === "queued" && item.jobId ? followed[item.jobId] : undefined;
       return {
@@ -205,10 +214,10 @@ export function useCaptionQueue() {
 
   return {
     items,
-    running: local?.running ?? queue?.running ?? false,
+    running: shown?.running ?? running,
     start,
     clear: () => {
-      if (controller.current || queue?.running) return;
+      if (controller.current || running) return;
       setLocal(null);
       if (queue) void workCommand({ version: 1, type: "CAPTION_WORK_DISMISS", run: queue.run });
     },

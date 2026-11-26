@@ -271,7 +271,30 @@ it("shows each lecture as the worker reports it", async () => {
   expect(connect).not.toHaveBeenCalled();
 });
 
-it("follows the jobs the server accepted and stops following a finished one", async () => {
+it("a list another panel started replaces this panel's failed attempt", async () => {
+  worker.answer = (command) =>
+    command.type === "CAPTION_WORK_START"
+      ? { status: "error", code: "ACTIVE_JOB_EXISTS" }
+      : undefined;
+  await render();
+  await start();
+  expect(codes()).toEqual(["ACTIVE_JOB_EXISTS", "ACTIVE_JOB_EXISTS"]);
+
+  await worker.report({ queue: list([item(C, "uploading", { jobId: "job_c" })], { run: laterBatch }) });
+  expect(phases()).toEqual(["uploading"]);
+  expect(queue.running).toBe(true);
+  await act(async () => queue.clear());
+  expect(worker.sent("CAPTION_WORK_DISMISS")).toEqual([]);
+
+  // Once that list ends, it is shown as ended, not the earlier failure.
+  await worker.report({
+    queue: list([accepted(C, "job_c", KEY_C)], { run: laterBatch, running: false }),
+  });
+  expect(phases()).toEqual(["queued"]);
+  expect(queue.running).toBe(false);
+});
+
+it("follows the jobs the server accepted and leaves a finished one with the worker", async () => {
   await render();
   await start([A, B, C]);
   await worker.report({
@@ -291,7 +314,6 @@ it("follows the jobs the server accepted and stops following a finished one", as
 
   await act(async () => receive?.(snapshot("job_a", "succeeded")));
   expect(phases()[0]).toBe("succeeded");
-  expect(posted).toContainEqual({ type: "untrack", jobId: "job_a" });
   // Neither a late snapshot nor the next report brings a finished job back.
   await act(async () => receive?.(snapshot("job_a", "running")));
   await worker.report({
@@ -307,7 +329,8 @@ it("follows the jobs the server accepted and stops following a finished one", as
   // The worker dropped this job: local data was deleted or the sign-in changed.
   await act(async () => receive?.({ type: "snapshot", jobId: "job_c", snapshot: null }));
   expect(queue.items[2]).toMatchObject({ phase: "cancelled", errorCode: null });
-  expect(posted).toContainEqual({ type: "untrack", jobId: "job_c" });
+  // The worker keeps a finished job and its result for any panel that opens it.
+  expect(posted.filter((message) => (message as { type: string }).type === "untrack")).toEqual([]);
 });
 
 it("tells the worker when the panel is hidden or shown", async () => {
