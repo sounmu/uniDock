@@ -224,6 +224,41 @@ export default defineContentScript({
         return { status: "error", code: "TAB_OPEN_FAILED" };
       }
     }
+    // Opens nothing and answers only yes or no, so holding the batch is
+    // enough; the URL goes to the background and never back to the panel.
+    async function verifyCaptionBatch(
+      batch: string,
+      index: number,
+      player: string,
+    ): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const current = captionBatch;
+      const url =
+        current?.id === batch
+          ? current.targets.opened(index, location.origin)
+          : null;
+      if (!url) return { status: "error", code: "STALE_SELECTION" };
+      let verdict: Result;
+      try {
+        verdict = parseResult(
+          await chrome.runtime.sendMessage({
+            version: 1,
+            type: "VERIFY_LECTURE_TAB",
+            url,
+            document: player,
+          }),
+          { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: player },
+        );
+      } catch {
+        verdict = { status: "error", code: "LECTURE_MISMATCH" };
+      }
+      // A verdict for a batch this tab no longer holds must not release audio.
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (captionBatch !== current)
+        return { status: "error", code: "STALE_SELECTION" };
+      return verdict;
+    }
     async function download(
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
       deadline: number,
@@ -848,7 +883,9 @@ export default defineContentScript({
                     ? admitCaptionBatch(request.handles)
                     : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_OPEN"
                       ? openCaptionBatch(request.batch, request.index)
-                      : list(request, parsed.refresh);
+                      : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_VERIFY"
+                        ? verifyCaptionBatch(request.batch, request.index, request.document)
+                        : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);
         }

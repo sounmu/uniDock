@@ -139,6 +139,7 @@ export async function listQuery(
       case "DOCUMENT_DOWNLOAD":
       case "CAPTION_BATCH_ADMIT":
       case "CAPTION_BATCH_OPEN":
+      case "CAPTION_BATCH_VERIFY":
         throw new Error("POLICY");
       case "TODO_LIST":
       case "RECORDINGS_LIST":
