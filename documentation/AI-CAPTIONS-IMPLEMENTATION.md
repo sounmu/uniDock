@@ -27,7 +27,7 @@
 | 배포 | `UNIDOCK_AI_CAPTIONS=1` 빌드에서만 컴파일된다. release 패키징은 이 빌드를 거부한다. 스토어 제출은 이 브리프 범위 밖이다 |
 | 추론 | 운영자 Mac mini M4 16GB. 1순위 Whisper `large-v3-turbo`. 엔진은 `whisper.cpp` 우선(2026-10-24 운영자 결정, Python 런타임 없음), `mlx-whisper`는 PoC 비교용. 비교 후보 `large-v3`, Qwen3-ASR-1.7B, 한국어 fine-tune |
 | 서버 | 3계층: 오라클 broker(Go, PostgreSQL) + Mac mini worker(Go 감독 프로세스 + `whisper.cpp` 자식 프로세스) + Cloudflare R2(자막·백업). 다른 사용자도 쓰는 구성이다. 배치와 흐름은 아래 "배치와 데이터 흐름"이 기준이다. 음원은 성공 즉시 삭제, 자막은 최초 생성 후 6개월 |
-| 인증·quota | Google OAuth 로그인 후에만 사용. 사용자당 주 7회(KST 월요일 초기화). 같은 음원은 공유 캐시로 제공. API 계약은 `unidock-captions/api/public.openapi.yaml`, 결정 근거는 같은 저장소 `docs/adr/` |
+| 인증·quota | Google OAuth 로그인 후에만 사용. 사용자당 하루 7회(KST 매일 0시 초기화, ADR-0015). 같은 음원은 공유 캐시로 제공. API 계약은 `unidock-captions/api/public.openapi.yaml`, 결정 근거는 같은 저장소 `docs/adr/` |
 
 ### 배치와 데이터 흐름 (2026-10-24 확정)
 
@@ -101,7 +101,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 | --- | --- |
 | `POST /v1/transcription-jobs` | `Idempotency-Key` 헤더 필수. 본문은 `{audio_format, duration_hint_s?, language?}`. 음원 크기는 첫 PATCH의 `Upload-Length`로 선언한다. 키는 강의별 고정 값이며 실패·취소·자막 만료 시 서버가 푼다(unidock-captions ADR-0010). 클라이언트 해시는 받지 않는다(digest는 broker가 계산) |
 | `HEAD`·`PATCH /v1/transcription-jobs/{id}/audio` | tus 1.0 core 재개 업로드, 8 MiB chunk. `audio/mp4` 또는 `audio/ogg`. 크기 상한 200 MB를 넘으면 413, 길이 4시간을 넘으면 `DURATION_TOO_LONG` |
-| `GET /v1/auth/google/start`(창 이동), `POST /v1/auth/handoff`, `POST /v1/auth/refresh`, `GET /v1/me` | broker 콜백 Google 로그인과 1회용 연결 코드 교환, 세션 갱신, 이번 주 quota |
+| `GET /v1/auth/google/start`(창 이동), `POST /v1/auth/handoff`, `POST /v1/auth/refresh`, `GET /v1/me` | broker 콜백 Google 로그인과 1회용 연결 코드 교환, 세션 갱신, 오늘 quota |
 | `GET /v1/transcription-jobs/{id}` | `{id, state, error_code?, cancel_requested?, upload, progress?, transcript_id?, created_at, updated_at}`. 만료일은 작업이 아니라 자막에 있다 |
 | `POST /v1/transcription-jobs/{id}/cancel` | |
 | `GET /v1/transcripts/{id}` | 리서치 문서 4.6의 JSON 스키마. `expires_at`(최초 생성 + 6개월)은 여기와 `GET /v1/transcripts` 목록에 있다 |
@@ -109,7 +109,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 
 규칙:
 
-- 인증은 Google OAuth 로그인 후 broker가 발급한 세션 토큰(`Authorization: Bearer`)이다(ADR-0006). 정적 비밀을 확장 번들에 넣지 않는다. quota는 사용자당 주 7회다(ADR-0008).
+- 인증은 Google OAuth 로그인 후 broker가 발급한 세션 토큰(`Authorization: Bearer`)이다(ADR-0006). 정적 비밀을 확장 번들에 넣지 않는다. quota는 사용자당 하루 7회다(ADR-0008, 주기는 ADR-0015).
 - 업로드 완료 후 FFmpeg(`ffprobe`)로 코덱·채널·길이를 검증하고 나서야 `queued`로 바꾼다. MIME만 믿지 않는다. FFmpeg는 인자 배열로 호출하고 시간·메모리 제한을 건다.
 - 상태는 `awaiting_upload → queued → running → succeeded | failed | cancelled`. 워커는 lease와 attempt 번호를 받고, 늦은 attempt의 결과는 버린다.
 - 성공 즉시 원본 음원을 삭제한다. 실패 시 보관은 24시간으로 제한한다.
@@ -189,7 +189,7 @@ API: 기준은 `unidock-captions/api/public.openapi.yaml`이다. 아래 표는 �
 | --- | --- |
 | `entrypoints/sidepanel/CaptionsPanel.tsx` | `NO_CAPTIONS`일 때만 `AI 자막 생성` 버튼을 보인다. `UNSAFE_CAPTION`·기타 오류에서는 보이지 않는다. 누르기 전에 "현재 강의의 음성을 `<서버 origin>`으로 보냅니다. 음성은 생성 후 삭제되고 자막은 최대 6개월 보관됩니다"를 보여주고 확인을 받는다. 같은 음원의 기존 자막에 연결되면 남은 기간이 더 짧을 수 있으므로, 실제 만료일은 완료 후 자막의 `expires_at`으로 표시한다. 결과에는 `AI 생성` 표시와 엔진·모델명을 붙이고, 원본 자막과 시각적으로 구분한다 |
 | `entrypoints/sidepanel/useAiCaptions.ts` (신규) | 3-2~3-4를 묶는 훅. 패널 메뉴 전환이나 다른 브라우저 탭 선택으로는 작업을 유지한다. 작업을 시작한 강의 탭의 문서가 이동·새로고침되거나 탭이 닫히면 진행 중 작업을 취소하고 결과를 폐기한다(기존 `CaptionsPanel`의 자막 초기화와 같은 규칙). 패널을 닫으면 로컬 취득만 멈추고 서버가 접수한 작업은 남는다 |
-| `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | Google 로그인·로그아웃, 이번 주 남은 횟수, 서버 origin 표시(수정 불가), worker 상태(`/v1/service-status`). 정보 화면에 `PopupSettings` 옆에 둔다 |
+| `entrypoints/sidepanel/CaptionServerSettings.tsx` (신규) | Google 로그인·로그아웃, 오늘 남은 횟수, 서버 origin 표시(수정 불가), worker 상태(`/v1/service-status`). 정보 화면에 `PopupSettings` 옆에 둔다 |
 
 모든 UI 코드는 `__UNIDOCK_AI_CAPTIONS__` 가드 안에 있어야 한다. release 빌드에서는 버튼도 설정도 존재하지 않는다(playback처럼 비활성 항목을 남기지 않는다).
 
