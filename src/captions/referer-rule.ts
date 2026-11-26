@@ -87,31 +87,46 @@ export async function withCaptionMediaRule<T>(
  */
 export class CaptionMediaRules {
   private readonly live = new Set<number>();
+  /** Changes reach Chrome one at a time, so a removal still in flight cannot
+      forget a rule added again after it. */
+  private lane: Promise<unknown> = Promise.resolve();
 
-  async add(id: number, mediaUrl: string): Promise<boolean> {
-    if (!isCaptionRuleId(id) || !allowedCaptionMediaUrl(mediaUrl)) return false;
-    this.live.add(id);
-    try {
-      await chrome.declarativeNetRequest.updateSessionRules({
-        removeRuleIds: [id],
-        addRules: [rule(mediaUrl, id)],
-      });
-      return true;
-    } catch {
-      this.live.delete(id);
-      safeLog("REQUEST_FAILED");
-      return false;
-    }
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.lane.then(task, task);
+    this.lane = next.catch(() => {});
+    return next;
+  }
+
+  add(id: number, mediaUrl: string): Promise<boolean> {
+    if (!isCaptionRuleId(id) || !allowedCaptionMediaUrl(mediaUrl)) return Promise.resolve(false);
+    return this.enqueue(async () => {
+      this.live.add(id);
+      try {
+        await chrome.declarativeNetRequest.updateSessionRules({
+          removeRuleIds: [id],
+          addRules: [rule(mediaUrl, id)],
+        });
+        return true;
+      } catch {
+        this.live.delete(id);
+        safeLog("REQUEST_FAILED");
+        return false;
+      }
+    });
   }
 
   // A rule Chrome did not remove stays listed, so the next `clear` tries again.
-  async remove(id: number): Promise<void> {
-    if (await removeRules([id])) this.live.delete(id);
+  remove(id: number): Promise<void> {
+    return this.enqueue(async () => {
+      if (await removeRules([id])) this.live.delete(id);
+    });
   }
 
-  async clear(): Promise<void> {
-    const ids = [...this.live];
-    if (await removeRules(ids)) for (const id of ids) this.live.delete(id);
+  clear(): Promise<void> {
+    return this.enqueue(async () => {
+      const ids = [...this.live];
+      if (await removeRules(ids)) for (const id of ids) this.live.delete(id);
+    });
   }
 
   sweep(graceMs = CAPTION_RULE_SWEEP_GRACE_MS): Promise<void> {

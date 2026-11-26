@@ -142,6 +142,37 @@ it("keeps a rule Chrome would not remove, and removes it on the next clear", asy
   expect(updates).toHaveLength(1);
 });
 
+it.each(["clear", "remove"] as const)(
+  "keeps a rule added again while its %s is still with Chrome",
+  async (removal) => {
+    const rules = new CaptionMediaRules();
+    await rules.add(1947001, url);
+    updates = [];
+    let release!: () => void;
+    let reached!: () => void;
+    const withChrome = new Promise<void>((resolve) => (reached = resolve));
+    const update = vi.mocked(chrome.declarativeNetRequest.updateSessionRules);
+    update.mockImplementationOnce(async (change) => {
+      const held = new Promise<void>((resolve) => (release = resolve));
+      reached();
+      await held;
+      updates.push(change as Update);
+    });
+    const removing = removal === "clear" ? rules.clear() : rules.remove(1947001);
+    await withChrome;
+    // A reconnecting document asks for the same rule again meanwhile.
+    const adding = rules.add(1947001, url);
+    release();
+    await Promise.all([removing, adding]);
+    expect(updates.map((change) => Boolean(change.addRules))).toEqual([false, true]);
+
+    // The rule is still known, so the document going away removes it.
+    updates = [];
+    await rules.clear();
+    expect(updates).toEqual([{ removeRuleIds: [1947001] }]);
+  },
+);
+
 it("removes a rule on request, and every rule of a document that went away", async () => {
   const rules = new CaptionMediaRules();
   await rules.add(1947001, url);
