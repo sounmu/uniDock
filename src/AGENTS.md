@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 Framework-free TypeScript behind WXT entrypoints (`entrypoints/`): LMS API client, message protocol, domain projections, and feature modules. No React/TSX here; UI lives in `entrypoints/sidepanel/`.
-Subtree root (always documented). 58 files, ~10.5k LOC, 6 child dirs.
+Subtree root (always documented). 71 files, ~13.1k LOC, 6 child dirs.
 
 ## STRUCTURE
 ```

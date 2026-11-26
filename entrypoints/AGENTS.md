@@ -22,7 +22,7 @@ Why this file exists: it is the root of the subtree, and the extension surface (
 ## WHERE TO LOOK
 | Task | Location |
 |------|----------|
-| Message routing and sender checks (`panelSender`, `backgroundSender`) | `background.ts` `chrome.runtime.onMessage` (~L541); `src/protocol.ts`, `src/playback/bridge.ts` |
+| Message routing and sender checks (`panelSender`, `backgroundSender`) | `background.ts` `chrome.runtime.onMessage` (~L636); `src/protocol.ts`, `src/playback/bridge.ts` |
 | Install/update handling (badge, reinjecting LMS scripts) | `background.ts` `onInstalled`; `src/update-notice.ts` |
 | Playback runtime (alarms-driven) | `createChromePlaybackRuntime` in `background.ts`, `src/playback/` |
 | LMS message, cache and capability lifecycle | `lms.content.ts`; account reads and playback discovery live in `src/api/account.ts` and `src/api/playback-discovery.ts` |

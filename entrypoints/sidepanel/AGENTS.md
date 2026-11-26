@@ -3,11 +3,11 @@
 ## OVERVIEW
 The main uniDock UI (React 19). WXT builds it into `sidepanel.html` and the manifest `side_panel` entry. Boot chain: `index.html` -> `main.tsx` (StrictMode) -> `App.tsx`.
 
-Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-folders, its own design-token stylesheet, and the extension's whole user-facing surface.
+Earned its file with a score of about 16: 40 root files (20 TSX, 16 TS) and two sub-folders, its own design-token stylesheet, and the extension's whole user-facing surface.
 
 ## STRUCTURE
-- `App.tsx`: shell. `Rail` sections (courses, tasks, playback, captions, settings), plus the info/settings view, the analytics notice and focus restoration.
-- `screens/`: one component per section (`CoursesScreen`, `TasksScreen`, `MaterialsTab`, `QueryResults`, `PlaybackConfirmation`), plus `RecordingPicker`, the course and week lecture checklist shared by playback and AI captions.
+- `App.tsx`: shell. `Rail` bottom bar (home, courses, tasks, settings icon); playback and captions open as tool sections from Home, plus the info/settings view, the analytics notice and focus restoration.
+- `screens/`: one component per section (`HomeScreen`, `CoursesScreen`, `TasksScreen`, `SettingsScreen`, `MaterialsTab`, `QueryResults`, `PlaybackConfirmation`), plus `RecordingPicker`, the course and week lecture checklist shared by playback and AI captions.
 - `ui/`: shared presentation and accessibility primitives (`DetailView`, `ListRow`, `StatusChip`, `Notice`, `ScreenHeader`, `Rail`, `icons`, `a11y`). The most-imported are `ui/DetailView` and `ui/a11y`.
 - Root `use*.ts` hooks hold the state and messaging. Root `*.tsx` files are feature panels and settings.
 
@@ -23,7 +23,7 @@ Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-f
 | Usage stats opt-out and notice | `analytics.ts`, `useAnalytics.ts`, `AnalyticsSettings.tsx` |
 | Local data wipe, LMS popup auto-close, update badge | `LocalDataSettings.tsx`, `PopupSettings.tsx`, `UpdateNotice.tsx` (links `updates.html`) |
 | Panel navigation and back stack | `usePanelNavigation.ts` |
-| Visual tokens, radius/spacing scale | `style.css` (~1130 lines, documents its token system at the top) |
+| Visual tokens, radius/spacing scale | `style.css` (~1960 lines, documents its token system at the top) |
 
 ## CONVENTIONS
 - The panel never touches LMS pages directly. Every action is `chrome.runtime.sendMessage({ version: 1, type, ... })` to the worker, which verifies `panelSender(sender)`. Shared types come from `../../src/protocol`, `src/transport`, `src/domain` and `src/analytics/contract`.
