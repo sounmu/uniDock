@@ -1,7 +1,7 @@
 # tests/
 
 ## OVERVIEW
-Vitest unit/UI suites (flat, ~60 files) plus `e2e/` (Playwright, own AGENTS.md) and `fixtures/` (data only). Earned its file as the largest tree in the repo (62 files, ~20k LOC, ~8 matrix points) and a distinct domain: the test harness and contract pins.
+Vitest unit/UI suites (flat, ~85 files) plus `e2e/` (Playwright, own AGENTS.md) and `fixtures/` (data only). Earned its file as the largest tree in the repo (86 files, ~28k LOC, ~8 matrix points) and a distinct domain: the test harness and contract pins.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
@@ -9,8 +9,8 @@ Vitest unit/UI suites (flat, ~60 files) plus `e2e/` (Playwright, own AGENTS.md) 
 | React mount / click / race helpers | `ui-helpers.tsx` | `mount`, `click(label, index)`, `deferred<T>()` |
 | Caption server fakes | `caption-server-helpers.ts` | `fixture(name)` reads `fixtures/caption-api/`, `json()`, `googleRedirect()`, fixed `EXTENSION_ID` |
 | Fake worker for AI caption work | `caption-work-helpers.ts` | `fakeWorker()` answers `CAPTION_WORK_*` commands, pushes states with `report()` and resolves `next(type)` on the next command; `forgetWork()` resets the panel's copy between tests |
-| Content-script protocol, cache, accounts | `content.test.ts` | 2,008 LOC, the largest unit suite |
-| Background, playback runtime | `background.test.ts`, `playback-runtime.test.ts` | ~1,580 LOC each |
+| Content-script protocol, cache, accounts | `content.test.ts` | 3,050 LOC, the largest unit suite |
+| Background, playback runtime | `background.test.ts`, `playback-runtime.test.ts` | ~2,400 and ~2,060 LOC |
 | Python CLI parity | `contract.test.ts`, `items-ui.test.tsx`, `recordings.test.ts` | read `fixtures/python-contract.json` |
 | Legacy caption parity | `captions-legacy-contract.test.ts` | dynamically imports `fixtures/python-captions.json` |
 | Server contract pin | `server-contract-pin.test.mjs`, `analytics-report-contract.test.ts`, `caption-api-contract.test.ts` | check `documentation/api/*` + `fixtures/analytics-report-contract.json` |

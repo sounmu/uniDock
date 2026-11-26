@@ -248,13 +248,18 @@ it("asks the worker for a lecture's media and repeats the question once if the w
   sendMessage
     .mockRejectedValueOnce(new Error("The message port closed before a response was received."))
     .mockResolvedValueOnce({ status: "pending" });
-  expect(await link().media({ lectureOf: 3, after: "OLD" })).toEqual({ status: "pending" });
+  const batch = "00000000-0000-4000-8000-0000000000b1";
+  expect(await link().media({ lectureOf: 3, after: "OLD", batch, index: 1 })).toEqual({
+    status: "pending",
+  });
   expect(sendMessage).toHaveBeenCalledTimes(3);
   expect(sendMessage).toHaveBeenLastCalledWith({
     version: 1,
     type: "CAPTION_OFFSCREEN_MEDIA",
     lectureOf: 3,
     after: "OLD",
+    batch,
+    index: 1,
   });
 
   sendMessage.mockRejectedValue(new Error("gone"));

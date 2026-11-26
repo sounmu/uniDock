@@ -63,9 +63,9 @@ AI 자막 서버 Google 로그인, 사용량 안내, 업로드·작업 상태·�
 
 | 우선순위 | 근거 | 확인된 종속성 | 분리 방향 |
 | --- | --- | --- | --- |
-| 1 | `wxt.config.ts:2`, `wxt.config.ts:70` | 고려대 CDN 상수, LMS·KU 플레이어 상시 권한, 포털·CDN 선택 권한 | 학교별 호스트 설정. CSP와 권한도 함께 검토 |
-| 1 | `src/security/policy.ts:2` | 허용 출처가 고려대 두 호스트로 고정 | 학교 인스턴스별 출처 검증 |
-| 1 | `src/security/policy.ts:20` | Canvas 및 LearningX 경로·쿼리·숫자 ID 규칙 | LMS 어댑터별 요청 정책. 범용 프록시로 완화하지 않음 |
+| 1 | `src/security/origins.ts:2`, `wxt.config.ts:80` | 고려대 CDN 상수, LMS·KU 플레이어 상시 권한, 포털·CDN 선택 권한 | 학교별 호스트 설정. CSP와 권한도 함께 검토 |
+| 1 | `src/security/origins.ts:2` | 허용 출처가 고려대 두 호스트로 고정 | 학교 인스턴스별 출처 검증 |
+| 1 | `src/security/policy.ts:18` | Canvas 및 LearningX 경로·쿼리·숫자 ID 규칙 | LMS 어댑터별 요청 정책. 범용 프록시로 완화하지 않음 |
 | 1 | `src/api/client.ts:26` | 활성 과목 URL, Canvas Planner, 동일 출처 GET, Link 페이지네이션 | Canvas 어댑터. 공통 요청·결과 의미와 분리 |
 | 2 | README: 구조와 안전 경계 | content script가 브라우저 세션으로 호출, 계정 변경 시 캐시 폐기 | 인증 연결은 학교별, 데이터 격리는 학교·계정별로 검토 |
 | 2 | README: 강의 자료 일괄 다운로드 | Canvas 모듈·게시판 및 LearningX 토큰·첨부 연결 | 자료 수집과 파일 열기/다운로드 어댑터 |

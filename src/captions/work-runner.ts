@@ -4,6 +4,7 @@ import type { CaptionRuleChannel } from "./referer-rule";
 import { submitLecture } from "./submit-lecture";
 import {
   CaptionWorkError,
+  LOST_SELECTION,
   errorCode,
   preparingPhase,
   workBusy,
@@ -23,13 +24,16 @@ export const MEDIA_RETRY_MS = 1_500;
 export const RATE_LIMIT_RETRY_MS = 5_000;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
-// Opens that fail this way fail the same way for every remaining lecture.
-const LOST_SELECTION = new Set(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION"]);
 const DONE: CommandOutcome = { status: "success", accepted: null };
 
 export type MediaRequest =
   | { readonly tabId: number }
-  | { readonly lectureOf: number; readonly after: string | null };
+  | {
+      readonly lectureOf: number;
+      readonly after: string | null;
+      readonly batch: string;
+      readonly index: number;
+    };
 
 export type WorkSnapshot = WorkRuns & { readonly unfinished: readonly string[] };
 
@@ -285,20 +289,37 @@ export class CaptionWorkRunner {
     }
   }
 
-  /** The player in the lecture tab once it shows a document other than the
-      previous lecture's; the KU player loads a moment after the page. */
+  /** The player in the lecture tab once the list tab confirms its document
+      belongs to lecture `index`; the KU player loads a moment after the page.
+      A player found but not confirmed in time is a mismatch, so its audio is
+      not read; a tab that moved on to a page without a player is not. */
   private async lectureMedia(
     tabId: number,
     previous: string | null,
+    batch: string,
+    index: number,
     signal: AbortSignal,
   ): Promise<LectureMedia> {
     const deadline = Date.now() + MEDIA_WAIT_MS;
+    // Whether the list tab was asked about a player and did not confirm it.
+    let asked = false;
     for (;;) {
-      const reply = await this.link.media({ lectureOf: tabId, after: previous });
+      const reply = await this.link.media({ lectureOf: tabId, after: previous, batch, index });
+      // A stop during the read must not reach the submission.
+      if (signal.aborted) throw new CaptionWorkError("UNSUPPORTED_MEDIA");
       if (reply.status === "success") return reply.media;
-      if (signal.aborted || Date.now() >= deadline)
-        throw new CaptionWorkError("UNSUPPORTED_MEDIA");
-      await pause(MEDIA_RETRY_MS, signal);
+      if (reply.status === "error") throw new CaptionWorkError(reply.code);
+      const limited = reply.status === "unverified" && reply.code === "RATE_LIMITED";
+      asked ||= reply.status === "unverified";
+      if (Date.now() >= deadline)
+        throw new CaptionWorkError(
+          limited
+            ? "RATE_LIMITED"
+            : asked || reply.status === "stale"
+              ? "LECTURE_MISMATCH"
+              : "UNSUPPORTED_MEDIA",
+        );
+      await pause(limited ? RATE_LIMIT_RETRY_MS : MEDIA_RETRY_MS, signal);
     }
   }
 
@@ -336,7 +357,7 @@ export class CaptionWorkRunner {
             return;
           }
           this.setItems(run, mine, { phase: "identifying" });
-          const media = await this.lectureMedia(tabId, opened.previous, signal);
+          const media = await this.lectureMedia(tabId, opened.previous, batch, index, signal);
           if (!live()) return;
           this.setItems(run, mine, { key: media.key });
           const submitted = await this.submit(run, media, {
@@ -354,7 +375,7 @@ export class CaptionWorkRunner {
           // job holds, and may get the same job back for the same lecture.
           await this.release(run);
           if (!live()) return;
-          if (FATAL.has(code)) {
+          if (FATAL.has(code) || LOST_SELECTION.has(code)) {
             this.setItems(run, waiting, { phase: "failed", errorCode: code });
             return;
           }

@@ -362,10 +362,11 @@ it("opens each lecture in turn and hands every job over", async () => {
     [3, run, 0],
     [3, run, 1],
   ]);
-  // Each lecture is read only once the tab shows a document other than the last one.
+  // Each lecture is read only once the tab shows a document other than the
+  // last one, which the list tab confirms for that lecture.
   expect(link.media.mock.calls).toEqual([
-    [{ lectureOf: 3, after: null }],
-    [{ lectureOf: 3, after: "DOC1" }],
+    [{ lectureOf: 3, after: null, batch: run, index: 0 }],
+    [{ lectureOf: 3, after: "DOC1", batch: run, index: 1 }],
   ]);
   expect(done.queue!.items).toEqual([
     { handle: handles[0], title: "강의 1", phase: "queued", errorCode: null, jobId: "job-1", key: keyOf(1) },
@@ -387,8 +388,8 @@ it("waits for the lecture tab to show the new lecture's player", async () => {
   vi.useFakeTimers();
   link.open.mockResolvedValue(opened("OLD"));
   link.media
-    .mockResolvedValueOnce({ status: "pending" })
-    .mockResolvedValueOnce({ status: "error", code: "UNSUPPORTED_MEDIA" })
+    .mockResolvedValueOnce({ status: "stale" })
+    .mockResolvedValueOnce({ status: "unverified", code: "LECTURE_MISMATCH" })
     .mockResolvedValueOnce(found(1));
   await runner.command(startQueue(1));
   await until((work) => work.queue?.items[0]?.phase === "identifying");
@@ -413,6 +414,106 @@ it("gives a lecture up when its player never appears, and goes on to the next", 
   expect(last().queue!.running).toBe(true);
   expect(createJob).not.toHaveBeenCalled();
 });
+
+it("sends no audio from a player the list tab does not confirm, and goes on", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened(null));
+  link.media.mockImplementation(async (request) =>
+    "index" in request && request.index === 0
+      ? { status: "unverified", code: "LECTURE_MISMATCH" }
+      : found(2),
+  );
+  await runner.command(startQueue());
+  await vi.advanceTimersByTimeAsync(MEDIA_WAIT_MS + MEDIA_RETRY_MS);
+  const done = await queueDone();
+  expect(done.queue!.items[0]).toMatchObject({ phase: "failed", errorCode: "LECTURE_MISMATCH", jobId: null });
+  expect(done.queue!.items[1]!.phase).toBe("queued");
+  expect(createJob.mock.calls.map(([jobKey]) => jobKey)).toEqual([keyOf(2)]);
+  expect(extractAudio).toHaveBeenCalledOnce();
+});
+
+it("treats a tab that never leaves the previous lecture as a mismatch", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened("OLD"));
+  link.media.mockResolvedValue({ status: "stale" });
+  await runner.command(startQueue(1));
+  await vi.advanceTimersByTimeAsync(MEDIA_WAIT_MS + MEDIA_RETRY_MS);
+  const done = await queueDone();
+  expect(done.queue!.items[0]).toMatchObject({ phase: "failed", errorCode: "LECTURE_MISMATCH" });
+  expect(createJob).not.toHaveBeenCalled();
+});
+
+it("reports no player when the tab leaves the previous lecture for a page without one", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened("OLD"));
+  link.media.mockResolvedValueOnce({ status: "stale" }).mockResolvedValue({ status: "pending" });
+  await runner.command(startQueue(1));
+  await vi.advanceTimersByTimeAsync(MEDIA_WAIT_MS + MEDIA_RETRY_MS);
+  const done = await queueDone();
+  expect(done.queue!.items[0]).toMatchObject({ phase: "failed", errorCode: "UNSUPPORTED_MEDIA" });
+});
+
+it("calls a player found but never confirmed a mismatch even after it disappears", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened(null));
+  link.media
+    .mockResolvedValueOnce({ status: "unverified", code: "LECTURE_MISMATCH" })
+    .mockResolvedValue({ status: "pending" });
+  await runner.command(startQueue(1));
+  await vi.advanceTimersByTimeAsync(MEDIA_WAIT_MS + MEDIA_RETRY_MS);
+  const done = await queueDone();
+  expect(done.queue!.items[0]).toMatchObject({ phase: "failed", errorCode: "LECTURE_MISMATCH" });
+});
+
+it("sends nothing when stopped while the lecture is being confirmed", async () => {
+  link.open.mockResolvedValue(opened(null));
+  const confirmed = deferred<MediaReply>();
+  link.media.mockReturnValue(confirmed.promise);
+  await runner.command(startQueue(1));
+  await until((work) => work.queue?.items[0]?.phase === "identifying");
+  await drained();
+  expect(link.media).toHaveBeenCalledOnce();
+  await runner.command(cancel("queue"));
+  confirmed.resolve(found(1));
+  const done = await queueDone();
+  await drained();
+  expect(done.queue!.items.map((item) => item.phase)).toEqual(["cancelled"]);
+  expect(createJob).not.toHaveBeenCalled();
+  expect(extractAudio).not.toHaveBeenCalled();
+});
+
+it("waits longer while the lecture check is refused, and reports the limit at the deadline", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened(null));
+  link.media.mockResolvedValue({ status: "unverified", code: "RATE_LIMITED" });
+  await runner.command(startQueue(1));
+  await until((work) => work.queue?.items[0]?.phase === "identifying");
+  await vi.advanceTimersByTimeAsync(RATE_LIMIT_RETRY_MS - 1);
+  expect(link.media).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(link.media).toHaveBeenCalledTimes(2);
+  await vi.advanceTimersByTimeAsync(MEDIA_WAIT_MS);
+  const done = await queueDone();
+  expect(done.queue!.items[0]).toMatchObject({ phase: "failed", errorCode: "RATE_LIMITED" });
+  expect(createJob).not.toHaveBeenCalled();
+});
+
+it.each(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION"] as const)(
+  "stops the whole list when the list tab answers %s about a player",
+  async (code) => {
+    link.open.mockResolvedValue(opened(null));
+    link.media.mockResolvedValue({ status: "error", code });
+    await runner.command(startQueue(3));
+    const done = await queueDone();
+    expect(link.open).toHaveBeenCalledOnce();
+    expect(done.queue!.items.map((item) => [item.phase, item.errorCode])).toEqual([
+      ["failed", code],
+      ["failed", code],
+      ["failed", code],
+    ]);
+    expect(createJob).not.toHaveBeenCalled();
+  },
+);
 
 it("waits out the tab opener's rate limit, then opens the same lecture", async () => {
   vi.useFakeTimers();

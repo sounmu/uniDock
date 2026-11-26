@@ -1,6 +1,6 @@
 import { storedSessionAccess, type AccessGrant } from "../caption-server-settings";
 import { lectureTabKey } from "../open-tab";
-import { parseResult, type Request } from "../protocol";
+import { parseResult, type Request, type Result } from "../protocol";
 import { safeLog } from "../security/logger";
 import { allowedPage } from "../security/policy";
 import { cancelJob } from "./job-client";
@@ -9,6 +9,7 @@ import { captionJobKey, saveActiveJob } from "./job-record";
 import { identifyMedia, type MediaSource } from "./media-source";
 import type { CaptionMediaRules } from "./referer-rule";
 import {
+  LOST_SELECTION,
   MAX_WORK_TITLE,
   NO_RUNS,
   OFFSCREEN_PATH,
@@ -44,6 +45,8 @@ const JUSTIFICATION =
 export const DOCUMENT_CONNECT_MS = 10_000;
 export const COMMAND_TIMEOUT_MS = 30_000;
 export const OPEN_TIMEOUT_MS = 25_000;
+/** A lecture check reads the lecture tab twice; one that hangs is a mismatch. */
+export const VERIFY_TIMEOUT_MS = 10_000;
 /** A run whose document went away before the server had its audio. */
 const INTERRUPTED = "UNKNOWN";
 
@@ -172,9 +175,7 @@ export class CaptionWorkHost {
   ): Promise<MediaReply | OpenReply | AcceptReply | TokenReply> {
     switch (request.type) {
       case "CAPTION_OFFSCREEN_MEDIA":
-        return "tabId" in request
-          ? this.media(request.tabId)
-          : this.lectureMedia(request.lectureOf, request.after);
+        return "tabId" in request ? this.media(request.tabId) : this.lectureMedia(request);
       case "CAPTION_OFFSCREEN_OPEN":
         return this.open(request.tabId, request.batch, request.index);
       case "CAPTION_OFFSCREEN_ACCEPT":
@@ -399,25 +400,48 @@ export class CaptionWorkHost {
     return saved === null ? null : identifyMedia(saved).catch(() => null);
   }
 
-  private async lectureMedia(source: number, after: string | null): Promise<MediaReply> {
-    try {
-      const found = await this.lectureSource(source);
-      if (found && found.documentId !== after)
-        return { status: "success", media: await lecture(found) };
-    } catch {
-      // Not readable yet; the document asks again.
+  /**
+   * A new player in the lecture tab, returned only once the list tab confirms
+   * its document belongs to the lecture it opened last: the list tab alone
+   * knows that lecture's address, and the document sends whatever audio it
+   * gets here. The previous lecture's document is never asked about.
+   */
+  private async lectureMedia(
+    request: Extract<OffscreenRequest, { lectureOf: number }>,
+  ): Promise<MediaReply> {
+    const { lectureOf: source, after, batch, index } = request;
+    const found = await this.lectureSource(source).catch(() => null);
+    if (!found) return { status: "pending" };
+    if (found.documentId === after) return { status: "stale" };
+    const verdict = await this.ask(
+      source,
+      { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: found.documentId },
+      VERIFY_TIMEOUT_MS,
+    );
+    if (verdict && verdict !== "TIMEOUT") {
+      if (verdict.status === "success") {
+        try {
+          return { status: "success", media: await lecture(found) };
+        } catch {
+          return { status: "pending" };
+        }
+      }
+      if (LOST_SELECTION.has(verdict.code)) return { status: "error", code: verdict.code };
+      if (verdict.code === "RATE_LIMITED") return { status: "unverified", code: "RATE_LIMITED" };
     }
-    return { status: "pending" };
+    // No answer, or one that is not a yes, leaves the player unconfirmed.
+    return { status: "unverified", code: "LECTURE_MISMATCH" };
   }
 
-  private async open(tabId: number, batch: string, index: number): Promise<OpenReply> {
+  /** The list tab's answer to a caption batch message; `null` when the
+      message got no answer and `TIMEOUT` when none came in `ms`. */
+  private async ask(
+    tabId: number,
+    query: Request,
+    ms: number,
+  ): Promise<Result | "TIMEOUT" | null> {
     const tab = await chrome.tabs.get(tabId).catch(() => undefined);
     if (!tab?.url || !allowedPage(tab.url)) return { status: "error", code: "RELOAD_TAB" };
-    // The tab may still show the last lecture until the new page commits, and
-    // the user may switch it during a retry wait, so it is read per attempt.
-    const previous =
-      (await this.lectureSource(tabId).catch(() => null))?.documentId ?? null;
-    const query: Request = { version: 1, type: "CAPTION_BATCH_OPEN", batch, index };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let timedOut = false;
     try {
@@ -427,18 +451,32 @@ export class CaptionWorkHost {
           timer = setTimeout(() => {
             timedOut = true;
             reject(new Error("TIMEOUT"));
-          }, OPEN_TIMEOUT_MS);
+          }, ms);
         }),
       ]);
-      const result = parseResult(answer, query, new URL(tab.url).origin);
-      return result.status === "success"
-        ? { status: "success", previous }
-        : { status: "error", code: result.code };
+      return parseResult(answer, query, new URL(tab.url).origin);
     } catch {
-      return { status: "error", code: timedOut ? "TIMEOUT" : "RELOAD_TAB" };
+      return timedOut ? "TIMEOUT" : null;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private async open(tabId: number, batch: string, index: number): Promise<OpenReply> {
+    // The tab may still show the last lecture until the new page commits, and
+    // the user may switch it during a retry wait, so it is read per attempt.
+    const previous =
+      (await this.lectureSource(tabId).catch(() => null))?.documentId ?? null;
+    const result = await this.ask(
+      tabId,
+      { version: 1, type: "CAPTION_BATCH_OPEN", batch, index },
+      OPEN_TIMEOUT_MS,
+    );
+    if (result === "TIMEOUT") return { status: "error", code: "TIMEOUT" };
+    if (!result) return { status: "error", code: "RELOAD_TAB" };
+    return result.status === "success"
+      ? { status: "success", previous }
+      : { status: "error", code: result.code };
   }
 
   private async token(

@@ -257,7 +257,7 @@ npm run contract:refresh  # 참조 변경을 검토한 뒤 golden 갱신
 10. 한국어 자막이 있는 강의에서 도구 모음 아이콘 → 자막 감지를 실행합니다. DOM 우선 적용, VTT 한국어 우선 선택, TXT 시간 보존, JSON 메타데이터와 항목 일치, 재생 상태가 바뀌지 않는지 확인합니다. 영문만 있는 강의·자막 미로딩·cross-origin iframe에서도 오류 안내를 확인합니다.
 11. 필요하면 DevTools에서 GET 메서드와 상태 코드만 육안 확인합니다. 원본 응답·헤더·쿠키·HAR·민감한 스크린샷을 저장/공유하지 않습니다. 확장 콘솔과 저장소에 LMS 데이터가 기록되지 않는지 확인합니다.
 
-12. 상단 메뉴의 **자동 재생**을 열어 과목 선택, 영상 체크, 확인 화면을 거쳐야만 재생이 시작되는지 확인합니다(`build:core`에서는 흐린 비활성 메뉴와 “현재 검토 중인 기능입니다.” 안내).
+12. 홈의 **자동 재생**을 열어 과목 선택, 영상 체크, 확인 화면을 거쳐야만 재생이 시작되는지 확인합니다(`build:core`에는 자동 재생 항목이 아예 없습니다).
 
 LMS가 iframe 내부에만 있으면 실제 최상위 LMS 탭을 열어야 합니다. 실 서비스 API/SSO 변화와 Chrome Web Store 심사는 별도 검증이 필요합니다.
 
@@ -292,7 +292,7 @@ npx vitest run tests/assignment-controls.test.tsx tests/assignment-period.test.t
 
 ## Chrome Web Store 배포 준비
 
-`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-0.2.1-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
+`npm run release`는 라이선스 고지를 갱신하고 `npm run check`(lint·typecheck·`npm test`·production build)와 의존성 감사를 실행한 뒤 Manifest/파일 allowlist/원격 실행 패턴을 검사합니다. 성공하면 `release/uniDock-<버전>-chrome-mv3.zip`과 파일별 SHA-256을 담은 `release/inventory.json`을 생성합니다. ZIP은 배포 후보이며 자동 제출하지 않습니다.
 
 - [보안 검토](documentation/SECURITY-REVIEW.md): 응답 크기 제한, 자막 시간 초과·GET 경로·getter 경계 보강 및 잔여 위험.
 - [스토어 등록 문안](documentation/store/LISTING.md), [출시 체크리스트](documentation/store/RELEASE-CHECKLIST.md).
@@ -364,5 +364,7 @@ Google 로그인은 자막 서버가 자기 Web application OAuth client로 처�
 3. 패널이 강의별 고정 키로 자막 서버에 작업을 만듭니다. 서버가 같은 강의의 기존 작업을 돌려주면 그 상태를 보여주고 4~5단계를 건너뜁니다.
 4. 패널이 확장 자신의 요청에만 Referer를 맞춰 오디오 트랙만 Range로 받고 `.m4a`로 분리합니다.
 5. 패널이 음성을 8 MiB 단위의 재개 가능한 업로드(tus)로 자막 서버에 보내고, 결과 자막을 기존 자막 화면에 표시합니다.
+
+여러 강의는 홈의 **자막 추출**이나 녹화 목록의 자막 버튼으로 여는 **여러 강의 AI 자막**에서 고릅니다. 오늘 남은 횟수보다 많이 고를 수 없으며, **AI 자막 만들기**를 누르면 강의 영상 서버(CDN) 접근 권한을 확인하고 고른 강의 목록을 확정한 뒤, 강의 탭 하나에서 고른 순서대로 열어 강의마다 미디어 확인·작업 생성·음성 분리·업로드를 차례로 진행합니다. 완성된 자막은 바로 띄우지 않고 브라우저 캐시에 저장해 두었다가, 그 강의를 열었을 때 자막 추출과 영상 자막에서 보여줍니다. 음성을 보내는 동안에는 패널을 열어 둡니다.
 
 음성은 메모리에서만 처리합니다. 다른 메뉴나 다른 브라우저 탭을 선택해도 작업은 계속되고, 강의 탭을 이동·새로고침하거나 닫으면 작업을 취소합니다. 패널을 닫으면 진행 중인 취득은 멈추지만, 서버가 이미 접수한 작업은 계속되고 패널을 다시 열었을 때 같은 강의면 상태를 다시 조회합니다. 로그인 정보는 자막 서버가 발급한 세션만 저장하며 Google 토큰은 저장하지 않습니다. 자막 서버 API 계약은 `documentation/api/public.openapi.yaml`이고, `tests/caption-api-contract.test.ts`가 확장이 이 계약을 지키는지 검사합니다. 자세한 경계는 `documentation/SECURITY-REVIEW.md`를 참고하세요.

@@ -168,8 +168,8 @@ it("accepts only the closed requests of the offscreen document", () => {
   const token = { version: 1, type: "CAPTION_OFFSCREEN_TOKEN" };
   for (const request of [
     { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", tabId: 3 },
-    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null },
-    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: "DOC1" },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null, batch: run, index: 0 },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: "DOC1", batch: run, index: 99 },
     { version: 1, type: "CAPTION_OFFSCREEN_OPEN", tabId: 3, batch: run, index: 0 },
     { version: 1, type: "CAPTION_OFFSCREEN_ACCEPT", jobId: "job_1", key },
     { ...token, action: "current" },
@@ -180,7 +180,12 @@ it("accepts only the closed requests of the offscreen document", () => {
   for (const request of [
     { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", tabId: 3, url: mediaUrl },
     { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3 },
-    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: "a b" },
+    // Without the batch and lecture, the list tab could not confirm the player.
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: "a b", batch: run, index: 0 },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null, batch: "x", index: 0 },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null, batch: run, index: 100 },
+    { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after: null, batch: run, index: 0, document: "DOC1" },
     { version: 1, type: "CAPTION_OFFSCREEN_OPEN", tabId: 3, batch: run, index: 100 },
     { version: 1, type: "CAPTION_OFFSCREEN_OPEN", tabId: 3, batch: "x", index: 0 },
     { version: 1, type: "CAPTION_OFFSCREEN_ACCEPT", jobId: "job 1", key },
@@ -199,6 +204,12 @@ it("parses the worker's answers to the document, and only media on the lecture C
   const media = { mediaUrl, durationS: 60, key, title: "강의", tabId: 9, documentId: "DOC1" };
   expect(mediaReply({ status: "success", media })).toEqual({ status: "success", media });
   expect(mediaReply({ status: "pending" })).toEqual({ status: "pending" });
+  expect(mediaReply({ status: "stale" })).toEqual({ status: "stale" });
+  for (const code of ["LECTURE_MISMATCH", "RATE_LIMITED"])
+    expect(mediaReply({ status: "unverified", code })).toEqual({ status: "unverified", code });
+  expect(mediaReply({ status: "unverified", code: "VERIFIED" })).toBeNull();
+  expect(mediaReply({ status: "unverified" })).toBeNull();
+  expect(mediaReply({ status: "stale", documentId: "DOC1" })).toBeNull();
   expect(mediaReply({ status: "error", code: "ACTIVATE_TAB" })).toEqual({
     status: "error",
     code: "ACTIVATE_TAB",

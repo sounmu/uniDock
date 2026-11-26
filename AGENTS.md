@@ -1,11 +1,11 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-11-04
-**Commit:** 28fb0e3
-**Branch:** feat/v0.5.1-ui-multi-university
+**Generated:** 2026-11-04 (updated 2026-11-26)
+**Commit:** e0fef2e
+**Branch:** main
 
 ## OVERVIEW
-uniDock 0.5.1: unofficial Korea University LMS helper (mylms/canvas/kucom.korea.ac.kr) as a Chrome MV3 extension, Chrome >= 114. WXT 0.21 + React 19 side panel over framework-free strict TS in `src/`; reads the LMS through the user's own session, never stores cookies/tokens. UI copy is Korean.
+uniDock 0.7.0: unofficial Korea University LMS helper (mylms/canvas/kucom.korea.ac.kr) as a Chrome MV3 extension, Chrome >= 114. WXT 0.21 + React 19 side panel over framework-free strict TS in `src/`; reads the LMS through the user's own session, never stores cookies/tokens. UI copy is Korean.
 
 ## STRUCTURE
 ```
@@ -98,6 +98,6 @@ npm run release             # notices + UNIDOCK_RELEASE=1 check + npm audit + pa
 - Node >= 22.13 (CI on 24). CI order: pages:check, server-contract:check, lint, typecheck, test --coverage (v8, 80%), build, test:e2e, test:e2e:analytics, `UNIDOCK_RELEASE=1` test:e2e:full.
 - Release requires PLAYBACK=1 + AI_CAPTIONS=1 with real (non-`*.test`) caption/stats origins; rejects eval/new Function/sourceMappingURL/localhost/GA/PostHog markers; drops manifest `key`.
 - `documentation/api` manifest names `captions-public.openapi.yaml`, repo file is `public.openapi.yaml`.
-- `documentation/ROADMAP.md` lists 3 features that conflict with src/AGENTS.md prohibitions; update policy before building them.
+- `documentation/ROADMAP.md` lists the unbuilt features (translated captions, caption search, deadline alerts); they conflict with src/AGENTS.md prohibitions, so work through its policy checklist before building them.
 - `scripts/store-render.tsx`, `brand-assets.mjs` hardcode the macOS Chrome path.
 - Extension version is independent of server/API contract versions.

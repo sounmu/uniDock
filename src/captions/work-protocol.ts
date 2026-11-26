@@ -13,7 +13,7 @@ import { allowedCaptionMediaUrl } from "../security/policy";
  * - document -> worker (`OffscreenRequest`, `runtime.sendMessage`): the few
  *   things a document cannot do itself, since an offscreen document has no
  *   extension API but `chrome.runtime`: find a lecture's media, open the next
- *   lecture, hand over a job the server has the audio of, borrow an access
+ *   lecture and have its list tab confirm the lecture tab shows it, hand over a job the server has the audio of, borrow an access
  *   token.
  * - one port the document opens to the worker (`CAPTION_WORK_PORT`): the
  *   document's runs, messages that keep the worker running, the Referer rule
@@ -49,6 +49,13 @@ export function errorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && CODE.test(code) ? code : "UNKNOWN";
 }
+
+/** The list tab answers this way for every remaining lecture too. */
+export const LOST_SELECTION: ReadonlySet<string> = new Set([
+  "LOGIN_REQUIRED",
+  "RELOAD_TAB",
+  "STALE_SELECTION",
+]);
 
 export class CaptionWorkError extends Error {
   constructor(readonly code: string) {
@@ -166,8 +173,16 @@ export interface LectureMedia {
 export type OffscreenRequest =
   /** The media of the lecture in this tab. */
   | { version: 1; type: "CAPTION_OFFSCREEN_MEDIA"; tabId: number }
-  /** The media in the lecture tab of a list tab, once it shows a document other than `after`. */
-  | { version: 1; type: "CAPTION_OFFSCREEN_MEDIA"; lectureOf: number; after: string | null }
+  /** The media in the lecture tab of a list tab, once it shows a document other
+      than `after` that the list tab confirms belongs to lecture `index` of `batch`. */
+  | {
+      version: 1;
+      type: "CAPTION_OFFSCREEN_MEDIA";
+      lectureOf: number;
+      after: string | null;
+      batch: string;
+      index: number;
+    }
   | { version: 1; type: "CAPTION_OFFSCREEN_OPEN"; tabId: number; batch: string; index: number }
   | { version: 1; type: "CAPTION_OFFSCREEN_ACCEPT"; jobId: string; key: string }
   | { version: 1; type: "CAPTION_OFFSCREEN_TOKEN"; action: "current" }
@@ -179,9 +194,19 @@ export type OffscreenRequest =
       loginId: string;
     };
 
+/** What a lecture tab's player is not confirmed as yet; its audio is not read. */
+export type UnverifiedCode = "LECTURE_MISMATCH" | "RATE_LIMITED";
+/**
+ * `pending`: no player. `stale`: still the previous lecture's player, which is
+ * never asked about. `unverified`: a new player the list tab has not confirmed
+ * belongs to the lecture just opened; `RATE_LIMITED` asks for the longer wait.
+ * An error from the list tab ends the whole list.
+ */
 export type MediaReply =
   | { status: "success"; media: LectureMedia }
   | { status: "pending" }
+  | { status: "stale" }
+  | { status: "unverified"; code: UnverifiedCode }
   | { status: "error"; code: string };
 /** `previous`: the document the lecture tab showed before this open. */
 export type OpenReply =
@@ -344,20 +369,22 @@ export function captionWorkReply(value: unknown): CaptionWorkReply | null {
   return failure(value);
 }
 
+const batchLecture = (value: Row) =>
+  validHandle(value.batch) && counter(value.index) && (value.index as number) < MAX_QUEUE_ITEMS;
+
 export function isOffscreenRequest(value: unknown): value is OffscreenRequest {
   if (!row(value) || value.version !== 1) return false;
   switch (value.type) {
     case "CAPTION_OFFSCREEN_MEDIA":
       if (size(value) === 3) return tab(value.tabId);
-      return size(value) === 4 && tab(value.lectureOf) && optional(value.after, DOCUMENT_ID);
-    case "CAPTION_OFFSCREEN_OPEN":
       return (
-        size(value) === 5 &&
-        tab(value.tabId) &&
-        validHandle(value.batch) &&
-        counter(value.index) &&
-        (value.index as number) < MAX_QUEUE_ITEMS
+        size(value) === 6 &&
+        tab(value.lectureOf) &&
+        optional(value.after, DOCUMENT_ID) &&
+        batchLecture(value)
       );
+    case "CAPTION_OFFSCREEN_OPEN":
+      return size(value) === 5 && tab(value.tabId) && batchLecture(value);
     case "CAPTION_OFFSCREEN_ACCEPT":
       return size(value) === 4 && text(value.jobId, JOB_ID) && text(value.key, JOB_KEY);
     case "CAPTION_OFFSCREEN_TOKEN":
@@ -389,6 +416,13 @@ function lectureMedia(value: unknown): value is LectureMedia {
 export function mediaReply(value: unknown): MediaReply | null {
   if (!row(value)) return null;
   if (value.status === "pending" && size(value) === 1) return { status: "pending" };
+  if (value.status === "stale" && size(value) === 1) return { status: "stale" };
+  if (
+    value.status === "unverified" &&
+    size(value) === 2 &&
+    (value.code === "LECTURE_MISMATCH" || value.code === "RATE_LIMITED")
+  )
+    return { status: "unverified", code: value.code };
   if (value.status === "success" && size(value) === 2 && lectureMedia(value.media))
     return { status: "success", media: value.media };
   return failure(value);

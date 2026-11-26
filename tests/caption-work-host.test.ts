@@ -30,6 +30,7 @@ import {
   CaptionWorkHost,
   DOCUMENT_CONNECT_MS,
   OPEN_TIMEOUT_MS,
+  VERIFY_TIMEOUT_MS,
 } from "../src/captions/work-host";
 import {
   isCaptionWorkState,
@@ -540,33 +541,84 @@ it("finds a tab's media and hands the document a job key, never the content id",
   });
 });
 
-it("answers pending until the lecture tab shows another document", async () => {
-  const ask = (after: string | null) =>
-    host.request({ version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after });
-  const shown = (documentId: string) => ({
-    mediaUrl,
-    durationS: 60,
-    contentId: "0123456789abc",
-    title: "강의",
-    tabId: 9,
-    windowId: 1,
-    documentId,
-  });
+const lectureMedia = (after: string | null) =>
+  host.request({ version: 1, type: "CAPTION_OFFSCREEN_MEDIA", lectureOf: 3, after, batch, index: 1 });
+const shown = (documentId: string) => ({
+  mediaUrl,
+  durationS: 60,
+  contentId: "0123456789abc",
+  title: "강의",
+  tabId: 9,
+  windowId: 1,
+  documentId,
+});
+const verify = (document: string) => ({
+  version: 1,
+  type: "CAPTION_BATCH_VERIFY",
+  batch,
+  index: 1,
+  document,
+});
+
+it("hands over a new player only once the list tab confirms it is the lecture just opened", async () => {
+  tabMessage.mockResolvedValue({ status: "success", verified: true });
   identifyMedia.mockResolvedValue(shown("OLD"));
-  expect(await ask("OLD")).toEqual({ status: "pending" });
+  // The previous lecture's player is never asked about.
+  expect(await lectureMedia("OLD")).toEqual({ status: "stale" });
   expect(identifyMedia).toHaveBeenCalledWith(9);
+  expect(tabMessage).not.toHaveBeenCalled();
+
   identifyMedia.mockResolvedValue(shown("NEW"));
-  expect(await ask("OLD")).toMatchObject({ status: "success", media: { documentId: "NEW", tabId: 9 } });
-  expect(await ask(null)).toMatchObject({ status: "success" });
-  identifyMedia.mockRejectedValue(new MediaSourceError("UNSUPPORTED_MEDIA"));
-  expect(await ask("OLD")).toEqual({ status: "pending" });
-  identifyMedia.mockResolvedValue(shown("NEW"));
+  expect(await lectureMedia("OLD")).toMatchObject({
+    status: "success",
+    media: { documentId: "NEW", tabId: 9 },
+  });
+  // The list tab, not the lecture tab, is asked, and only about the player's document.
+  expect(tabMessage).toHaveBeenCalledExactlyOnceWith(3, verify("NEW"), { frameId: 0 });
+  expect(await lectureMedia(null)).toMatchObject({ status: "success" });
+
   captionJobKey.mockRejectedValueOnce(new Error("storage"));
-  expect(await ask("OLD")).toEqual({ status: "pending" });
+  expect(await lectureMedia("OLD")).toEqual({ status: "pending" });
+  identifyMedia.mockRejectedValue(new MediaSourceError("UNSUPPORTED_MEDIA"));
+  tabMessage.mockClear();
+  expect(await lectureMedia("OLD")).toEqual({ status: "pending" });
   lectureTab = undefined;
   identifyMedia.mockClear();
-  expect(await ask("OLD")).toEqual({ status: "pending" });
+  expect(await lectureMedia("OLD")).toEqual({ status: "pending" });
   expect(identifyMedia).not.toHaveBeenCalled();
+  expect(tabMessage).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["another lecture", { status: "error", code: "LECTURE_MISMATCH" }, { status: "unverified", code: "LECTURE_MISMATCH" }],
+  ["a refusal", { status: "error", code: "POLICY" }, { status: "unverified", code: "LECTURE_MISMATCH" }],
+  ["a malformed yes", { status: "success", verified: "yes" }, { status: "unverified", code: "LECTURE_MISMATCH" }],
+  ["the check's own limit", { status: "error", code: "RATE_LIMITED" }, { status: "unverified", code: "RATE_LIMITED" }],
+  ["a signed-out list tab", { status: "error", code: "LOGIN_REQUIRED" }, { status: "error", code: "LOGIN_REQUIRED" }],
+  ["a reloaded list tab", { status: "error", code: "RELOAD_TAB" }, { status: "error", code: "RELOAD_TAB" }],
+  ["a list tab without the batch", { status: "error", code: "STALE_SELECTION" }, { status: "error", code: "STALE_SELECTION" }],
+])("reads %s from the list tab as no hand-over", async (_case, answer, reply) => {
+  identifyMedia.mockResolvedValue(shown("NEW"));
+  tabMessage.mockResolvedValue(answer);
+  expect(await lectureMedia("OLD")).toEqual(reply);
+  expect(captionJobKey).not.toHaveBeenCalled();
+});
+
+it("hands over nothing when the list tab cannot be asked about the player", async () => {
+  identifyMedia.mockResolvedValue(shown("NEW"));
+  tabMessage.mockRejectedValue(new Error("Receiving end does not exist."));
+  expect(await lectureMedia("OLD")).toEqual({ status: "unverified", code: "LECTURE_MISMATCH" });
+  tabUrl = "https://example.com/";
+  expect(await lectureMedia("OLD")).toEqual({ status: "error", code: "RELOAD_TAB" });
+  expect(tabMessage).toHaveBeenCalledOnce();
+
+  vi.useFakeTimers();
+  tabUrl = "https://mylms.korea.ac.kr/courses/1/modules";
+  tabMessage.mockReturnValue(new Promise(() => {}));
+  const reply = lectureMedia("OLD");
+  await vi.advanceTimersByTimeAsync(VERIFY_TIMEOUT_MS);
+  expect(await reply).toEqual({ status: "unverified", code: "LECTURE_MISMATCH" });
+  expect(captionJobKey).not.toHaveBeenCalled();
 });
 
 it("asks the list tab to open an admitted lecture and reports what the lecture tab showed before", async () => {

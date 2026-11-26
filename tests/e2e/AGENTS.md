@@ -1,14 +1,14 @@
 # tests/e2e/
 
 ## OVERVIEW
-Playwright specs that drive the real built MV3 extension in Chromium against synthetic HTTPS LMS/CDN/caption/stats servers. Distinct domain: different runner, needs a prior build, and runs serially (25 files, 8.4k LOC, ~9 matrix points).
+Playwright specs that drive the real built MV3 extension in Chromium against synthetic HTTPS LMS/CDN/caption/stats servers. Distinct domain: different runner, needs a prior build, and runs serially (36 files, 10.3k LOC, ~9 matrix points).
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| Fake LMS / CDN server | `synthetic-server.ts` | `syntheticServer(...)` (13 specs), `textPdf(text)`; configurable pagination + course selectors |
+| Fake LMS / CDN server | `synthetic-server.ts` | `syntheticServer(...)` (19 specs), `textPdf(text)`; configurable pagination + course selectors |
 | Feature-build gates | `build-shape.ts` | `playbackBuild()`, `aiCaptionsBuild()` read `.output/chrome-mv3/manifest.json`; missing/invalid manifest = feature off |
-| Playback lifecycle | `playlist-playback.spec.ts` | 2,308 LOC, largest spec |
+| Playback lifecycle | `playlist-playback.spec.ts` | 2,617 LOC, largest spec |
 | AI caption upload/poll/cancel | `ai-captions-lifecycle.spec.ts` | 896 LOC; uses `../fixtures/media/tail.mp4`; closes and reopens the panel mid-capture and mid-upload, and counts offscreen documents with `chrome.runtime.getContexts` |
 | Broad smoke | `synthetic-lms.spec.ts` | uses both build-shape gates |
 | Analytics consent | `analytics-consent.spec.ts` | run through `npm run test:e2e:analytics` only (see below) |

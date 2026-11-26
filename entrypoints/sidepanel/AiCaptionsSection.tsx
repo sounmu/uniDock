@@ -15,6 +15,7 @@ import { useCaptionSession } from "./useCaptionSession";
 import { remainingJobs, useCaptionAccount } from "./useCaptionAccount";
 import { softDisabled } from "./ui/a11y";
 import { AiCaptionReader } from "./AiCaptionReader";
+import { messages } from "./query-messages";
 
 // Before the server starts, only show what the user can act on: preparing,
 // waiting in line, then generating. All of it goes on with the panel closed.
@@ -67,6 +68,9 @@ export const errorText: Record<string, string> = {
   UPLOAD_EXPIRED: "업로드가 끝나지 않아 취소됐습니다. 다시 시도하세요.",
   INFERENCE_TIMEOUT: "처리 시간이 초과됐습니다. 이번 사용 횟수는 돌려받습니다.",
   INFERENCE_FAILED: "자막 생성에 실패했습니다. 이번 사용 횟수는 돌려받습니다.",
+  LECTURE_MISMATCH: messages.LECTURE_MISMATCH,
+  RELOAD_TAB: messages.RELOAD_TAB,
+  STALE_SELECTION: messages.STALE_SELECTION,
 };
 
 const settingsErrors = new Set(["LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER"]);
