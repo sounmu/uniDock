@@ -2154,10 +2154,8 @@ it("routes document handles through the background LMS boundary and consumes the
     deadline: Date.now() + 23_000,
     request: download,
   };
-  // When
   const started = response();
   listener(downloadEnvelope, sender, started.respond);
-  // Then
   expect(await started.done).toEqual({ status: "success", downloaded: true });
   expect(sendMessage).toHaveBeenLastCalledWith({
     version: 1,

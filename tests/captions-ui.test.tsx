@@ -112,7 +112,6 @@ it("shows an official track on the lecture video and removes it when the setting
     return officialTrack;
   });
   ui = await mount(<CaptionsPanel />);
-  // When
   await click("자막 감지");
   // Then: the worker is asked to forward the timed cues to exactly that document once.
   expect(trackMessages()).toEqual([
@@ -185,7 +184,6 @@ it("retries a refused delivery with backoff until the player accepts it, and cou
     return officialTrack;
   });
   ui = await mount(<CaptionsPanel />);
-  // When
   await click("자막 감지");
   expect(sendMessage).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTime(499));
@@ -296,7 +294,6 @@ it("keeps the same AI caption offer across settings, menus and browser tabs", as
     (button) => button.textContent === "AI 자막 설정",
   );
   trigger?.focus();
-  // When
   await click("AI 자막 설정");
   expect(document.activeElement).toBe(ui.host.querySelector("#caption-server-title"));
   await click("← 돌아가기");
@@ -435,12 +432,9 @@ it("aborts an in-flight detection on unmount", async () => {
   expect(signal?.aborted).toBe(true);
 });
 it("moves caption tools into a detail view while preserving the list", async () => {
-  // Given
   ui = await mount(<CaptionsPanel />);
   await click("자막 감지");
-  // When
   await click("강의 자막");
-  // Then
   expect(ui.host.querySelector(".detail-view dl")).not.toBeNull();
   expect(ui.host.querySelector(".detail-view .btn-primary")?.textContent).toBe(
     "TXT·JSON 다운로드",

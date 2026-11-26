@@ -40,7 +40,6 @@ it.each(["todo", "upcoming"] as const)(
     );
     const calls = sorter.mock.calls.length;
     expect(calls).toBeGreaterThan(0);
-    // When
     await act(async () => vi.advanceTimersByTime(2000));
     // Then: clock-dependent status still crosses its boundary.
     expect(sorter).toHaveBeenCalledTimes(calls);

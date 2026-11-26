@@ -13,9 +13,7 @@ const url = `${origin}${path}?download_frd=1`;
 it.each([origin, "https://canvas.korea.ac.kr"])(
   "accepts the canonical file route when source is %s",
   (source) => {
-    // Given
     const value = `${source}${path}?download_frd=1`;
-    // When / Then
     expect(lmsFileDownloadUrl(value, `${source}/courses/101`)).toBe(value);
   },
 );
@@ -41,11 +39,9 @@ it.each([
   url.replace("https://", "http://"),
   `${url}\n`,
 ])("rejects a noncanonical or hostile download value %j", (value) => {
-  // Given / When / Then
   expect(lmsFileDownloadUrl(value, origin)).toBeNull();
 });
 it("rejects cross-LMS and unapproved source documents", () => {
-  // Given / When / Then
   expect(lmsFileDownloadUrl(url, "https://canvas.korea.ac.kr/")).toBeNull();
   expect(lmsFileDownloadUrl(url, "https://evil.invalid/")).toBeNull();
 });
@@ -58,17 +54,13 @@ it.each([
 ])(
   "normalizes unsafe filename segments when inputs are %j / %j",
   (course, title, expected) => {
-    // Given / When
     const result = safeDownloadPath(course, title);
-    // Then
     expect(result).toBe(expected);
     expect(validDownloadPath(result)).toBe(true);
   },
 );
 it("bounds each segment to 80 characters", () => {
-  // Given
   const long = "a".repeat(200);
-  // When / Then
   expect(
     safeDownloadPath("Course", long)?.split("/").at(-1),
   ).toHaveLength(80);
@@ -80,11 +72,9 @@ it.each([
   ["Synthetic Operating Systems", "Synthetic Operating Systems"],
   ["(영강)", "(영강)"],
 ])("keeps only the course name of %j", (course, expected) => {
-  // Given / When / Then
   expect(courseFolderName(course)).toBe(expected);
 });
 it("saves every file of a course directly in the course folder", () => {
-  // Given / When / Then
   expect(
     safeDownloadPath(
       "262R (서울-학부)자료구조(영강)(Data Structures)-00분반",
@@ -106,11 +96,9 @@ it.each([
   "uniDock/A/file.pdf ",
   "uniDock/A/" + "x".repeat(81) + ".pdf",
 ])("rejects caller-supplied unsafe path %j", (value) => {
-  // Given / When / Then
   expect(validDownloadPath(value)).toBe(false);
 });
 it("accepts only the closed download request and expected response", () => {
-  // Given
   const request = {
     version: 1,
     type: "DOCUMENT_DOWNLOAD",
@@ -118,7 +106,6 @@ it("accepts only the closed download request and expected response", () => {
     course: "Course",
   } as const;
   const success = { status: "success", downloaded: true };
-  // When / Then
   expect(isRequest(request)).toBe(true);
   for (const invalid of [
     { ...request, url },
