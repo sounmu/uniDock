@@ -4,7 +4,7 @@ import { act } from "react";
 import { click, mount } from "./ui-helpers";
 import { isLecturePage } from "../src/captions/media-source";
 
-let activeTab: { url: string; title: string } | undefined;
+let activeTab: { url: string; title: string; id?: number } | undefined;
 let activated: (() => void) | undefined;
 let updated:
   | ((tabId: number, change: { url?: string }, tab: { active: boolean }) => void)
@@ -67,6 +67,37 @@ it("offers the lecture open in the active tab without injecting into it", async 
   await click("지금 보는 강의 자막 추출");
   expect(onOpen).toHaveBeenCalledOnce();
   expect(executeScript).not.toHaveBeenCalled();
+});
+
+it("hides the card while this panel prepares audio or works on that tab's lecture", async () => {
+  const { lectureBusy } = await import("../entrypoints/sidepanel/progress-activity");
+  const run = (phase: "extracting" | "uploading" | "queued" | "running" | "succeeded") => ({
+    caption: { kind: "captions" as const, id: "job", phase, percent: null, workerOffline: false },
+    source: 3,
+    queuePreparing: false,
+  });
+  const idle = { caption: null, source: null, queuePreparing: false };
+  expect(lectureBusy(run("extracting"), 9)).toBe(true);
+  expect(lectureBusy(run("uploading"), 9)).toBe(true);
+  expect(lectureBusy(run("queued"), 3)).toBe(true);
+  expect(lectureBusy(run("running"), 3)).toBe(true);
+  expect(lectureBusy(run("running"), 9)).toBe(false);
+  expect(lectureBusy(run("succeeded"), 3)).toBe(false);
+  expect(lectureBusy({ ...idle, queuePreparing: true }, 9)).toBe(true);
+  expect(lectureBusy(idle, 9)).toBe(false);
+  expect(lectureBusy(run("running"), undefined)).toBe(false);
+});
+
+it("names the active tab with the lecture so the run can be matched to it", async () => {
+  activeTab = { url: "https://kucom.korea.ac.kr/em/lecture", title: "3주차 강의", id: 7 };
+  const { useActiveLecture } = await import("../entrypoints/sidepanel/useActiveLecture");
+  let seen: unknown;
+  function Probe() {
+    seen = useActiveLecture(true);
+    return null;
+  }
+  ui = await mount(<Probe />);
+  expect(seen).toEqual({ title: "3주차 강의", tabId: 7 });
 });
 
 it("rechecks when the active tab moves to a lecture within the page", async () => {

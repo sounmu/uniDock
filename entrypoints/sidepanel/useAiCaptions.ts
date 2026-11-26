@@ -433,6 +433,7 @@ export function useAiCaptions() {
             percent: state.phase === "running" ? captionPercent(state.serverProgress) : null,
             workerOffline: state.workerOffline,
           },
+      jobTab.current?.tabId ?? null,
     );
   }, [state]);
   useEffect(() => () => publishCaptionActivity(null), []);

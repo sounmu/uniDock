@@ -3,6 +3,7 @@ import { isLecturePage } from "../../src/captions/media-source";
 
 export interface ActiveLecture {
   readonly title: string;
+  readonly tabId: number | undefined;
 }
 
 /** The lecture page open in the active tab, or null when that tab has none.
@@ -20,7 +21,9 @@ export function useActiveLecture(enabled: boolean): ActiveLecture | null {
       void tabs.query({ active: true, currentWindow: true }).then(
         ([tab]) => {
           if (!live || id !== probeId) return;
-          setLecture(tab && isLecturePage(tab.url) ? { title: tab.title ?? "" } : null);
+          setLecture(
+            tab && isLecturePage(tab.url) ? { title: tab.title ?? "", tabId: tab.id } : null,
+          );
         },
         () => live && id === probeId && setLecture(null),
       );
