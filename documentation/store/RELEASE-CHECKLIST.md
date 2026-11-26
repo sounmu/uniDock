@@ -156,14 +156,14 @@ ZIP 업로드 후 파일을 수정했다면 반드시 release를 다시 실행�
 
 ## 0.4.0 manifest와 권한
 
-- 기능 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`에 `alarms`(자동 재생), `declarativeNetRequestWithHostAccess`·`identity`(AI 자막)를 추가. 정확한 목록은 `package-release.mjs`가 강제합니다.
+- 기능 권한: `sidePanel`, `activeTab`, `scripting`, `downloads`, `storage`에 `alarms`(자동 재생), `declarativeNetRequestWithHostAccess`·`identity`(AI 자막)를 추가. 이후 `offscreen`(AI 자막 준비를 패널 밖에서 진행)을 추가. 정확한 목록은 `package-release.mjs`가 강제합니다.
 - 상시 호스트: `mylms.korea.ac.kr`, `canvas.korea.ac.kr`, `kucom.korea.ac.kr` (0.3.0과 동일).
 - 선택 호스트(`optional_host_permissions`): `https://lms.korea.ac.kr/*`(팝업 자동 닫기), `https://korea-cms-object.cdn.gov-ntruss.com/*`(AI 자막의 음성 취득, ‘음성 보내기’를 누를 때만 요청). 설치·업데이트 때 묻지 않습니다.
 - CSP `connect-src`: 통계 수집 서버, 강의 영상 CDN, 자막 서버 origin 하나씩.
 - 콘텐츠 스크립트 선언: `content-scripts/lms.js`와 `content-scripts/player.js`(모든 프레임, LMS 두 호스트와 `kucom.korea.ac.kr/em/*`). `content-scripts/lms-popup.js`는 ZIP에 포함되지만 manifest에 선언하지 않고 opt-in 후 런타임 등록합니다.
 - manifest `key`, `oauth2`는 없어야 합니다(`package-release.mjs`가 강제).
 - 상시 권한과 콘텐츠 스크립트가 늘어 기존 설치에 업데이트 권한 경고가 뜰 수 있습니다. 첫 스토어 등록에는 해당하지 않지만 GitHub 릴리스 사용자에게는 안내가 필요합니다.
-- 대시보드 권한 사유에 `alarms`, `declarativeNetRequestWithHostAccess`, `identity`, 선택 CDN 호스트 줄과 `storage`의 재생·자막 세션 용도가 추가됐습니다(LISTING.md 표).
+- 대시보드 권한 사유에 `alarms`, `declarativeNetRequestWithHostAccess`, `identity`, 선택 CDN 호스트 줄과 `storage`의 재생·자막 세션 용도가 추가됐습니다(LISTING.md 표). `offscreen` 줄도 대시보드에 넣어야 합니다.
 
 ## 0.4.0 확인
 
@@ -181,7 +181,7 @@ AI 자막 (실제 Chrome, 압축 해제한 `.output/chrome-mv3`):
 - [ ] 설정의 ‘AI 자막 서버’에서 실제 Google 계정 로그인 → 표시 이메일·오늘 남은 횟수 → 로그아웃 → 다시 로그인 → 모든 기기에서 로그아웃
 - [ ] 자막 없는 실제 KU 강의에서 ‘AI 자막 생성’ → 확인 화면 문구 → ‘음성 보내기’ 때 CDN 권한 프롬프트 허용·거절(거절 시 요청 없음) → 업로드 → 대기 → ‘AI 생성’ 자막 표시 → TXT·JSON 다운로드
 - [ ] 네트워크 탭에서 CDN 요청이 음성 범위만 받는지, 자막 서버 요청에 LMS 쿠키·URL·과목 ID·강의 제목·KU 콘텐츠 ID가 없는지 확인
-- [ ] 진행 중 패널 닫기·다시 열기, 탭 이동·닫기 취소, 같은 강의 재요청 시 기존 작업 표시, 작업 종료 후 `chrome.declarativeNetRequest` 세션 규칙이 남지 않는지 확인
+- [ ] 음성 받기·업로드 중 패널을 닫아도 계속 진행되고 다시 열면 진행 상태가 보이는지, 다시 연 패널에서 취소가 되는지, 탭 이동·닫기 취소, 같은 강의 재요청 시 기존 작업 표시, 작업 종료 후 `chrome.declarativeNetRequest` 세션 규칙이 남지 않는지 확인
 - [ ] 하루 7회 초과 시 안내와 초기화 시각, 처리 서버 꺼짐 안내
 - [ ] ‘로컬 데이터 모두 삭제’ 후 `unidock.caption-session.v1`·`unidock.caption-install-salt.v1`·`unidock.caption-active-job.v1`이 없고 다시 로그인을 요구하는지 확인
 - [ ] UI·콘솔·오류 문구 어디에도 자막 서버 hostname이 보이지 않는지 확인
