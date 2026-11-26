@@ -1,5 +1,5 @@
 import { type Result } from "./protocol";
-import { navigationUrl } from "./security/navigation";
+import { navigationUrl, playerUrl } from "./security/navigation";
 import { TabRateLimiter } from "./security/rate-limit";
 import { allowedPage } from "./security/policy";
 // A person opens lectures one click at a time.
@@ -13,7 +13,8 @@ async function openInLectureTab(url: string, source: number): Promise<void> {
   if (typeof saved === "number" && saved !== source) {
     // A closed tab rejects; a tab the user took elsewhere is left alone.
     const tab = await chrome.tabs.get(saved).catch(() => undefined);
-    if (tab?.url && allowedPage(tab.url)) {
+    // Board recordings open the canonical KU player page directly.
+    if (tab?.url && (allowedPage(tab.url) || playerUrl(tab.url))) {
       await chrome.tabs.update(saved, { url, active: true });
       return;
     }

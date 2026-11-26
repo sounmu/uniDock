@@ -52,6 +52,17 @@ export function useRecordingPicker(
     };
   }, []);
 
+  // Today's remaining uses can drop while the list is open; keep the first picks.
+  useEffect(() => {
+    const draft = recordingSelection.current;
+    if (!draft?.recordings.some((item) => item.order !== null && item.order > limit)) return;
+    const updated = draft.recordings.map((item) =>
+      item.order !== null && item.order > limit ? { ...item, order: null } : item,
+    );
+    recordingSelection.current = { ...draft, recordings: updated };
+    setRecordingDrafts(updated);
+  }, [limit, recordings]);
+
   useEffect(() => {
     if (!entry || acceptedEntry.current === entry) return;
     acceptedEntry.current = entry;

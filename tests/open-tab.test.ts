@@ -61,6 +61,14 @@ it("reuses the remembered tab while it still shows an LMS page", async () => {
   expect(create).not.toHaveBeenCalled();
 });
 
+it("reuses the remembered tab while it shows a KU player page", async () => {
+  session[LECTURE_TAB_KEY] = 9;
+  tabs.set(9, { url: "https://kucom.korea.ac.kr/em/0123456789abcdef" });
+  expect((await open(true).result).status).toBe("success");
+  expect(update).toHaveBeenCalledWith(9, { url: lecture, active: true });
+  expect(create).not.toHaveBeenCalled();
+});
+
 it.each([
   ["closed", undefined],
   ["moved to another site", { url: undefined }],

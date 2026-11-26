@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { mount } from "./ui-helpers";
 import { LECTURE_TAB_KEY } from "../src/open-tab";
+import { CAPTION_SESSION_EPOCH_KEY } from "../src/caption-server-settings";
 import type { useCaptionQueue } from "../entrypoints/sidepanel/useCaptionQueue";
 
 const queryActive = vi.hoisted(() => vi.fn());
 const identifyMedia = vi.hoisted(() => vi.fn());
 const submitLecture = vi.hoisted(() => vi.fn());
+const cancelJob = vi.hoisted(() => vi.fn());
 vi.mock("../src/transport", () => ({ queryActive }));
 vi.mock("../src/captions/media-source", async (original) => ({
   ...(await original<object>()),
@@ -18,8 +20,18 @@ vi.mock("../src/captions/submit-lecture", async (original) => ({
   ...(await original<object>()),
   submitLecture,
 }));
+vi.mock("../src/captions/job-client", async (original) => ({
+  ...(await original<object>()),
+  cancelJob,
+}));
 
 type Queue = ReturnType<typeof useCaptionQueue>;
+type Hooks = {
+  signal: AbortSignal;
+  onJob: (jobId: string) => void;
+  onPhase: (phase: string) => void;
+};
+type StorageListener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => void;
 const target = { id: 3, url: "https://mylms.korea.ac.kr/courses/1/modules", documentToken: "token" };
 const media = (documentId: string) => ({
   mediaUrl: "https://cdn.example/video.mp4",
@@ -30,16 +42,25 @@ const media = (documentId: string) => ({
   windowId: 1,
   documentId,
 });
+const noPlayer = () => Promise.reject(new Error("no player"));
 let posted: unknown[];
 let receive: ((message: unknown) => void) | undefined;
+let storageChanged: StorageListener | undefined;
 let queue: Queue;
 let ui: Awaited<ReturnType<typeof mount>>;
 
 beforeEach(() => {
   posted = [];
   receive = undefined;
+  storageChanged = undefined;
   vi.stubGlobal("chrome", {
-    storage: { session: { get: vi.fn(async () => ({ [LECTURE_TAB_KEY]: 9 })) } },
+    storage: {
+      session: { get: vi.fn(async () => ({ [LECTURE_TAB_KEY]: 9 })) },
+      onChanged: {
+        addListener: (listener: StorageListener) => (storageChanged = listener),
+        removeListener: vi.fn(),
+      },
+    },
     runtime: {
       connect: () => ({
         postMessage: (message: unknown) => posted.push(message),
@@ -50,6 +71,7 @@ beforeEach(() => {
     },
   });
   queryActive.mockResolvedValue({ status: "success", opened: true });
+  cancelJob.mockResolvedValue(undefined);
   submitLecture.mockImplementation(async (found: { documentId: string }) => ({
     jobId: `job-${found.documentId}`,
     key: `key-${found.documentId}`,
@@ -68,22 +90,31 @@ async function render() {
     queue = useCaptionQueue();
     return null;
   }
-  ui = await mount(<Harness />);
+  ui = await mount(<StrictMode><Harness /></StrictMode>);
+}
+
+function hangingSubmission(awaitingUpload: boolean) {
+  submitLecture.mockImplementationOnce((_found: unknown, hooks: Hooks) => {
+    hooks.onJob("job-open");
+    if (awaitingUpload) hooks.onPhase("extracting");
+    return new Promise((_resolve, reject) =>
+      hooks.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+    );
+  });
 }
 
 const phases = () => queue.items.map((item) => item.phase);
 
 it("opens each lecture in the lecture tab and waits for its own player", async () => {
   vi.useFakeTimers();
-  // The tab still shows the first lecture's player right after the second open.
-  identifyMedia
-    .mockResolvedValueOnce(media("first"))
-    .mockResolvedValueOnce(media("first"))
-    .mockResolvedValue(media("second"));
+  // The tab still shows a lecture from an earlier run until the first open
+  // commits, then each later open briefly still shows the lecture before it.
+  for (const shown of ["old", "old", "first", "first", "first", "second"])
+    identifyMedia.mockResolvedValueOnce(media(shown));
   await render();
   await act(async () => {
     const run = queue.start({ handles: ["a", "b"], target }, (handle) => `강의 ${handle}`);
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
     await run;
   });
   expect(queryActive.mock.calls.map(([request]) => request)).toEqual([
@@ -98,6 +129,7 @@ it("opens each lecture in the lecture tab and waits for its own player", async (
 
 it("skips a lecture that cannot be opened and goes on", async () => {
   queryActive.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
+  identifyMedia.mockImplementationOnce(noPlayer).mockImplementationOnce(noPlayer);
   identifyMedia.mockResolvedValue(media("second"));
   await render();
   await act(() => queue.start({ handles: ["a", "b"], target }, String));
@@ -106,7 +138,7 @@ it("skips a lecture that cannot be opened and goes on", async () => {
 });
 
 it("stops the whole queue once today's quota runs out", async () => {
-  identifyMedia.mockResolvedValue(media("first"));
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
   submitLecture.mockRejectedValueOnce(Object.assign(new Error("quota"), { code: "QUOTA_EXCEEDED" }));
   await render();
   await act(() => queue.start({ handles: ["a", "b", "c"], target }, String));
@@ -120,24 +152,69 @@ it("stops the whole queue once today's quota runs out", async () => {
 });
 
 it("shows the server's progress and stops following a finished job", async () => {
-  identifyMedia.mockResolvedValue(media("first"));
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
   await render();
   await act(() => queue.start({ handles: ["a"], target }, String));
-  await act(async () =>
-    receive?.({
-      type: "snapshot",
-      jobId: "job-first",
-      snapshot: { jobId: "job-first", key: "key-first", phase: "running", serverProgress: null, workerOffline: false, errorCode: null },
-    }),
-  );
+  const snapshot = (phase: string) => ({
+    type: "snapshot",
+    jobId: "job-first",
+    snapshot: { jobId: "job-first", key: "key-first", phase, serverProgress: null, workerOffline: false, errorCode: null },
+  });
+  await act(async () => receive?.(snapshot("running")));
   expect(phases()).toEqual(["running"]);
-  await act(async () =>
-    receive?.({
-      type: "snapshot",
-      jobId: "job-first",
-      snapshot: { jobId: "job-first", key: "key-first", phase: "succeeded", serverProgress: null, workerOffline: false, errorCode: null },
-    }),
-  );
+  await act(async () => receive?.(snapshot("succeeded")));
   expect(phases()).toEqual(["succeeded"]);
   expect(posted).toContainEqual({ type: "untrack", jobId: "job-first" });
+});
+
+it("cancels the job whose audio was not uploaded when stopped", async () => {
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  hangingSubmission(true);
+  await render();
+  let run!: Promise<void>;
+  await act(async () => {
+    run = queue.start({ handles: ["a", "b"], target }, String);
+  });
+  await vi.waitFor(() => expect(phases()[0]).toBe("extracting"));
+  await act(async () => {
+    queue.stop();
+    await run;
+  });
+  expect(cancelJob).toHaveBeenCalledWith("job-open");
+  expect(phases()).toEqual(["cancelled", "cancelled"]);
+  expect(queryActive).toHaveBeenCalledOnce();
+});
+
+it("keeps a job the server already accepted when stopped", async () => {
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  hangingSubmission(false);
+  await render();
+  let run!: Promise<void>;
+  await act(async () => {
+    run = queue.start({ handles: ["a"], target }, String);
+  });
+  await vi.waitFor(() => expect(queue.items[0]?.jobId).toBe("job-open"));
+  await act(async () => {
+    queue.stop();
+    await run;
+  });
+  expect(cancelJob).not.toHaveBeenCalled();
+});
+
+it("ends the run without touching jobs when the sign-in changes", async () => {
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  hangingSubmission(true);
+  await render();
+  let run!: Promise<void>;
+  await act(async () => {
+    run = queue.start({ handles: ["a", "b"], target }, String);
+  });
+  await vi.waitFor(() => expect(phases()[0]).toBe("extracting"));
+  await act(async () => {
+    storageChanged?.({ [CAPTION_SESSION_EPOCH_KEY]: { oldValue: 1, newValue: 2 } }, "session");
+    await run;
+  });
+  expect(cancelJob).not.toHaveBeenCalled();
+  expect(queue.running).toBe(false);
+  expect(queryActive).toHaveBeenCalledOnce();
 });

@@ -33,6 +33,7 @@ export function App() {
   const [captionsOpened, setCaptionsOpened] = useState(false);
   const [captionEntry, setCaptionEntry] = useState<CaptionEntry>();
   const [queueEntry, setQueueEntry] = useState<RecordingEntry>();
+  const [captionsVisit, setCaptionsVisit] = useState(0);
   const activeLecture = useActiveLecture(__UNIDOCK_AI_CAPTIONS__);
   const [playbackOpened, setPlaybackOpened] = useState(false);
   const [playbackEntry, setPlaybackEntry] = useState<PlaybackEntry>();
@@ -84,6 +85,7 @@ export function App() {
     else {
       setCaptionsOpened(true);
       setQueueEntry(queue);
+      setCaptionsVisit((visit) => visit + 1);
     }
     tool.open(section);
   }
@@ -177,7 +179,7 @@ export function App() {
           )}
           {captionsOpened && (
             <div hidden={tool.detail !== "captions"}>
-              <CaptionsPanel entry={captionEntry} queueEntry={queueEntry} onConnectionSettings={() => showInfo("caption-server-title")} />
+              <CaptionsPanel entry={captionEntry} queueEntry={queueEntry} visit={captionsVisit} onConnectionSettings={() => showInfo("caption-server-title")} />
             </div>
           )}
         </div>

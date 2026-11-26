@@ -519,6 +519,7 @@ it("picks the clicked lecture for AI captions without opening it and keeps its r
   await click("← 돌아가기");
   expect(ui.host.querySelector(".course-context")?.closest("[hidden]")).toBeNull();
   expect(ui.host.querySelector(".detail-view h2")?.textContent).toBe("첫 강의");
+  query.mockResolvedValueOnce({ status: "success", todo: [] });
   await click("홈");
   await click("자막 추출");
   expect(captionsProps.current?.queueEntry).toBeUndefined();

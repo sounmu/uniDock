@@ -37,11 +37,14 @@ export function CaptionsPanel({
   onConnectionSettings,
   entry,
   queueEntry,
+  visit = 0,
 }: {
   readonly onConnectionSettings?: () => void;
   readonly entry?: CaptionEntry;
   /** Recordings to pick from, with the clicked one already selected. */
   readonly queueEntry?: RecordingEntry;
+  /** Changes each time captions is entered from outside. */
+  readonly visit?: number;
 }) {
   const [state, setState] = useState<
     CaptionResult | { status: "idle" | "loading" }
@@ -50,22 +53,20 @@ export function CaptionsPanel({
   });
   const [notice, setNotice] = useState("");
   const [exportPending, setExportPending] = useState(false);
-  const { detail, open, back } = useDetail<number>();
+  const { detail, open, back, dismiss: dismissDetail } = useDetail<number>();
   const queueView = useDetail<"queue">();
   const openQueue = queueView.open;
   const dismissQueue = queueView.dismiss;
-  const openedQueue = useRef<RecordingEntry | undefined>(undefined);
+  const seenVisit = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!queueEntry) {
-      // Entering captions any other way starts from detection, not an old pick.
-      if (openedQueue.current) dismissQueue();
-      openedQueue.current = undefined;
-      return;
-    }
-    if (openedQueue.current === queueEntry) return;
-    openedQueue.current = queueEntry;
-    openQueue("queue");
-  }, [queueEntry, openQueue, dismissQueue]);
+    if (seenVisit.current === visit) return;
+    seenVisit.current = visit;
+    // Each entry starts fresh: at the recording's picker, or at detection.
+    if (queueEntry) {
+      dismissDetail();
+      openQueue("queue");
+    } else dismissQueue();
+  }, [visit, queueEntry, openQueue, dismissQueue, dismissDetail]);
   const [videoTarget, setVideoTarget] = useState<VideoCaptionTarget | null>(null);
   const [aiVideo, setAiVideo] = useState<VideoCaptionDelivery | null>(null);
   // Only official VTT tracks carry video-relative timing; once the panel lets

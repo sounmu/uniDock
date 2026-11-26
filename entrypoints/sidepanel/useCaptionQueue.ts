@@ -6,6 +6,9 @@ import {
   type MediaSource,
 } from "../../src/captions/media-source";
 import { errorCode, submitLecture } from "../../src/captions/submit-lecture";
+import { cancelJob } from "../../src/captions/job-client";
+import { CAPTION_SESSION_EPOCH_KEY } from "../../src/caption-server-settings";
+import { CAPTION_TRANSCRIPT_CACHE_KEY } from "../../src/captions/transcript-cache";
 import {
   CAPTION_JOB_PORT,
   type CaptionJobRequest,
@@ -32,6 +35,20 @@ const MEDIA_RETRY_MS = 1_500;
 const MAX_RECONNECTS = 5;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
+// A run stopped by a sign-in change must not touch the next account's jobs.
+const SESSION_CHANGED = "session-changed";
+
+async function savedLectureTab(): Promise<number | null> {
+  const saved: unknown = (await chrome.storage.session.get(LECTURE_TAB_KEY))[LECTURE_TAB_KEY];
+  return typeof saved === "number" ? saved : null;
+}
+
+/** The player document the lecture tab shows right now, if any. */
+async function lectureDocument(): Promise<string | null> {
+  const tab = await savedLectureTab();
+  if (tab === null) return null;
+  return (await identifyMedia(tab).catch(() => null))?.documentId ?? null;
+}
 
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -50,8 +67,8 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 async function lectureMedia(previous: string | null, signal: AbortSignal): Promise<MediaSource> {
   const deadline = Date.now() + MEDIA_WAIT_MS;
   for (;;) {
-    const saved: unknown = (await chrome.storage.session.get(LECTURE_TAB_KEY))[LECTURE_TAB_KEY];
-    if (typeof saved === "number") {
+    const saved = await savedLectureTab();
+    if (saved !== null) {
       const media = await identifyMedia(saved).catch(() => null);
       if (media && media.documentId !== previous) return media;
     }
@@ -118,10 +135,24 @@ export function useCaptionQueue() {
     mounted.current = true;
     const reveal = () => post({ type: "visible", visible: document.visibilityState === "visible" });
     document.addEventListener("visibilitychange", reveal);
+    const storageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      const cache = changes[CAPTION_TRANSCRIPT_CACHE_KEY];
+      const epoch = changes[CAPTION_SESSION_EPOCH_KEY];
+      if (
+        (area === "local" && cache?.oldValue !== undefined && cache.newValue === undefined) ||
+        (area === "session" && epoch && epoch.oldValue !== epoch.newValue)
+      )
+        controller.current?.abort(SESSION_CHANGED);
+    };
+    chrome.storage.onChanged.addListener(storageChanged);
     return () => {
       mounted.current = false;
       controller.current?.abort();
       document.removeEventListener("visibilitychange", reveal);
+      chrome.storage.onChanged.removeListener(storageChanged);
       const closing = port.current;
       port.current = null;
       closing?.disconnect();
@@ -152,12 +183,20 @@ export function useCaptionQueue() {
         patch(() => true, { phase: "failed", errorCode: "PERMISSION" });
         return;
       }
-      let previous: string | null = null;
       for (const handle of selection.handles) {
         if (signal.aborted) break;
         const mine = (item: QueueItem) => item.handle === handle;
         patch(mine, { phase: "opening" });
+        // A job whose audio is not uploaded yet; stopping cancels it so it
+        // does not keep holding one of today's uses.
+        let unfinished: string | null = null;
+        const release = () => {
+          if (unfinished && signal.reason !== SESSION_CHANGED)
+            void cancelJob(unfinished).catch(() => {});
+        };
         try {
+          // The tab may still show the last lecture until the new page commits.
+          const previous = await lectureDocument();
           const opened = await queryActive(
             { version: 1, type: "RECORDING_OPEN", handle, reuse: true },
             { target: selection.target, signal },
@@ -168,19 +207,33 @@ export function useCaptionQueue() {
           }
           patch(mine, { phase: "identifying" });
           const media = await lectureMedia(previous, signal);
-          previous = media.documentId;
+          let job: string | null = null;
           const submitted = await submitLecture(media, {
             signal,
             live: () => !signal.aborted,
-            onJob: (jobId) => patch(mine, { jobId }),
-            onPhase: (phase) => patch(mine, { phase, progress: 0 }),
+            onJob: (jobId) => {
+              job = jobId;
+              if (unfinished) unfinished = jobId;
+              patch(mine, { jobId });
+            },
+            onPhase: (phase) => {
+              if (phase === "extracting") unfinished = job;
+              patch(mine, { phase, progress: 0 });
+            },
             onProgress: (bytes) => patch(mine, { progress: bytes }),
           });
-          if (!submitted) break;
+          if (!submitted) {
+            release();
+            break;
+          }
+          unfinished = null;
           patch(mine, { phase: "queued", progress: null, jobId: submitted.jobId });
           track(submitted.jobId, submitted.key);
         } catch (error) {
-          if (signal.aborted) break;
+          if (signal.aborted) {
+            release();
+            break;
+          }
           const code = errorCode(error);
           patch(mine, { phase: "failed", progress: null, errorCode: code });
           if (FATAL.has(code)) {
@@ -209,6 +262,6 @@ export function useCaptionQueue() {
       if (!controller.current) setItems([]);
     },
     /** Stops opening and uploading; jobs already queued keep running. */
-    stop: () => controller.current?.abort(),
+    stop: () => controller.current?.abort("stopped"),
   };
 }

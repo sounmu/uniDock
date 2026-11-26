@@ -11,6 +11,10 @@ vi.mock("../src/captions/download", () => ({ downloadCaption }));
 const aiDelivery = vi.hoisted(() => ({
   current: null as VideoCaptionDelivery | null,
 }));
+vi.mock("../entrypoints/sidepanel/CaptionQueue", () => ({
+  CaptionQueue: ({ picking, onPick }: { picking: boolean; onPick: () => void }) =>
+    picking ? <p>강의 고르는 화면</p> : <button onClick={onPick}>강의 고르기</button>,
+}));
 vi.mock("../entrypoints/sidepanel/AiCaptionsSection", async () => {
   const { useEffect } = await import("react");
   return {
@@ -575,4 +579,17 @@ it("expires captions after five minutes and removes listeners on unmount", async
     expect(event.removeListener).toHaveBeenCalledWith(
       event.addListener.mock.calls[0]![0],
     );
+});
+
+it("starts each outside entry fresh, closing a picker opened earlier", async () => {
+  const { CaptionsPanel } = await import("../entrypoints/sidepanel/CaptionsPanel");
+  ui = await mount(<CaptionsPanel visit={1} />);
+  await click("강의 고르기");
+  expect(ui.host.textContent).toContain("강의 고르는 화면");
+  await ui.render(<CaptionsPanel visit={2} />);
+  expect(ui.host.textContent).not.toContain("강의 고르는 화면");
+  expect(ui.host.querySelector("button")?.closest("[hidden]")).toBeNull();
+  const queueEntry = { course: { id: "1", name: "과목" }, recordings: [], target: { id: 1, url: "https://mylms.korea.ac.kr/" }, selectedHandles: [] } as never;
+  await ui.render(<CaptionsPanel visit={3} queueEntry={queueEntry} />);
+  expect(ui.host.textContent).toContain("강의 고르는 화면");
 });
