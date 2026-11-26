@@ -7,6 +7,15 @@ Keep its status, lecture label, remaining count and keyboard-accessible dismiss
 control. It informs without dimming the page or adding a backdrop; resuming a
 retained paused lecture keeps its existing authorized player tab and position.
 
+The capsule belongs to windows without an open uniDock panel. While a panel
+page is open in a window (the side panel, the popup fallback or
+`sidepanel.html` in a tab), that window's LMS tabs show no capsule, because the
+panel already shows the work. It returns when the panel closes, and panels in
+other windows change nothing. A returning capsule shows only work that is still
+going: a job the server accepted keeps its progress, while preparation that
+needs a panel (reading and uploading lecture audio) is never shown as in
+progress once no panel page is open.
+
 Layout: Home and the shared shell use one document-scrolling column and the
 existing floating bottom capsule, now with four equal entries: 홈, 내 과목,
 일정, 설정. Keep the existing tokens, safe-area spacing and 44px targets.

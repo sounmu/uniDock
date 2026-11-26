@@ -48,6 +48,7 @@ import {
 } from "../src/popup-settings";
 import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
 import { ProgressHub } from "../src/progress-hub";
+import { PanelPresence, panelPortWindow } from "../src/panel-presence";
 import {
   CAPTION_JOB_ALARM,
   CAPTION_JOB_PORT,
@@ -502,8 +503,22 @@ export default defineBackground(() => {
   const progress = __UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__ ? new ProgressHub() : null;
   if (progress && chrome.tabs?.onUpdated)
     chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-      if (change.status === "complete") progress.tabReady(tabId, tab.url);
+      if (change.status === "complete") progress.tabReady(tabId, tab.url, tab.windowId);
     });
+  // An open panel page takes over from the LMS pill in its own window.
+  if (progress && chrome.runtime.onConnect) {
+    const panels = new PanelPresence((windows) => progress.setPanels(windows));
+    chrome.runtime.onConnect.addListener((port) => {
+      const windowId = panelPortWindow(port.name);
+      if (windowId === null) return;
+      if (!port.sender || !panelSender(port.sender)) return port.disconnect();
+      panels.connect(port, windowId);
+    });
+    chrome.tabs?.onAttached?.addListener((tabId, { newWindowId }) => {
+      panels.tabMoved(tabId, newWindowId);
+      progress.tabMoved(tabId);
+    });
+  }
   const captionJobs =
     __UNIDOCK_AI_CAPTIONS__ && chrome.runtime.onConnect
       ? new CaptionJobMonitor(undefined, (jobs) => progress?.setCaptions(jobs))

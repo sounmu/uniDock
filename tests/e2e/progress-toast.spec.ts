@@ -1,15 +1,13 @@
-import { expect } from "@playwright/test";
+import { expect, type BrowserContext } from "@playwright/test";
 import path from "node:path";
 import { nativeVisibilityTest as test } from "./native-visibility";
 import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 
 test.use({ nativeExtension: path.resolve(".output/chrome-mv3") });
 
-test("paused playback capsule stays readable without a cast shadow", async ({ context }, testInfo) => {
-  test.skip(
-    !playbackBuild() && !aiCaptionsBuild(),
-    "requires a playback or AI caption build for progress notifications",
-  );
+const SKIP_REASON = "requires a playback or AI caption build for progress notifications";
+
+async function pausedLecturePage(context: BrowserContext) {
   const origin = "https://mylms.korea.ac.kr";
   await context.route(`${origin}/**`, (route) => route.fulfill({
     contentType: "text/html",
@@ -36,7 +34,12 @@ test("paused playback capsule stays readable without a cast shadow", async ({ co
       items: [{ kind: "playback", id: "playback", status: "paused", title: "샘플 강의", remaining: 1 }],
     });
   }, origin);
-  const capsule = page.locator("#unidock-progress .capsule");
+  return { page, worker, capsule: page.locator("#unidock-progress .capsule") };
+}
+
+test("paused playback capsule stays readable without a cast shadow", async ({ context }, testInfo) => {
+  test.skip(!playbackBuild() && !aiCaptionsBuild(), SKIP_REASON);
+  const { page, capsule } = await pausedLecturePage(context);
   await expect(capsule).toBeVisible();
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -48,5 +51,19 @@ test("paused playback capsule stays readable without a cast shadow", async ({ co
   await close.focus();
   await expect(close).toBeFocused();
   await close.press("Enter");
+  await expect(capsule).toHaveCount(0);
+});
+
+test("capsule leaves the LMS page while a uniDock panel page is open in its window", async ({ context }) => {
+  test.skip(!playbackBuild() && !aiCaptionsBuild(), SKIP_REASON);
+  // Given an LMS page showing the capsule
+  const { worker, capsule } = await pausedLecturePage(context);
+  await expect(capsule).toBeVisible();
+  // When the panel page opens as a tab of the same window
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
+  expect(await worker.evaluate(async () =>
+    new Set((await chrome.tabs.query({})).map((tab) => tab.windowId)).size)).toBe(1);
+  // Then the panel shows the work and the capsule is gone
   await expect(capsule).toHaveCount(0);
 });

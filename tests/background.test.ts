@@ -587,6 +587,85 @@ it("resumes saved caption jobs on browser startup even without their alarm", () 
   expect(resume).toHaveBeenCalledOnce();
 });
 
+function panelPortFixture() {
+  const connect = vi.fn<(listener: (port: chrome.runtime.Port) => void) => void>();
+  const attached =
+    vi.fn<(listener: (tabId: number, info: { newWindowId: number }) => void) => void>();
+  const tabMessage = vi.fn().mockResolvedValue(undefined);
+  const lms = { id: 3, url: "https://mylms.korea.ac.kr/", windowId: 7 };
+  const query = vi.fn().mockResolvedValue([lms]);
+  const get = vi.fn().mockResolvedValue(lms);
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener: vi.fn() },
+      onConnect: { addListener: connect },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+    tabs: {
+      query,
+      get,
+      sendMessage: tabMessage,
+      onUpdated: { addListener: vi.fn() },
+      onAttached: { addListener: attached },
+    },
+  });
+  background.main();
+  return {
+    tabMessage,
+    attached,
+    /** Resolves after the worker acted on every tab lookup it has started. */
+    looked: () =>
+      Promise.all([...query.mock.results, ...get.mock.results].map((result) => result.value)),
+    open(name: string, url: string) {
+      const port = {
+        name,
+        sender: { id: "test", url },
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onMessage: { addListener: vi.fn() },
+        onDisconnect: { addListener: vi.fn() },
+      };
+      for (const [listener] of connect.mock.calls)
+        listener(port as unknown as chrome.runtime.Port);
+      return port;
+    },
+  };
+}
+
+it("hides the LMS pill in the window of a connected panel page and refuses the port to other pages", async () => {
+  const f = panelPortFixture();
+  const nothing = { version: 1, type: "PROGRESS_STATE", items: [] };
+
+  const forged = f.open("unidock-panel:7", "https://mylms.korea.ac.kr/");
+  expect(forged.disconnect).toHaveBeenCalledOnce();
+  expect(forged.postMessage).not.toHaveBeenCalled();
+  const unrelated = f.open("unidock-other", "chrome-extension://test/sidepanel.html");
+  expect(unrelated.disconnect).not.toHaveBeenCalled();
+  await f.looked();
+  expect(f.tabMessage).not.toHaveBeenCalled();
+
+  const panel = f.open("unidock-panel:7", "chrome-extension://test/sidepanel.html");
+  expect(panel.disconnect).not.toHaveBeenCalled();
+  expect(panel.postMessage).toHaveBeenCalledWith({ type: "ready" });
+  await f.looked();
+  expect(f.tabMessage.mock.calls).toEqual([[3, nothing, { frameId: 0 }]]);
+
+  f.tabMessage.mockClear();
+  for (const [listener] of f.attached.mock.calls) listener(3, { newWindowId: 7 });
+  await f.looked();
+  expect(f.tabMessage.mock.calls).toEqual([[3, nothing, { frameId: 0 }]]);
+});
+
 it("does not broadcast rejected playback messages", () => {
   const f = commandBroadcastFixture();
   const respond = vi.fn();
