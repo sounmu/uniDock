@@ -18,6 +18,7 @@ import type { JobPhase } from "../../src/captions/job-state";
 import { lectureTabKey, OPEN_RATE_WINDOW_MS } from "../../src/open-tab";
 import type { Result } from "../../src/protocol";
 import { queryActive, type QueryTarget } from "../../src/transport";
+import { publishQueuePreparing } from "./progress-activity";
 
 export type QueuePhase = "waiting" | "opening" | JobPhase;
 
@@ -41,6 +42,14 @@ const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED"
 const LOST_SELECTION = new Set(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION"]);
 // A run stopped by a sign-in change must not touch the next account's jobs.
 const SESSION_CHANGED = "session-changed";
+
+const PREPARING: ReadonlySet<QueuePhase> = new Set([
+  "waiting",
+  "opening",
+  "identifying",
+  "extracting",
+  "uploading",
+]);
 
 class QueueError extends Error {
   constructor(readonly code: string) {
@@ -330,13 +339,16 @@ export function useCaptionQueue() {
       if (controller.current === abort) controller.current = null;
       if (mounted.current) {
         setRunning(false);
-        patch(
-          (item) => ["waiting", "opening", "identifying", "extracting", "uploading"].includes(item.phase),
-          { phase: "cancelled", progress: null },
-        );
+        patch((item) => PREPARING.has(item.phase), { phase: "cancelled", progress: null });
       }
     }
   }
+
+  // While lectures still wait to be read and uploaded, the batch owns this
+  // panel's one audio slot; the current-lecture card stays out of the way.
+  const preparing = items.some((item) => PREPARING.has(item.phase));
+  useEffect(() => publishQueuePreparing(preparing), [preparing]);
+  useEffect(() => () => publishQueuePreparing(false), []);
 
   return {
     items,

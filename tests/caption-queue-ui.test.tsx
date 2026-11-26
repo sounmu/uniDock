@@ -11,6 +11,7 @@ const identifyMedia = vi.hoisted(() => vi.fn());
 const submitLecture = vi.hoisted(() => vi.fn());
 const cancelJob = vi.hoisted(() => vi.fn());
 const mediaAccess = vi.hoisted(() => vi.fn());
+const publishQueuePreparing = vi.hoisted(() => vi.fn());
 vi.mock("../src/transport", () => ({ queryActive }));
 vi.mock("../src/captions/media-source", async (original) => ({
   ...(await original<object>()),
@@ -20,6 +21,10 @@ vi.mock("../src/captions/media-source", async (original) => ({
 vi.mock("../src/captions/submit-lecture", async (original) => ({
   ...(await original<object>()),
   submitLecture,
+}));
+vi.mock("../entrypoints/sidepanel/progress-activity", async (original) => ({
+  ...(await original<object>()),
+  publishQueuePreparing,
 }));
 vi.mock("../src/captions/job-client", async (original) => ({
   ...(await original<object>()),
@@ -429,6 +434,8 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
     run = queue.start({ handles: ["a", "b"], target }, String);
   });
   await vi.waitFor(() => expect(phases()[0]).toBe("extracting"));
+  // While lectures wait to be read and uploaded, the batch holds the panel's audio slot.
+  expect(publishQueuePreparing.mock.calls.at(-1)).toEqual([true]);
   let cancelled!: () => void;
   cancelJob.mockReturnValueOnce(new Promise<void>((resolve) => (cancelled = resolve)));
   await act(async () => queue.stop());
@@ -442,6 +449,7 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
   expect(queue.running).toBe(false);
   expect(phases()).toEqual(["cancelled", "cancelled"]);
   expect(opens()).toHaveLength(1);
+  expect(publishQueuePreparing.mock.calls.at(-1)).toEqual([false]);
 });
 
 it("cancels the job of a lecture whose audio could not be read before going on", async () => {

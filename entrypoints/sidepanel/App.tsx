@@ -13,7 +13,7 @@ import { TasksScreen } from "./screens/TasksScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ProgressStrip } from "./ProgressStrip";
-import { useActivity } from "./progress-activity";
+import { lectureBusy, useActivity, useCaptionWork } from "./progress-activity";
 import { useStickyHeight } from "./ui/sticky-height";
 import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
@@ -36,6 +36,7 @@ export function App() {
   const [queueEntry, setQueueEntry] = useState<RecordingEntry>();
   const [captionsVisit, setCaptionsVisit] = useState(0);
   const activeLecture = useActiveLecture(__UNIDOCK_AI_CAPTIONS__);
+  const captionWork = useCaptionWork();
   const [playbackOpened, setPlaybackOpened] = useState(false);
   const [playbackEntry, setPlaybackEntry] = useState<PlaybackEntry>();
   const analytics = useAnalytics(info ? "INFO" : tool.detail === "captions" ? "CAPTIONS"
@@ -124,7 +125,7 @@ export function App() {
       <main>
         <div className="work-strip" ref={workStrip}>
           <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
-          {activeLecture && !info && tool.detail !== "captions" && (
+          {activeLecture && !info && tool.detail !== "captions" && !lectureBusy(captionWork, activeLecture.tabId) && (
             <ActiveLectureCard lecture={activeLecture} onOpen={() => {
               setCaptionEntry({ title: activeLecture.title, detect: true });
               openTool("captions");
