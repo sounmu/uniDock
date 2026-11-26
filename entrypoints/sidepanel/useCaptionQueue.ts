@@ -35,6 +35,8 @@ const MEDIA_RETRY_MS = 1_500;
 const MAX_RECONNECTS = 5;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
+// Opens that fail this way fail the same way for every remaining lecture.
+const LOST_SELECTION = new Set(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION"]);
 // A run stopped by a sign-in change must not touch the next account's jobs.
 const SESSION_CHANGED = "session-changed";
 
@@ -169,6 +171,12 @@ export function useCaptionQueue() {
     const abort = new AbortController();
     controller.current = abort;
     const { signal } = abort;
+    // Spend the list's short-lived handles now; the list tab keeps the lectures
+    // for as long as earlier uploads take.
+    const admission = queryActive(
+      { version: 1, type: "CAPTION_BATCH_ADMIT", handles: [...selection.handles] },
+      { target: selection.target, signal },
+    ).catch((error: unknown) => ({ status: "error" as const, code: errorCode(error) }));
     setItems(selection.handles.map((handle) => ({
       handle,
       title: titleOf(handle),
@@ -179,11 +187,20 @@ export function useCaptionQueue() {
     })));
     setRunning(true);
     try {
-      if (!(await access)) {
+      const [allowed, admitted] = await Promise.all([access, admission]);
+      if (!allowed) {
         patch(() => true, { phase: "failed", errorCode: "PERMISSION" });
         return;
       }
-      for (const handle of selection.handles) {
+      if (!("batch" in admitted)) {
+        if (!signal.aborted)
+          patch(() => true, {
+            phase: "failed",
+            errorCode: admitted.status === "error" ? admitted.code : "STALE_SELECTION",
+          });
+        return;
+      }
+      for (const [index, handle] of selection.handles.entries()) {
         if (signal.aborted) break;
         const mine = (item: QueueItem) => item.handle === handle;
         patch(mine, { phase: "opening" });
@@ -198,12 +215,14 @@ export function useCaptionQueue() {
           // The tab may still show the last lecture until the new page commits.
           const previous = await lectureDocument();
           const opened = await queryActive(
-            { version: 1, type: "RECORDING_OPEN", handle, reuse: true },
+            { version: 1, type: "CAPTION_BATCH_OPEN", batch: admitted.batch, index },
             { target: selection.target, signal },
           );
           if (opened.status !== "success") {
             patch(mine, { phase: "failed", errorCode: opened.code });
-            continue;
+            if (!LOST_SELECTION.has(opened.code)) continue;
+            patch((item) => item.phase === "waiting", { phase: "failed", errorCode: opened.code });
+            break;
           }
           patch(mine, { phase: "identifying" });
           const media = await lectureMedia(previous, signal);

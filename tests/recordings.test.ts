@@ -5,7 +5,7 @@ import {
   recordingCandidate,
   recordingLabel,
 } from "../src/recordings";
-import { NavigationCatalog } from "../src/navigation-catalog";
+import { CAPTION_BATCH_IDLE_MS, NavigationCatalog } from "../src/navigation-catalog";
 import { listQuery } from "../src/api/client";
 import { isRequest, parseResult } from "../src/protocol";
 import { navigationUrl, playerUrl } from "../src/security/navigation";
@@ -84,6 +84,52 @@ it("validates a recording batch completely before spending any handle", () => {
     `${origin}/courses/101/modules/items/502`,
   ]);
   expect(store.takeRecordingBatch([first], origin, now)).toBeNull();
+});
+
+const player = "https://kucom.korea.ac.kr/em/0123456789abcdef";
+function captionStore(lockAt?: string) {
+  const store = catalog();
+  const listed = store.replace(
+    origin,
+    [
+      { module: "Week", title: "Lecture", courseId: "101", itemId: "501", moduleAccess: {}, itemAccess: lockAt ? { lock_at: lockAt } : {} },
+      { module: "Board", title: "Board video", courseId: "101", boardToolId: "7", playerUrl: player, moduleAccess: {}, itemAccess: {} },
+    ],
+    now,
+  );
+  return { store, listed };
+}
+
+it("admits module and board lectures as one caption batch and spends their handles", () => {
+  const { store, listed } = captionStore();
+  const handles = listed.map((item) => item.launchHandle);
+  const batch = store.takeCaptionBatch(handles, origin, now);
+  expect(batch?.take(0, origin, now)?.url).toBe(`${origin}/courses/101/modules/items/501`);
+  expect(batch?.take(1, origin, now)?.url).toBe(player);
+  expect(store.take(handles[0]!, origin, now)).toBeNull();
+  expect(store.takeCaptionBatch(handles, origin, now)).toBeNull();
+});
+
+it("refuses a caption batch with a course page, an expired handle or a repeated lecture, and spends nothing", () => {
+  const { store, listed } = captionStore();
+  const [lecture, board] = listed;
+  expect(store.takeCaptionBatch([lecture!.launchHandle, lecture!.lmsHandle], origin, now)).toBeNull();
+  expect(store.takeCaptionBatch([lecture!.launchHandle], origin, now + 300_000)).toBeNull();
+  expect(store.takeCaptionBatch([lecture!.launchHandle, lecture!.launchHandle], origin, now)).toBeNull();
+  expect(store.takeCaptionBatch([lecture!.launchHandle, board!.launchHandle], origin, now)).not.toBeNull();
+});
+
+it("keeps admitted lectures past the handle lifetime, once each, until idle or locked", () => {
+  const lockAt = new Date(now + 3_600_000).toISOString();
+  const { store, listed } = captionStore(lockAt);
+  const batch = store.takeCaptionBatch(listed.map((item) => item.launchHandle), origin, now)!;
+  const later = now + 600_000;
+  const first = batch.take(0, origin, later);
+  expect(first?.url).toBe(`${origin}/courses/101/modules/items/501`);
+  expect(batch.take(0, origin, later)).toBeNull();
+  first!.restore();
+  expect(batch.take(0, origin, now + 3_600_000)).toBeNull();
+  expect(batch.take(1, origin, later + CAPTION_BATCH_IDLE_MS)).toBeNull();
 });
 
 it("rejects duplicate, expired, and wrong-kind batches without partial consumption", () => {

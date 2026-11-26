@@ -17,7 +17,7 @@ Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-f
 | LMS query lifecycle and stale-result guarding | `useSidepanelQuery.ts`, `query-gate.ts` (`QueryGate`), `query-messages.ts` |
 | Sequential playback UI | `PlaybackPanel.tsx`, `usePlaybackPanel.ts`, `screens/PlaybackConfirmation.tsx`; lecture lists and selection in `useRecordingPicker.ts` |
 | Caption extraction / AI captions | `CaptionsPanel.tsx`, `AiCaptionsSection.tsx`, `useAiCaptions.ts`, `useCaptionSession.ts`, `useCaptionAccount.ts`, `CaptionServerSettings.tsx` |
-| AI captions for several lectures | `CaptionQueue.tsx`, `useCaptionQueue.ts` (one lecture tab, see `src/open-tab.ts`), `src/captions/submit-lecture.ts` |
+| AI captions for several lectures | `CaptionQueue.tsx`, `useCaptionQueue.ts`, `src/captions/submit-lecture.ts`; the selection is admitted at once (`CAPTION_BATCH_ADMIT`, `CaptionBatch` in `src/navigation-catalog.ts`, held by `entrypoints/lms.content.ts`) and each lecture opens in one lecture tab (`CAPTION_BATCH_OPEN`, `src/open-tab.ts`) |
 | Bulk material downloads | `screens/MaterialsTab.tsx`, `useDocumentDownloads.ts` |
 | Assignment and item lists | `ItemResults.tsx`, `ResultList.tsx`, `PagedList.tsx`, `ItemDetail.tsx` |
 | Usage stats opt-out and notice | `analytics.ts`, `useAnalytics.ts`, `AnalyticsSettings.tsx` |

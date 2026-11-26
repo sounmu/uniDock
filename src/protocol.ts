@@ -68,13 +68,11 @@ export type CapabilityListRequest =
 export type Request =
   | ListRequest
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
-  | {
-      version: 1;
-      type: "RECORDING_OPEN" | "DOCUMENT_OPEN";
-      handle: string;
-      /** Open a recording in the one lecture tab kept for caption work. */
-      reuse?: true;
-    };
+  | { version: 1; type: "RECORDING_OPEN" | "DOCUMENT_OPEN"; handle: string }
+  /** Spends a caption selection at once; the list tab keeps its lectures. */
+  | { version: 1; type: "CAPTION_BATCH_ADMIT"; handles: readonly string[] }
+  /** Opens one admitted lecture in the lecture tab kept for caption work. */
+  | { version: 1; type: "CAPTION_BATCH_OPEN"; batch: string; index: number };
 export type PanelQueryMessage =
   | Exclude<Request, { type: "DOCUMENT_DOWNLOAD" }>
   | {
@@ -134,6 +132,7 @@ export type Result =
   | { status: "success"; documents: Document[] }
   | { status: "success"; opened: true }
   | { status: "success"; downloaded: true }
+  | { status: "success"; batch: string }
   | { status: "success"; courses: Course[] }
   | { status: "success"; assignments: Assignment[] }
   | { status: "success"; deadlines: Deadline[] }
@@ -156,10 +155,23 @@ export function isRequest(value: unknown): value is Request {
   if (row.type === "COURSES_LIST" || row.type === "TODO_LIST")
     return keys.length === 2;
   if (row.type === "RECORDING_OPEN" || row.type === "DOCUMENT_OPEN")
+    return keys.length === 3 && validHandle(row.handle);
+  if (row.type === "CAPTION_BATCH_ADMIT")
     return (
-      validHandle(row.handle) &&
-      (keys.length === 3 ||
-        (keys.length === 4 && row.type === "RECORDING_OPEN" && row.reuse === true))
+      keys.length === 3 &&
+      Array.isArray(row.handles) &&
+      row.handles.length > 0 &&
+      row.handles.length <= 100 &&
+      row.handles.every(validHandle) &&
+      new Set(row.handles).size === row.handles.length
+    );
+  if (row.type === "CAPTION_BATCH_OPEN")
+    return (
+      keys.length === 4 &&
+      validHandle(row.batch) &&
+      Number.isInteger(row.index) &&
+      (row.index as number) >= 0 &&
+      (row.index as number) < 100
     );
   if (
     row.type === "ASSIGNMENTS_LIST" ||
@@ -296,9 +308,17 @@ export function parseResult(
         Object.keys(row).length === 2 &&
         (!expected ||
           expected.type === "RECORDING_OPEN" ||
-          expected.type === "DOCUMENT_OPEN")
+          expected.type === "DOCUMENT_OPEN" ||
+          expected.type === "CAPTION_BATCH_OPEN")
       )
         return { status: "success", opened: true };
+      if (
+        row.status === "success" &&
+        validHandle(row.batch) &&
+        Object.keys(row).length === 2 &&
+        expected?.type === "CAPTION_BATCH_ADMIT"
+      )
+        return { status: "success", batch: row.batch };
       if (
         row.status === "success" &&
         row.downloaded === true &&

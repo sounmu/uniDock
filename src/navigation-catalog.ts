@@ -1,5 +1,5 @@
 import { accessible, type Metadata, type Recording } from "./recordings";
-import { navigationUrl } from "./security/navigation";
+import { navigationUrl, playerUrl } from "./security/navigation";
 import type { Document } from "./documents";
 import { lmsFileDownloadUrl } from "./security/download";
 export interface RecordingTarget {
@@ -33,6 +33,42 @@ interface Entry {
   expires: number;
   moduleAccess: Metadata;
   itemAccess: Metadata;
+}
+/** How long an admitted caption batch waits for its next lecture to open. */
+export const CAPTION_BATCH_IDLE_MS = 1_800_000;
+const moduleItemPath = /^\/courses\/[1-9]\d{0,19}\/modules\/items\/[1-9]\d{0,19}$/;
+
+/** Lectures a caption run was admitted for, opened once each by position.
+    The list's handles are already spent, so a long upload cannot outlive them. */
+export class CaptionBatch {
+  private expires: number;
+  private readonly used = new Set<number>();
+  constructor(
+    private readonly targets: readonly Pick<Entry, "url" | "moduleAccess" | "itemAccess">[],
+    now: number,
+  ) {
+    this.expires = now + CAPTION_BATCH_IDLE_MS;
+  }
+  take(
+    index: number,
+    origin: string,
+    now = Date.now(),
+  ): { url: string; restore: () => void } | null {
+    const target = this.targets[index];
+    if (
+      !target ||
+      this.used.has(index) ||
+      this.expires <= now ||
+      !accessible(target.moduleAccess, now) ||
+      !accessible(target.itemAccess, now)
+    )
+      return null;
+    const url = navigationUrl(target.url, origin);
+    if (!url) return null;
+    this.used.add(index);
+    this.expires = now + CAPTION_BATCH_IDLE_MS;
+    return { url, restore: () => this.used.delete(index) };
+  }
 }
 export interface NavigationCatalogCapacity {
   reserve(count: number): boolean;
@@ -253,6 +289,32 @@ export class NavigationCatalog {
     origin: string,
     now = Date.now(),
   ): string[] | null {
+    return (
+      this.spendBatch(handles, origin, now, (url) =>
+        moduleItemPath.test(new URL(url).pathname),
+      )?.map((target) => target.url) ?? null
+    );
+  }
+  /** Validate and spend a caption selection, module lectures or board players. */
+  takeCaptionBatch(
+    handles: readonly string[],
+    origin: string,
+    now = Date.now(),
+  ): CaptionBatch | null {
+    const targets = this.spendBatch(
+      handles,
+      origin,
+      now,
+      (url) => playerUrl(url) === url || moduleItemPath.test(new URL(url).pathname),
+    );
+    return targets ? new CaptionBatch(targets, now) : null;
+  }
+  private spendBatch(
+    handles: readonly string[],
+    origin: string,
+    now: number,
+    launch: (url: string) => boolean,
+  ): Pick<Entry, "url" | "moduleAccess" | "itemAccess">[] | null {
     if (
       this.revoked ||
       handles.length < 1 ||
@@ -260,7 +322,7 @@ export class NavigationCatalog {
       new Set(handles).size !== handles.length
     )
       return null;
-    const urls: string[] = [];
+    const targets: Pick<Entry, "url" | "moduleAccess" | "itemAccess">[] = [];
     const canonicalUrls = new Set<string>();
     for (const handle of handles) {
       const entry = this.entries.get(handle);
@@ -273,19 +335,13 @@ export class NavigationCatalog {
       )
         return null;
       const url = navigationUrl(entry.url, origin);
-      if (
-        !url ||
-        !/^\/courses\/[1-9]\d{0,19}\/modules\/items\/[1-9]\d{0,19}$/.test(
-          new URL(url).pathname,
-        )
-      )
-        return null;
-      if (canonicalUrls.has(url)) return null;
+      // A recording's course page shares its kind; only launch targets count.
+      if (!url || !launch(url) || canonicalUrls.has(url)) return null;
       canonicalUrls.add(url);
-      urls.push(url);
+      targets.push({ url, moduleAccess: entry.moduleAccess, itemAccess: entry.itemAccess });
     }
     for (const handle of handles) this.remove(handle);
-    return urls;
+    return targets;
   }
   takeDownload(
     handle: string,

@@ -61,4 +61,6 @@ export const resultKey = {
   RECORDING_OPEN: "opened",
   DOCUMENT_OPEN: "opened",
   DOCUMENT_DOWNLOAD: "downloaded",
+  CAPTION_BATCH_ADMIT: "batch",
+  CAPTION_BATCH_OPEN: "opened",
 } as const;

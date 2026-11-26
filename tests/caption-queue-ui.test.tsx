@@ -43,6 +43,13 @@ const media = (documentId: string) => ({
   documentId,
 });
 const noPlayer = () => Promise.reject(new Error("no player"));
+const batch = "00000000-0000-4000-8000-0000000000b1";
+const admitted = async (request: { type: string }) =>
+  request.type === "CAPTION_BATCH_ADMIT"
+    ? { status: "success", batch }
+    : { status: "success", opened: true };
+const opens = () =>
+  queryActive.mock.calls.filter(([request]) => request.type === "CAPTION_BATCH_OPEN");
 let posted: unknown[];
 let receive: ((message: unknown) => void) | undefined;
 let storageChanged: StorageListener | undefined;
@@ -70,7 +77,7 @@ beforeEach(() => {
       }),
     },
   });
-  queryActive.mockResolvedValue({ status: "success", opened: true });
+  queryActive.mockImplementation(admitted);
   cancelJob.mockResolvedValue(undefined);
   submitLecture.mockImplementation(async (found: { documentId: string }) => ({
     jobId: `job-${found.documentId}`,
@@ -118,8 +125,9 @@ it("opens each lecture in the lecture tab and waits for its own player", async (
     await run;
   });
   expect(queryActive.mock.calls.map(([request]) => request)).toEqual([
-    { version: 1, type: "RECORDING_OPEN", handle: "a", reuse: true },
-    { version: 1, type: "RECORDING_OPEN", handle: "b", reuse: true },
+    { version: 1, type: "CAPTION_BATCH_ADMIT", handles: ["a", "b"] },
+    { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 0 },
+    { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 1 },
   ]);
   expect(identifyMedia).toHaveBeenCalledWith(9);
   expect(submitLecture.mock.calls.map(([found]) => found.documentId)).toEqual(["first", "second"]);
@@ -128,13 +136,34 @@ it("opens each lecture in the lecture tab and waits for its own player", async (
 });
 
 it("skips a lecture that cannot be opened and goes on", async () => {
-  queryActive.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
+  queryActive
+    .mockImplementationOnce(admitted)
+    .mockResolvedValueOnce({ status: "error", code: "TAB_OPEN_FAILED" });
   identifyMedia.mockImplementationOnce(noPlayer).mockImplementationOnce(noPlayer);
   identifyMedia.mockResolvedValue(media("second"));
   await render();
   await act(() => queue.start({ handles: ["a", "b"], target }, String));
-  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "STALE_SELECTION" });
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "TAB_OPEN_FAILED" });
   expect(queue.items[1]?.phase).toBe("queued");
+});
+
+it("fails every lecture when the selection cannot be admitted", async () => {
+  queryActive.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
+  await render();
+  await act(() => queue.start({ handles: ["a", "b"], target }, String));
+  expect(queue.items.map((item) => item.errorCode)).toEqual(["STALE_SELECTION", "STALE_SELECTION"]);
+  expect(opens()).toHaveLength(0);
+  expect(submitLecture).not.toHaveBeenCalled();
+});
+
+it("stops opening once the list tab has lost the admitted lectures", async () => {
+  queryActive
+    .mockImplementationOnce(admitted)
+    .mockResolvedValueOnce({ status: "error", code: "RELOAD_TAB" });
+  await render();
+  await act(() => queue.start({ handles: ["a", "b", "c"], target }, String));
+  expect(queue.items.map((item) => item.errorCode)).toEqual(["RELOAD_TAB", "RELOAD_TAB", "RELOAD_TAB"]);
+  expect(opens()).toHaveLength(1);
 });
 
 it("stops the whole queue once today's quota runs out", async () => {
@@ -142,7 +171,7 @@ it("stops the whole queue once today's quota runs out", async () => {
   submitLecture.mockRejectedValueOnce(Object.assign(new Error("quota"), { code: "QUOTA_EXCEEDED" }));
   await render();
   await act(() => queue.start({ handles: ["a", "b", "c"], target }, String));
-  expect(queryActive).toHaveBeenCalledOnce();
+  expect(opens()).toHaveLength(1);
   expect(queue.items.map((item) => item.errorCode)).toEqual([
     "QUOTA_EXCEEDED",
     "QUOTA_EXCEEDED",
@@ -182,7 +211,7 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
   });
   expect(cancelJob).toHaveBeenCalledWith("job-open");
   expect(phases()).toEqual(["cancelled", "cancelled"]);
-  expect(queryActive).toHaveBeenCalledOnce();
+  expect(opens()).toHaveLength(1);
 });
 
 it("keeps a job the server already accepted when stopped", async () => {
@@ -216,5 +245,5 @@ it("ends the run without touching jobs when the sign-in changes", async () => {
   });
   expect(cancelJob).not.toHaveBeenCalled();
   expect(queue.running).toBe(false);
-  expect(queryActive).toHaveBeenCalledOnce();
+  expect(opens()).toHaveLength(1);
 });

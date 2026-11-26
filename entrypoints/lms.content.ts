@@ -1,4 +1,4 @@
-import { NavigationCatalog } from "../src/navigation-catalog";
+import { NavigationCatalog, type CaptionBatch } from "../src/navigation-catalog";
 import {
   NavigationCatalogRegistry,
   type NavigationCatalogAdmission,
@@ -73,6 +73,8 @@ export default defineContentScript({
     const cache = new QueryResultCache();
     let cacheAccount: string | undefined;
     let lifecycleEpoch = 0;
+    // One caption run per document; a new admission replaces the old one.
+    let captionBatch: { id: string; account: string; targets: CaptionBatch } | undefined;
     let courseIndexGeneration = 0;
     let courseIndexPending:
       | {
@@ -88,6 +90,7 @@ export default defineContentScript({
       cacheAccount = undefined;
       catalogs.revokeAll();
       courseSelectors.revokeAll();
+      captionBatch = undefined;
     };
     globalThis.addEventListener?.("pagehide", clearCachedState);
     // The background rate limit refuses before acting, so the one-use handle
@@ -107,7 +110,6 @@ export default defineContentScript({
     async function open(
       handle: string,
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
-      reuse: boolean,
     ): Promise<Result> {
       const epoch = lifecycleEpoch;
       const catalog = catalogs.findPublished(handle);
@@ -140,7 +142,6 @@ export default defineContentScript({
           version: 1,
           type: "OPEN_LMS_TARGET",
           url: taken.url,
-          ...(reuse ? { reuse: true } : {}),
         });
         const result: unknown = await dispatched;
         return refused(
@@ -152,6 +153,73 @@ export default defineContentScript({
           catalog,
           taken.restore,
         );
+      } catch {
+        return { status: "error", code: "TAB_OPEN_FAILED" };
+      }
+    }
+    async function admitCaptionBatch(handles: readonly string[]): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const catalog = catalogs.findPublished(handles[0] ?? "");
+      let account: string;
+      try {
+        account = await currentAccount(location.origin);
+      } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        invalidateScope(epoch);
+        return accountError(error);
+      }
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (!catalog || !catalogs.isPublished(catalog) || !catalog.hasOwner())
+        return { status: "error", code: "STALE_SELECTION" };
+      if (!catalog.ownedBy(account, epoch)) {
+        invalidateScope(epoch);
+        return { status: "error", code: "LOGIN_REQUIRED" };
+      }
+      const targets = catalog.takeCaptionBatch(handles, location.origin, Date.now());
+      if (!targets) return { status: "error", code: "STALE_SELECTION" };
+      const id = crypto.randomUUID();
+      captionBatch = { id, account, targets };
+      return { status: "success", batch: id };
+    }
+    async function openCaptionBatch(batch: string, index: number): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const current = captionBatch;
+      if (current?.id !== batch)
+        return { status: "error", code: "STALE_SELECTION" };
+      let account: string;
+      try {
+        account = await currentAccount(location.origin);
+      } catch (error) {
+        if (epoch !== lifecycleEpoch)
+          return { status: "error", code: "RELOAD_TAB" };
+        invalidateScope(epoch);
+        return accountError(error);
+      }
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (captionBatch !== current)
+        return { status: "error", code: "STALE_SELECTION" };
+      if (account !== current.account) {
+        invalidateScope(epoch);
+        return { status: "error", code: "LOGIN_REQUIRED" };
+      }
+      const taken = current.targets.take(index, location.origin, Date.now());
+      if (!taken) return { status: "error", code: "STALE_SELECTION" };
+      try {
+        const result = parseResult(
+          await chrome.runtime.sendMessage({
+            version: 1,
+            type: "OPEN_LMS_TARGET",
+            url: taken.url,
+            reuse: true,
+          }),
+          { version: 1, type: "CAPTION_BATCH_OPEN", batch, index },
+        );
+        // The rate limit refuses before opening, so the lecture can be retried.
+        if (result.status === "error" && result.code === "RATE_LIMITED") taken.restore();
+        return result;
       } catch {
         return { status: "error", code: "TAB_OPEN_FAILED" };
       }
@@ -775,8 +843,12 @@ export default defineContentScript({
                 ? download(request, parsed.deadline!)
                 : request.type === "RECORDING_OPEN" ||
                     request.type === "DOCUMENT_OPEN"
-                  ? open(request.handle, request.type, request.reuse === true)
-                  : list(request, parsed.refresh);
+                  ? open(request.handle, request.type)
+                  : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_ADMIT"
+                    ? admitCaptionBatch(request.handles)
+                    : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_OPEN"
+                      ? openCaptionBatch(request.batch, request.index)
+                      : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);
         }
