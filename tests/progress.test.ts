@@ -326,17 +326,53 @@ it("moves an LMS tab's pill with the tab between windows", async () => {
   tabMessage.mockClear();
 
   tabs[1]!.windowId = 1;
-  hub.tabMoved(4);
+  hub.tabMoved(4, 1);
   await delivered();
   expect(tabMessage.mock.calls).toEqual([[4, NOTHING, TOP]]);
 
   tabMessage.mockClear();
   tabs[0]!.windowId = 2;
-  hub.tabMoved(3);
-  hub.tabMoved(9);
-  hub.tabMoved(404);
+  hub.tabMoved(3, 2);
+  hub.tabMoved(9, 1);
+  hub.tabMoved(404, 1);
   await delivered();
   expect(tabMessage.mock.calls).toEqual([[3, hub.state(), TOP]]);
+});
+
+it("keeps the pill off a tab dragged into a panel's window after the tabs were listed", async () => {
+  twoWindows();
+  const hub = new ProgressHub();
+  hub.setPanels(new Set([1]));
+  await delivered();
+  tabMessage.mockClear();
+  let release!: () => void;
+  query.mockImplementationOnce(() => {
+    const listed = tabs.map((tab) => ({ ...tab }));
+    return new Promise((resolve) => (release = () => resolve(listed)));
+  });
+  hub.setCaptions([snapshot("running", 10)]);
+
+  tabs[1]!.windowId = 1;
+  hub.tabMoved(4, 1);
+  release();
+  await delivered();
+  expect(tabMessage.mock.calls).toEqual([[4, NOTHING, TOP]]);
+});
+
+it("keeps a running job listed when finished jobs and a failed preparation fill the list", () => {
+  const hub = new ProgressHub();
+  hub.setCaptions(
+    Array.from({ length: 8 }, (_, index) => ({
+      ...snapshot(index === 0 ? "running" : "succeeded", 10),
+      jobId: `job_m${index}`,
+    })),
+  );
+  hub.setWork({ single: single("failed"), queue: null });
+  const items = hub.state().items;
+  expect(items).toHaveLength(8);
+  expect(items.filter(progressActive).map((item) => item.id)).toEqual(["job_m0"]);
+  // The oldest finished job made room instead.
+  expect(items.map((item) => item.id)).not.toContain("job_m1");
 });
 
 it("shows preparation on LMS pages with no panel open, because it goes on without one", async () => {

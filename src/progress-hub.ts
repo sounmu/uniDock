@@ -14,6 +14,18 @@ import { allowedPage, LMS_MATCHES } from "./security/policy";
 const NOTHING: ProgressState = { version: 1, type: "PROGRESS_STATE", items: [] };
 const MAX_CAPTION_ITEMS = 8;
 
+/** The newest items up to the cap; finished ones make room first, so a
+    running job is never pushed out by one that is over. */
+function capped(items: readonly ProgressItem[]): ProgressItem[] {
+  let over = items.length - MAX_CAPTION_ITEMS;
+  const kept = items.filter((item) => {
+    if (over <= 0 || progressActive(item)) return true;
+    over--;
+    return false;
+  });
+  return kept.slice(-MAX_CAPTION_ITEMS);
+}
+
 /**
  * Worker-side collection of caption work and playback. Caption work is the
  * preparation the offscreen document does (reading and uploading audio, which
@@ -29,6 +41,9 @@ export class ProgressHub {
   private work: ProgressItem[] = [];
   private playback: ProgressItem | null = null;
   private panels: ReadonlySet<number> = new Set();
+  /** The window each dragged tab was last attached to: a tab list read
+      before the drag still names the old one. */
+  private readonly attached = new Map<number, number>();
   private sent = "[]";
   private shown = "[]";
   private tabsInvolved = false;
@@ -37,16 +52,16 @@ export class ProgressHub {
     // An accepted job is reported by the monitor before the document's next
     // report drops it from the preparation, so it is listed once, as followed.
     const followed = new Set(this.captions.map((item) => item.id));
-    const captions = [
+    const captions = capped([
       ...this.captions,
       ...this.work.filter((item) => !followed.has(item.id)),
-    ].slice(-MAX_CAPTION_ITEMS);
+    ]);
     const items = this.playback ? [this.playback, ...captions] : captions;
     return { version: 1, type: "PROGRESS_STATE", items };
   }
 
   setCaptions(snapshots: readonly CaptionJobSnapshot[]): void {
-    this.captions = snapshots.slice(-MAX_CAPTION_ITEMS).map(captionProgressItem);
+    this.captions = capped(snapshots.map(captionProgressItem));
     this.changed();
   }
 
@@ -75,7 +90,8 @@ export class ProgressHub {
   }
 
   /** A tab dragged to another window follows the panel of its new window. */
-  tabMoved(tabId: number): void {
+  tabMoved(tabId: number, windowId: number): void {
+    this.attached.set(tabId, windowId);
     void chrome.tabs
       .get(tabId)
       .then((tab) => {
@@ -119,8 +135,9 @@ export class ProgressHub {
         const live = now.items.some(progressActive);
         for (const tab of tabs) {
           if (tab.id === undefined) continue;
-          const moved = touched.has(tab.windowId);
-          if (this.panels.has(tab.windowId)) {
+          const windowId = this.attached.get(tab.id) ?? tab.windowId;
+          const moved = touched.has(windowId);
+          if (this.panels.has(windowId)) {
             // Sent even with no work known: after a worker restart the page
             // may still show what the previous worker sent.
             if (moved) this.toTab(tab.id, NOTHING);

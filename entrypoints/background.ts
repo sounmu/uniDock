@@ -525,7 +525,7 @@ export default defineBackground(() => {
     });
     chrome.tabs?.onAttached?.addListener((tabId, { newWindowId }) => {
       panels.tabMoved(tabId, newWindowId);
-      progress.tabMoved(tabId);
+      progress.tabMoved(tabId, newWindowId);
     });
   }
   const captionJobs =
