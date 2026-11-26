@@ -44,6 +44,7 @@ const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 const SAMPLES_PER_SEGMENT = 500;
 const AUDIO_FETCH_CONCURRENCY = 4;
 const AUDIO_BATCH_CONCURRENCY = 2;
+const MULTIPART_PAYLOAD_BYTES = 1024 * 1024;
 
 interface WalkedBox extends TopLevelBox {
   header: Uint8Array;
@@ -207,7 +208,7 @@ async function extract(
         const range = layout.ranges[index];
         if (!range) break;
         const bytes = range.end - range.start;
-        if (options.fetchRanges && size + bytes > 1024 * 1024) break;
+        if (options.fetchRanges && size + bytes > MULTIPART_PAYLOAD_BYTES) break;
         ranges.push(range);
         size += bytes;
         index++;
@@ -227,8 +228,9 @@ async function extract(
       index++;
       continue;
     }
-    // At most two multipart payloads (2 MiB) are prefetched. Promise.all
-    // preserves file order and rejects immediately if either batch fails.
+    // At most AUDIO_BATCH_CONCURRENCY multipart payloads (MULTIPART_PAYLOAD_BYTES
+    // each) are prefetched. Promise.all preserves file order and rejects
+    // immediately if any batch fails.
     const buffers = (await Promise.all(batches.map(async (ranges) => {
       stop();
       if (options.fetchRanges) {

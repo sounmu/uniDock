@@ -422,9 +422,9 @@ export function signOut(): Promise<void> {
 /**
  * In one commit-lock section: write a fresh epoch (so any sign-in or refresh
  * already in flight fails its commit), then run `clear`. The broker session
- * is revoked afterwards, outside the lock and best effort (3 s), so neither a
- * hung refresh nor a slow broker holds up logout or data deletion. Data
- * deletion passes its own `clear`.
+ * is revoked afterwards, outside the lock and best effort (LOGOUT_TIMEOUT_MS),
+ * so neither a hung refresh nor a slow broker holds up logout or data
+ * deletion. Data deletion passes its own `clear`.
  */
 export async function revokeAndClear(clear: () => Promise<void>): Promise<void> {
   const previous = await withLock(COMMIT_LOCK, async () => {
