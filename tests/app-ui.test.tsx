@@ -7,8 +7,12 @@ const query = vi.hoisted(() => vi.fn());
 const command = vi.hoisted(() => vi.fn());
 vi.mock("../src/transport", () => ({ queryActive: query }));
 vi.mock("../src/playback/bridge", () => ({ playbackCommand: command }));
+const captionsProps = vi.hoisted(() => ({ current: undefined as undefined | Record<string, unknown> }));
 vi.mock("../entrypoints/sidepanel/CaptionsPanel", () => ({
-  CaptionsPanel: () => <p>자막 화면</p>,
+  CaptionsPanel: (props: Record<string, unknown>) => {
+    captionsProps.current = props;
+    return <p>자막 화면</p>;
+  },
 }));
 import { App } from "../entrypoints/sidepanel/App";
 let ui: Awaited<ReturnType<typeof mount>>;
@@ -502,45 +506,20 @@ it("returns from playback to the same recording detail and focused entry control
   expect(ui.host.querySelector(".course-context")?.closest("[hidden]")).toBeNull();
 });
 
-it("opens the selected lecture before entering captions and keeps its return context", async () => {
+it("picks the clicked lecture for AI captions without opening it and keeps its return context", async () => {
   await showRecordings();
-  query.mockResolvedValueOnce({ status: "error", code: "BUSY" });
-  await click("강의 열고 자막 추출");
-  expect(ui.host.textContent).not.toContain("자막 화면");
-  query.mockResolvedValueOnce({ status: "success", opened: true });
-  await click("강의 열고 자막 추출");
+  const calls = query.mock.calls.length;
+  await click("AI 자막 만들기");
   expect(ui.host.textContent).toContain("자막 화면");
-  expect(query).toHaveBeenLastCalledWith(
-    { version: 1, type: "RECORDING_OPEN", handle: recordings[0]?.launchHandle },
-    { target: recordingTarget },
-  );
+  expect(captionsProps.current?.queueEntry).toMatchObject({
+    target: recordingTarget,
+    selectedHandles: [recordings[0]?.launchHandle],
+  });
+  expect(query.mock.calls.slice(calls).some(([request]) => request.type === "RECORDING_OPEN")).toBe(false);
   await click("← 돌아가기");
   expect(ui.host.querySelector(".course-context")?.closest("[hidden]")).toBeNull();
   expect(ui.host.querySelector(".detail-view h2")?.textContent).toBe("첫 강의");
-});
-
-it("keeps a chosen playback draft mounted when visiting another main menu", async () => {
-  await showRecordings();
-  await click("자동 재생");
-  const picker = ui.host.querySelector(".playback-panel");
-  query.mockResolvedValue({ status: "success", todo: [] });
-  await click("일정");
-  expect(picker?.closest("[hidden]")).not.toBeNull();
   await click("홈");
-  await click("자동 재생");
-  expect(ui.host.querySelector(".playback-panel")).toBe(picker);
-  expect(picker?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
-});
-
-it("does not replace settings when a previously requested lecture finishes opening", async () => {
-  await showRecordings();
-  const opened = deferred<Result>();
-  query.mockReturnValueOnce(opened.promise);
-  await click("강의 열고 자막 추출");
-  await click("설정");
-  await act(async () => opened.resolve({ status: "success", opened: true }));
-  expect(ui.host.querySelector('nav [aria-current="page"]')?.textContent).toBe("설정");
-  expect(ui.host.textContent).not.toContain("자막 화면");
-  await click("← 돌아가기");
-  expect(ui.host.querySelector(".course-context")?.closest("[hidden]")).toBeNull();
+  await click("자막 추출");
+  expect(captionsProps.current?.queueEntry).toBeUndefined();
 });

@@ -7,7 +7,7 @@ Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-f
 
 ## STRUCTURE
 - `App.tsx`: shell. `Rail` sections (courses, tasks, playback, captions, settings), plus the info/settings view, the analytics notice and focus restoration.
-- `screens/`: one component per section (`CoursesScreen`, `TasksScreen`, `MaterialsTab`, `QueryResults`, `PlaybackConfirmation`).
+- `screens/`: one component per section (`CoursesScreen`, `TasksScreen`, `MaterialsTab`, `QueryResults`, `PlaybackConfirmation`), plus `RecordingPicker`, the course and week lecture checklist shared by playback and AI captions.
 - `ui/`: shared presentation and accessibility primitives (`DetailView`, `ListRow`, `StatusChip`, `Notice`, `ScreenHeader`, `Rail`, `icons`, `a11y`). The most-imported are `ui/DetailView` and `ui/a11y`.
 - Root `use*.ts` hooks hold the state and messaging. Root `*.tsx` files are feature panels and settings.
 
@@ -15,8 +15,9 @@ Earned its file with a score of about 16: 26 files (14 TSX, 10 TS) and two sub-f
 | Task | Location |
 |------|----------|
 | LMS query lifecycle and stale-result guarding | `useSidepanelQuery.ts`, `query-gate.ts` (`QueryGate`), `query-messages.ts` |
-| Sequential playback UI | `PlaybackPanel.tsx`, `usePlaybackPanel.ts` (~385 lines), `screens/PlaybackConfirmation.tsx` |
-| Caption extraction / AI captions | `CaptionsPanel.tsx`, `AiCaptionsSection.tsx`, `useAiCaptions.ts`, `useCaptionSession.ts`, `CaptionServerSettings.tsx` |
+| Sequential playback UI | `PlaybackPanel.tsx`, `usePlaybackPanel.ts`, `screens/PlaybackConfirmation.tsx`; lecture lists and selection in `useRecordingPicker.ts` |
+| Caption extraction / AI captions | `CaptionsPanel.tsx`, `AiCaptionsSection.tsx`, `useAiCaptions.ts`, `useCaptionSession.ts`, `useCaptionAccount.ts`, `CaptionServerSettings.tsx` |
+| AI captions for several lectures | `CaptionQueue.tsx`, `useCaptionQueue.ts` (one lecture tab, see `src/open-tab.ts`), `src/captions/submit-lecture.ts` |
 | Bulk material downloads | `screens/MaterialsTab.tsx`, `useDocumentDownloads.ts` |
 | Assignment and item lists | `ItemResults.tsx`, `ResultList.tsx`, `PagedList.tsx`, `ItemDetail.tsx` |
 | Usage stats opt-out and notice | `analytics.ts`, `useAnalytics.ts`, `AnalyticsSettings.tsx` |

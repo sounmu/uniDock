@@ -4,6 +4,7 @@ import type { PlaybackEntry } from "./usePlaybackPanel";
 import { CaptionsPanel, type CaptionEntry } from "./CaptionsPanel";
 import { ActiveLectureCard } from "./ActiveLectureCard";
 import { useActiveLecture } from "./useActiveLecture";
+import type { RecordingEntry } from "./useRecordingPicker";
 import { useSidepanelQuery } from "./useSidepanelQuery";
 import { Rail, type Section, type ToolSection } from "./ui/Rail";
 import { useDetail } from "./ui/DetailView";
@@ -31,6 +32,7 @@ export function App() {
   const [info, setInfo] = useState(false);
   const [captionsOpened, setCaptionsOpened] = useState(false);
   const [captionEntry, setCaptionEntry] = useState<CaptionEntry>();
+  const [queueEntry, setQueueEntry] = useState<RecordingEntry>();
   const activeLecture = useActiveLecture(__UNIDOCK_AI_CAPTIONS__);
   const [playbackOpened, setPlaybackOpened] = useState(false);
   const [playbackEntry, setPlaybackEntry] = useState<PlaybackEntry>();
@@ -74,12 +76,15 @@ export function App() {
     setInfoTarget(target);
     setInfo(true);
   }
-  function openTool(section: ToolSection) {
+  function openTool(section: ToolSection, queue?: RecordingEntry) {
     if (section === "playback" && !__UNIDOCK_PLAYBACK__) return;
     navigationRevision.current++;
     setInfo(false);
     if (section === "playback") setPlaybackOpened(true);
-    else setCaptionsOpened(true);
+    else {
+      setCaptionsOpened(true);
+      setQueueEntry(queue);
+    }
     tool.open(section);
   }
   function select(section: Section) {
@@ -138,12 +143,18 @@ export function App() {
           {model.section === "home" && <HomeScreen model={model} onTool={openTool} />}
           {model.section === "courses" && <CoursesScreen model={model}
             onPlayback={__UNIDOCK_PLAYBACK__ ? (handle) => {
-              const entry = model.takePlaybackEntry(handle);
+              const entry = model.takeRecordingEntry(handle);
               if (!entry) return;
               setPlaybackEntry(entry);
               openTool("playback");
             } : undefined}
             onCaptions={async (handle) => {
+              if (__UNIDOCK_AI_CAPTIONS__) {
+                const entry = model.takeRecordingEntry(handle);
+                if (!entry) return;
+                openTool("captions", entry);
+                return;
+              }
               const revision = navigationRevision.current;
               const title = model.state.status === "success" && "recordings" in model.state
                 ? model.state.recordings.find((row) => row.launchHandle === handle)?.title : undefined;
@@ -166,7 +177,7 @@ export function App() {
           )}
           {captionsOpened && (
             <div hidden={tool.detail !== "captions"}>
-              <CaptionsPanel entry={captionEntry} onConnectionSettings={() => showInfo("caption-server-title")} />
+              <CaptionsPanel entry={captionEntry} queueEntry={queueEntry} onConnectionSettings={() => showInfo("caption-server-title")} />
             </div>
           )}
         </div>
