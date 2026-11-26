@@ -214,6 +214,24 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
   expect(opens()).toHaveLength(1);
 });
 
+it("cancels the job of a lecture whose audio could not be read and goes on", async () => {
+  identifyMedia
+    .mockImplementationOnce(noPlayer)
+    .mockResolvedValueOnce(media("first"))
+    .mockResolvedValueOnce(media("first"))
+    .mockResolvedValue(media("second"));
+  submitLecture.mockImplementationOnce(async (_found: unknown, hooks: Hooks) => {
+    hooks.onJob("job-unread");
+    hooks.onPhase("extracting");
+    throw Object.assign(new Error("network"), { code: "MEDIA_NETWORK" });
+  });
+  await render();
+  await act(() => queue.start({ handles: ["a", "b"], target }, String));
+  expect(cancelJob).toHaveBeenCalledWith("job-unread");
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "MEDIA_NETWORK" });
+  expect(queue.items[1]?.phase).toBe("queued");
+});
+
 it("keeps a job the server already accepted when stopped", async () => {
   identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
   hangingSubmission(false);

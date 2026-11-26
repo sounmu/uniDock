@@ -204,8 +204,8 @@ export function useCaptionQueue() {
         if (signal.aborted) break;
         const mine = (item: QueueItem) => item.handle === handle;
         patch(mine, { phase: "opening" });
-        // A job whose audio is not uploaded yet; stopping cancels it so it
-        // does not keep holding one of today's uses.
+        // A job whose audio is not uploaded yet; stopping or failing cancels it
+        // so it does not keep holding one of today's uses.
         let unfinished: string | null = null;
         const release = () => {
           if (unfinished && signal.reason !== SESSION_CHANGED)
@@ -249,10 +249,8 @@ export function useCaptionQueue() {
           patch(mine, { phase: "queued", progress: null, jobId: submitted.jobId });
           track(submitted.jobId, submitted.key);
         } catch (error) {
-          if (signal.aborted) {
-            release();
-            break;
-          }
+          release();
+          if (signal.aborted) break;
           const code = errorCode(error);
           patch(mine, { phase: "failed", progress: null, errorCode: code });
           if (FATAL.has(code)) {
