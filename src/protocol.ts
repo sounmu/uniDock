@@ -68,7 +68,13 @@ export type CapabilityListRequest =
 export type Request =
   | ListRequest
   | { version: 1; type: "DOCUMENT_DOWNLOAD"; handle: string; course: string }
-  | { version: 1; type: "RECORDING_OPEN" | "DOCUMENT_OPEN"; handle: string };
+  | {
+      version: 1;
+      type: "RECORDING_OPEN" | "DOCUMENT_OPEN";
+      handle: string;
+      /** Open a recording in the one lecture tab kept for caption work. */
+      reuse?: true;
+    };
 export type PanelQueryMessage =
   | Exclude<Request, { type: "DOCUMENT_DOWNLOAD" }>
   | {
@@ -150,7 +156,11 @@ export function isRequest(value: unknown): value is Request {
   if (row.type === "COURSES_LIST" || row.type === "TODO_LIST")
     return keys.length === 2;
   if (row.type === "RECORDING_OPEN" || row.type === "DOCUMENT_OPEN")
-    return keys.length === 3 && validHandle(row.handle);
+    return (
+      validHandle(row.handle) &&
+      (keys.length === 3 ||
+        (keys.length === 4 && row.type === "RECORDING_OPEN" && row.reuse === true))
+    );
   if (
     row.type === "ASSIGNMENTS_LIST" ||
     row.type === "DEADLINES_LIST" ||

@@ -118,8 +118,11 @@ export function isLecturePage(url: string | undefined): boolean {
   );
 }
 
-export async function identifyMedia(): Promise<MediaSource> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+export async function identifyMedia(tabId?: number): Promise<MediaSource> {
+  const tab =
+    tabId === undefined
+      ? (await chrome.tabs.query({ active: true, currentWindow: true }))[0]
+      : await chrome.tabs.get(tabId).catch(() => undefined);
   if (
     tab?.id === undefined ||
     !tab.url ||

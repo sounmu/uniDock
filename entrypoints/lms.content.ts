@@ -107,6 +107,7 @@ export default defineContentScript({
     async function open(
       handle: string,
       type: "RECORDING_OPEN" | "DOCUMENT_OPEN",
+      reuse: boolean,
     ): Promise<Result> {
       const epoch = lifecycleEpoch;
       const catalog = catalogs.findPublished(handle);
@@ -139,6 +140,7 @@ export default defineContentScript({
           version: 1,
           type: "OPEN_LMS_TARGET",
           url: taken.url,
+          ...(reuse ? { reuse: true } : {}),
         });
         const result: unknown = await dispatched;
         return refused(
@@ -773,7 +775,7 @@ export default defineContentScript({
                 ? download(request, parsed.deadline!)
                 : request.type === "RECORDING_OPEN" ||
                     request.type === "DOCUMENT_OPEN"
-                  ? open(request.handle, request.type)
+                  ? open(request.handle, request.type, request.reuse === true)
                   : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);

@@ -55,6 +55,12 @@ describe("privacy and policy", () => {
     ])
       expect(isRequest(value)).toBe(false);
   });
+  it("accepts the lecture tab flag only on recording opens", () => {
+    const handle = "00000000-0000-4000-8000-000000000001";
+    expect(isRequest({ version: 1, type: "RECORDING_OPEN", handle, reuse: true })).toBe(true);
+    expect(isRequest({ version: 1, type: "RECORDING_OPEN", handle, reuse: false })).toBe(false);
+    expect(isRequest({ version: 1, type: "DOCUMENT_OPEN", handle, reuse: true })).toBe(false);
+  });
   it("re-projects protocol responses", () => {
     expect(
       parseResult({ status: "success", courses: fixture, token: "secret" }),
