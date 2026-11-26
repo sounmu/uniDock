@@ -8,7 +8,15 @@ import {
   UPLOAD_CHUNK_BYTES,
 } from "../src/captions/job-client";
 import { CAPTION_SESSION_KEY } from "../src/caption-server-settings";
-import { fixture, json, mockServer, seedSession, stubCaptionChrome } from "./caption-server-helpers";
+import {
+  type Call,
+  fixture,
+  json,
+  mockServer,
+  seedSession,
+  stubCaptionChrome,
+} from "./caption-server-helpers";
+import { deferred } from "./ui-helpers";
 
 let store: Record<string, unknown>;
 beforeEach(() => {
@@ -36,6 +44,73 @@ const headResponse = (offset: number, length?: number) =>
   });
 const patched = (offset: number) =>
   new Response(null, { status: 204, headers: { "Upload-Offset": String(offset) } });
+const mismatch = (committed: number) =>
+  json(fixture("error-upload-offset-mismatch.json"), 409, {
+    "Upload-Offset": String(committed),
+  });
+/** Like fetch: never answers, and rejects once the request is aborted. */
+const untilAborted = (signal: AbortSignal | null | undefined) =>
+  new Promise<Response>((_, reject) => {
+    const fail = () => reject(new DOMException("aborted", "AbortError"));
+    if (signal?.aborted) fail();
+    else signal?.addEventListener("abort", fail, { once: true });
+  });
+/** Distinct bytes, so a chunk stored at the wrong offset is visible. */
+function audioBytes(size: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(size);
+  for (let i = 0; i < size; i++) bytes[i] = i % 251;
+  return bytes;
+}
+
+/**
+ * A tus broker. A pipelining one makes a PATCH at most one chunk ahead wait for
+ * the chunk before it; an older one answers it with an offset mismatch. The
+ * first PATCH is held until a second one arrives, so an ahead chunk always
+ * meets an uncommitted predecessor. A pipelining broker also answers a chunk
+ * only once the next one has arrived, so a client that waits for an answer
+ * before sending more never finishes.
+ */
+function tusBroker(total: number, pipelining: boolean) {
+  const stored = new Uint8Array(total);
+  const log: string[] = [];
+  /** How many PATCHes had been answered when each PATCH arrived. */
+  const answeredAtArrival: number[] = [];
+  const arrivals: ReturnType<typeof deferred<void>>[] = [];
+  const arrival = (index: number) => (arrivals[index] ??= deferred<void>());
+  let committed = 0;
+  let patches = 0;
+  let answered = 0;
+  let waiting: (() => void)[] = [];
+  const answer = (response: Response) => {
+    answered++;
+    return response;
+  };
+  const handle = async (call: Call): Promise<Response> => {
+    if (call.method === "HEAD") return headResponse(committed, total);
+    const offset = Number(call.headers["Upload-Offset"]);
+    log.push(`PATCH ${offset}`);
+    const index = patches++;
+    answeredAtArrival.push(answered);
+    arrival(index).resolve();
+    if (index === 0) await arrival(1).promise;
+    while (pipelining && offset > committed && offset - committed <= UPLOAD_CHUNK_BYTES)
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    if (offset !== committed) {
+      log.push(`409 ${committed}`);
+      return answer(mismatch(committed));
+    }
+    const bytes = new Uint8Array(await (call.body as Blob).arrayBuffer());
+    stored.set(bytes, offset);
+    committed = offset + bytes.length;
+    log.push(`204 ${committed}`);
+    const woken = waiting;
+    waiting = [];
+    for (const wake of woken) wake();
+    if (pipelining && committed < total) await arrival(index + 1).promise;
+    return answer(patched(committed));
+  };
+  return { stored, log, answeredAtArrival, handle };
+}
 
 it("sends the session bearer and returns the job from create", async () => {
   const calls = mockServer(() => json(fixture("job-awaiting-upload.json"), 201));
@@ -126,7 +201,7 @@ it("resumes a tus upload from the server offset in 8 MiB chunks", async () => {
   );
   expect(calls.map((call) => call.method)).toEqual(["HEAD", "PATCH", "PATCH"]);
   expect(calls.slice(1).every((call) => call.headers["Upload-Length"] === String(total))).toBe(true);
-  expect(progress).toEqual([UPLOAD_CHUNK_BYTES * 2, total]);
+  expect(progress.at(-1)).toBe(total);
 });
 
 it("re-reads the offset after a mismatch instead of restarting", async () => {
@@ -149,6 +224,294 @@ it("re-reads the offset after a mismatch instead of restarting", async () => {
     "HEAD:",
     "PATCH:2",
   ]);
+});
+
+const PIPELINED_TOTAL = UPLOAD_CHUNK_BYTES * 2 + 5;
+
+it("keeps two chunks in flight until the last one on a pipelining broker", async () => {
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = 4 * c + 5;
+  const source = audioBytes(total);
+  const broker = tusBroker(total, true);
+  const calls = mockServer(broker.handle);
+  const progress: number[] = [];
+  await uploadAudio("j", new Blob([source]), undefined, (bytes) => progress.push(bytes));
+  expect(calls.map((call) => `${call.method}:${call.headers["Upload-Offset"] ?? ""}`)).toEqual([
+    "HEAD:",
+    "PATCH:0",
+    `PATCH:${c}`,
+    `PATCH:${2 * c}`,
+    `PATCH:${3 * c}`,
+    `PATCH:${4 * c}`,
+  ]);
+  // Chunk k+1 went out before chunk k was answered, and chunk k+2 as soon as
+  // chunk k was, while chunk k+1 was still unanswered.
+  expect(broker.answeredAtArrival).toEqual([0, 0, 1, 2, 3]);
+  expect(Buffer.from(broker.stored).equals(Buffer.from(source))).toBe(true);
+  expect(progress.at(-1)).toBe(total);
+});
+
+it("falls back to one chunk at a time when the broker refuses an ahead chunk", async () => {
+  const source = audioBytes(PIPELINED_TOTAL);
+  const broker = tusBroker(PIPELINED_TOTAL, false);
+  const calls = mockServer(broker.handle);
+  const progress: number[] = [];
+  await uploadAudio("j", new Blob([source]), undefined, (bytes) => progress.push(bytes));
+  const c = UPLOAD_CHUNK_BYTES;
+  expect(broker.log).toEqual([
+    "PATCH 0",
+    `PATCH ${c}`,
+    "409 0",
+    `204 ${c}`,
+    `PATCH ${c}`,
+    `204 ${2 * c}`,
+    `PATCH ${2 * c}`,
+    `204 ${PIPELINED_TOTAL}`,
+  ]);
+  expect(calls.map((call) => call.method)).toEqual([
+    "HEAD",
+    "PATCH",
+    "PATCH",
+    "HEAD",
+    "PATCH",
+    "PATCH",
+  ]);
+  expect(Buffer.from(broker.stored).equals(Buffer.from(source))).toBe(true);
+  expect(progress.at(-1)).toBe(PIPELINED_TOTAL);
+});
+
+it("keeps every offset resync for real mismatches after the fallback", async () => {
+  const broker = tusBroker(PIPELINED_TOTAL, false);
+  let realMismatches = 3;
+  mockServer((call) => {
+    if (call.method === "PATCH" && broker.log.includes("409 0") && realMismatches > 0) {
+      realMismatches--;
+      return json(fixture("error-upload-offset-mismatch.json"), 409);
+    }
+    return broker.handle(call);
+  });
+  await uploadAudio("j", new Blob([audioBytes(PIPELINED_TOTAL)]));
+  expect(realMismatches).toBe(0);
+});
+
+it("cancels both chunks in flight when the upload is aborted", async () => {
+  const bothSent = deferred<void>();
+  const calls = mockServer((call) => {
+    if (call.method === "HEAD") return headResponse(0, PIPELINED_TOTAL);
+    if (calls.length === 3) bothSent.resolve();
+    return untilAborted(call.signal);
+  });
+  const controller = new AbortController();
+  const upload = uploadAudio("j", new Blob([audioBytes(PIPELINED_TOTAL)]), controller.signal);
+  await bothSent.promise;
+  controller.abort();
+  await expect(upload).rejects.toMatchObject({ code: "ABORTED" });
+  expect(calls.map((call) => call.method)).toEqual(["HEAD", "PATCH", "PATCH"]);
+  expect(calls.slice(1).every((call) => call.signal?.aborted)).toBe(true);
+});
+
+it("reports sent bytes of the chunks in flight that continue the committed offset", async () => {
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = c + 10;
+  const answers: ReturnType<typeof deferred<Response>>[] = [];
+  const bothSent = deferred<void>();
+  const calls = mockServer(
+    (call) => {
+      if (call.method === "HEAD") return headResponse(0, total);
+      const answer = deferred<Response>();
+      answers.push(answer);
+      if (answers.length === 2) bothSent.resolve();
+      return answer.promise;
+    },
+    { holdStreams: true },
+  );
+  const progress: number[] = [];
+  const upload = uploadAudio("j", new Blob([audioBytes(total)]), undefined, (bytes) =>
+    progress.push(bytes),
+  );
+  await bothSent.promise;
+  const [head, ahead] = [calls[1]!.held!, calls[2]!.held!];
+  // The ahead chunk counts only once the head chunk is fully sent.
+  await ahead.drain();
+  expect(progress).toEqual([]);
+  await head.pull();
+  expect(progress).toHaveLength(1);
+  expect(progress[0]).toBeGreaterThan(0);
+  expect(progress[0]).toBeLessThan(c);
+  await head.drain();
+  expect(progress.slice(0, -1).every((bytes) => bytes < c)).toBe(true);
+  expect(progress.at(-1)).toBe(total);
+  answers[0]!.resolve(patched(c));
+  answers[1]!.resolve(patched(total));
+  await upload;
+  expect(progress.at(-1)).toBe(total);
+});
+
+it("never reports less after a resync restarts from the stored offset", async () => {
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = 2 * c + 10;
+  let committed = 0;
+  const bothSent = deferred<void>();
+  const headAnswer = deferred<Response>();
+  let resynced = false;
+  const calls = mockServer(
+    async (call) => {
+      if (call.method === "HEAD") return headResponse(committed, total);
+      const offset = Number(call.headers["Upload-Offset"]);
+      if (!resynced && offset === 0) return headAnswer.promise;
+      if (!resynced) {
+        bothSent.resolve();
+        return untilAborted(call.signal);
+      }
+      committed = offset + (await call.held!.drain()).size;
+      return patched(committed);
+    },
+    { holdStreams: true },
+  );
+  const progress: number[] = [];
+  const upload = uploadAudio("j", new Blob([audioBytes(total)]), undefined, (bytes) =>
+    progress.push(bytes),
+  );
+  await bothSent.promise;
+  await calls[1]!.held!.drain();
+  await calls[2]!.held!.pull();
+  const beforeResync = progress.at(-1)!;
+  expect(beforeResync).toBeGreaterThan(c);
+  committed = 2;
+  resynced = true;
+  headAnswer.resolve(mismatch(committed));
+  await upload;
+  expect(calls.map((call) => `${call.method}:${call.headers["Upload-Offset"] ?? ""}`)).toEqual([
+    "HEAD:",
+    "PATCH:0",
+    `PATCH:${c}`,
+    "HEAD:",
+    "PATCH:2",
+    `PATCH:${c + 2}`,
+    `PATCH:${2 * c + 2}`,
+  ]);
+  // The resent chunks start below what was already reported.
+  const afterResync = progress.slice(progress.indexOf(beforeResync) + 1);
+  expect(afterResync.every((bytes) => bytes > beforeResync)).toBe(true);
+  expect(progress.at(-1)).toBe(total);
+});
+
+it("refreshes an expired token for an upload chunk and resends the whole body", async () => {
+  const total = 10;
+  const source = audioBytes(total);
+  const progress: number[] = [];
+  const calls = mockServer((call) => {
+    if (call.path === "/v1/auth/refresh") return json(fixture("session.json"));
+    if (call.method === "HEAD") return headResponse(0, total);
+    return call.headers.Authorization === `Bearer at_seed_${"s".repeat(40)}`
+      ? json(fixture("error-token-expired.json"), 401)
+      : patched(total);
+  });
+  await uploadAudio("j", new Blob([source]), undefined, (bytes) => progress.push(bytes));
+  expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+    "HEAD /v1/transcription-jobs/j/audio",
+    "PATCH /v1/transcription-jobs/j/audio",
+    "POST /v1/auth/refresh",
+    "PATCH /v1/transcription-jobs/j/audio",
+  ]);
+  expect(calls[3]!.headers.Authorization).toBe(`Bearer ${fixture("session.json").access_token}`);
+  const patches = calls.filter((call) => call.method === "PATCH");
+  expect(patches.every((call) => call.streamed && call.redirect === "error")).toBe(true);
+  for (const call of patches)
+    expect(Buffer.from(await (call.body as Blob).arrayBuffer()).equals(Buffer.from(source))).toBe(true);
+  // The resent stream starts from zero again; progress keeps the highest value.
+  expect(progress).toEqual([total]);
+});
+
+/** A job client with fresh module state, so a refused stream stays in one test. */
+async function freshClient() {
+  vi.resetModules();
+  return import("../src/captions/job-client");
+}
+
+it("resends a refused stream as a Blob and sends later chunks as Blobs", async () => {
+  const client = await freshClient();
+  const c = UPLOAD_CHUNK_BYTES;
+  const total = 2 * c + 5;
+  const source = audioBytes(total);
+  const stored = new Uint8Array(total);
+  const calls = mockServer(
+    async (call) => {
+      if (call.method === "HEAD") return headResponse(0, total);
+      // Chrome over HTTP/1.1: a stream body is refused before it is sent.
+      if (call.streamed) throw new TypeError("streaming needs HTTP/2");
+      const offset = Number(call.headers["Upload-Offset"]);
+      const bytes = new Uint8Array(await (call.body as Blob).arrayBuffer());
+      stored.set(bytes, offset);
+      return patched(offset + bytes.length);
+    },
+    { holdStreams: true },
+  );
+  const progress: number[] = [];
+  await client.uploadAudio("j", new Blob([source]), undefined, (bytes) => progress.push(bytes));
+  const patches = calls.filter((call) => call.method === "PATCH");
+  const offsetOf = (call: Call) => Number(call.headers["Upload-Offset"]);
+  const streamed = patches.filter((call) => call.streamed).map(offsetOf);
+  expect(streamed).toContain(0);
+  expect(streamed).not.toContain(2 * c);
+  expect(
+    patches
+      .filter((call) => !call.streamed)
+      .map(offsetOf)
+      .sort((a, b) => a - b),
+  ).toEqual([0, c, 2 * c]);
+  expect(patches.every((call) => call.redirect === "error")).toBe(true);
+  expect(Buffer.from(stored).equals(Buffer.from(source))).toBe(true);
+  expect(progress.at(-1)).toBe(total);
+});
+
+it("maps a failed upload request to a network error after one Blob resend", async () => {
+  const client = await freshClient();
+  const calls = mockServer(
+    (call) => {
+      if (call.method === "HEAD") return headResponse(0, 10);
+      throw new TypeError("offline");
+    },
+    { holdStreams: true },
+  );
+  await expect(client.uploadAudio("j", new Blob([new Uint8Array(10)]))).rejects.toMatchObject({
+    code: "NETWORK",
+  });
+  expect(calls.map((call) => `${call.method}:${call.streamed}`)).toEqual([
+    "HEAD:false",
+    "PATCH:true",
+    "PATCH:false",
+  ]);
+});
+
+it("cancels the ahead chunk and resyncs from HEAD after a head-of-line mismatch", async () => {
+  const total = PIPELINED_TOTAL;
+  let committed = 0;
+  const calls = mockServer((call) => {
+    if (call.method === "HEAD") return headResponse(committed, total);
+    if (calls.length === 2) {
+      committed = 2;
+      return mismatch(committed);
+    }
+    if (calls.length === 3) return untilAborted(call.signal);
+    const offset = Number(call.headers["Upload-Offset"]);
+    if (offset !== committed) return mismatch(committed);
+    committed += (call.body as Blob).size;
+    return patched(committed);
+  });
+  await uploadAudio("j", new Blob([audioBytes(total)]));
+  const c = UPLOAD_CHUNK_BYTES;
+  expect(calls.map((call) => `${call.method}:${call.headers["Upload-Offset"] ?? ""}`)).toEqual([
+    "HEAD:",
+    "PATCH:0",
+    `PATCH:${c}`,
+    "HEAD:",
+    "PATCH:2",
+    `PATCH:${c + 2}`,
+    `PATCH:${2 * c + 2}`,
+  ]);
+  expect(calls[2]!.signal?.aborted).toBe(true);
+  expect(committed).toBe(total);
 });
 
 it("refuses an upload whose declared length differs or whose offset goes backwards", async () => {

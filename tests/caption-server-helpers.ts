@@ -24,29 +24,79 @@ export const json = (body: unknown, status = 200, headers: Record<string, string
     headers: { "content-type": "application/json", ...headers },
   });
 
+/** A streamed request body that the test reads; each read is a pull by fetch. */
+export interface HeldBody {
+  /** Read one more slice; its upload progress has been reported when this resolves. */
+  pull(): Promise<void>;
+  /** Read the rest and return the whole body. */
+  drain(): Promise<Blob>;
+}
+
 export interface Call {
   url: string;
   path: string;
   method: string;
   headers: Record<string, string>;
+  /** A streamed body is drained into a Blob first, unless the server holds streams. */
   body: RequestInit["body"];
+  /** Sent as a ReadableStream body. */
+  streamed: boolean;
+  /** The stream, when the server holds streams for the test to read. */
+  held?: HeldBody;
+  redirect: RequestInit["redirect"];
   signal: AbortSignal | null | undefined;
 }
 
-export function mockServer(handler: (call: Call) => Response | Promise<Response>) {
+type Handler = (call: Call) => Response | Promise<Response>;
+
+function holdBody(stream: ReadableStream<Uint8Array<ArrayBuffer>>): HeldBody {
+  const reader = stream.getReader();
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  let done = false;
+  const pull = async () => {
+    if (done) return;
+    const next = await reader.read();
+    if (next.done) done = true;
+    else parts.push(next.value);
+  };
+  return {
+    pull,
+    async drain() {
+      while (!done) await pull();
+      return new Blob(parts);
+    },
+  };
+}
+
+/**
+ * Stubs fetch with `handler`. Requests reach the handler in the order they
+ * were sent. A ReadableStream body is read to the end before the handler runs,
+ * or, with `holdStreams`, left for the test to read through `call.held`.
+ */
+export function mockServer(handler: Handler, { holdStreams = false } = {}) {
   const calls: Call[] = [];
+  let arrived = Promise.resolve();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
+      const stream = init.body instanceof ReadableStream ? holdBody(init.body) : undefined;
       const call: Call = {
         url,
         path: new URL(url).pathname,
         method: init.method ?? "GET",
         headers: { ...(init.headers as Record<string, string>) },
         body: init.body,
+        streamed: stream !== undefined,
+        held: holdStreams ? stream : undefined,
+        redirect: init.redirect,
         signal: init.signal,
       };
-      calls.push(call);
+      const turn = arrived.then(async () => {
+        if (stream && !holdStreams) call.body = await stream.drain();
+        calls.push(call);
+      });
+      arrived = turn;
+      await turn;
       return handler(call);
     }),
   );

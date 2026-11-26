@@ -60,24 +60,105 @@ export function captionServerBase(): string {
   return __UNIDOCK_CAPTION_SERVER__;
 }
 
+/**
+ * An upload that reports how many body bytes fetch has taken so far. The Blob
+ * is the body of record: every attempt (a token retry included) builds its
+ * own stream from it, since a consumed stream cannot be sent again.
+ */
+export interface UploadInit {
+  method: string;
+  headers: Record<string, string>;
+  body: Blob;
+  onUploadProgress: (sentBytes: number) => void;
+}
+
+export type ServerInit = RequestInit | UploadInit;
+
+/** A stream body needs `duplex`, which the DOM typings do not declare yet. */
+interface StreamingRequestInit extends RequestInit {
+  duplex: "half";
+}
+
+const FETCH_OPTIONS = {
+  credentials: "omit",
+  redirect: "error",
+  referrerPolicy: "no-referrer",
+  cache: "no-store",
+} as const satisfies RequestInit;
+
+const UPLOAD_SLICE_BYTES = 64 * 1024;
+
+/**
+ * Chrome streams a request body only over HTTP/2 or later; over HTTP/1.1 it
+ * rejects the fetch with a TypeError before sending it. After the first such
+ * rejection, uploads from this document send plain Blob bodies.
+ */
+let streamingUploads = true;
+
+const failure = (signal: AbortSignal | null | undefined) =>
+  new CaptionServerError(signal?.aborted ? "ABORTED" : "NETWORK");
+
+/** Reads the Blob one slice at a time as fetch pulls it, reporting the running total. */
+function progressBody(
+  blob: Blob,
+  onProgress: (sentBytes: number) => void,
+): ReadableStream<Uint8Array> {
+  let sent = 0;
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (sent >= blob.size) {
+          controller.close();
+          return;
+        }
+        const slice = new Uint8Array(
+          await blob.slice(sent, sent + UPLOAD_SLICE_BYTES).arrayBuffer(),
+        );
+        sent += slice.byteLength;
+        controller.enqueue(slice);
+        onProgress(sent);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+async function send(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw failure(init.signal);
+  }
+}
+
 export async function serverFetch(
   path: string,
-  init: RequestInit,
+  init: ServerInit,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const base = captionServerBase();
-  try {
-    return await fetch(`${base}${path}`, {
-      ...init,
-      credentials: "omit",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-      cache: "no-store",
+  const url = `${captionServerBase()}${path}`;
+  if (!("onUploadProgress" in init)) return send(url, { ...init, ...FETCH_OPTIONS, signal });
+  const { onUploadProgress, ...upload } = init;
+  if (streamingUploads) {
+    const streamed: StreamingRequestInit = {
+      ...upload,
+      ...FETCH_OPTIONS,
       signal,
-    });
-  } catch {
-    throw new CaptionServerError(signal?.aborted ? "ABORTED" : "NETWORK");
+      body: progressBody(upload.body, onUploadProgress),
+      duplex: "half",
+    };
+    try {
+      return await fetch(url, streamed);
+    } catch (error) {
+      if (signal?.aborted || !(error instanceof TypeError)) throw failure(signal);
+      // Resending once with the Blob is safe. The broker reads the whole body
+      // before its transaction, so an attempt rejected before the body was
+      // sent stored nothing; if the broker did commit and only the answer was
+      // lost, the resend meets an offset mismatch and uploadAudio resyncs.
+      streamingUploads = false;
+    }
   }
+  return send(url, { ...upload, ...FETCH_OPTIONS, signal });
 }
 
 export async function readJson(
