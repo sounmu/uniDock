@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0 - 2026-11-27
+
+- Before the multi-lecture caption queue sends a lecture's audio, check that
+  the lecture tab's address equals the lecture that was opened and that the tab
+  holds one KU player. A lecture that fails the check is skipped with
+  `LECTURE_MISMATCH` and the queue moves on. 0.7.0 only checked that the player
+  differed from the previous lecture's.
+- When the tab-open rate limit rejects a lecture, wait and reopen the same
+  lecture for up to one limiter window instead of failing the rest of the queue.
+- Pin the work strip (the running job and "지금 보는 강의 자막 추출") and the
+  course-material select bar to the top, fit the captions screen in one view,
+  show progress as a ring, and hide the LMS progress pill in windows where the
+  panel is open.
+- Hide the "지금 보는 강의 자막 추출" row while that lecture's caption audio is
+  being read or uploaded.
+- Release notes also cover uniDock Server 1.3.0, which reuses an existing
+  transcript for the same audio and still counts one use.
+- Update bundled release notes, privacy-policy version labels and the lecture
+  check wording, and release documentation.
+
 ## 0.7.0 - 2026-11-26
 
 - Pick several lectures by course and week and make their AI captions one after
