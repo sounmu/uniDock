@@ -95,7 +95,9 @@ export function fakeWorker() {
     commands: [] as CaptionWorkCommand[],
     /** Scripts an answer; `undefined` leaves the command to the default worker. */
     answer: undefined as
-      | ((command: CaptionWorkCommand) => CaptionWorkReply | Promise<CaptionWorkReply> | undefined)
+      | ((
+          command: CaptionWorkCommand,
+        ) => CaptionWorkReply | Promise<CaptionWorkReply | undefined> | undefined)
       | undefined,
     state: (): CaptionWorkState => ({
       version: 1,

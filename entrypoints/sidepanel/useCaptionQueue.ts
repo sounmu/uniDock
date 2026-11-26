@@ -28,6 +28,8 @@ interface Followed {
 }
 
 const MAX_RECONNECTS = 5;
+/** The abort reason of a stop; closing the panel aborts with none and cancels nothing. */
+const STOPPED = "stopped";
 const ENDED: readonly JobPhase[] = ["succeeded", "failed", "cancelled"];
 
 /**
@@ -173,6 +175,15 @@ export function useCaptionQueue() {
         })),
       });
       if (started.status === "error") return end("failed", started.code);
+      // Stopped while the worker was starting the list: the stop reached no
+      // run then, so the batch is cancelled now that the worker holds it.
+      if (signal.reason === STOPPED)
+        await workCommand({
+          version: 1,
+          type: "CAPTION_WORK_CANCEL",
+          kind: "queue",
+          run: admitted.batch,
+        });
       if (mounted.current) setLocal(null);
     } finally {
       if (controller.current === abort) controller.current = null;
@@ -203,7 +214,7 @@ export function useCaptionQueue() {
     },
     /** Stops opening and uploading; jobs already queued keep running. */
     stop: () => {
-      controller.current?.abort("stopped");
+      controller.current?.abort(STOPPED);
       if (queue?.running)
         void workCommand({
           version: 1,

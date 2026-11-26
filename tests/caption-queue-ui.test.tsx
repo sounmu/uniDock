@@ -217,6 +217,43 @@ it("stopped while the selection is being admitted, it ends cancelled and starts 
   expect(worker.sent("CAPTION_WORK_DISMISS")).toEqual([]);
 });
 
+async function startHeld() {
+  const held = Promise.withResolvers<undefined>();
+  worker.answer = (command) => (command.type === "CAPTION_WORK_START" ? held.promise : undefined);
+  await render();
+  const asked = worker.next("CAPTION_WORK_START");
+  let run!: Promise<void>;
+  await act(async () => {
+    run = queue.start({ handles: [A, B], target }, titleOf);
+    await asked;
+  });
+  return { held, run };
+}
+
+it("stopped while the worker is starting the list, it cancels the admitted batch", async () => {
+  const { held, run } = await startHeld();
+  act(() => queue.stop());
+  await act(async () => {
+    held.resolve(undefined);
+    await run;
+  });
+  expect(worker.sent("CAPTION_WORK_CANCEL")).toEqual([
+    { version: 1, type: "CAPTION_WORK_CANCEL", kind: "queue", run: batch },
+  ]);
+  expect(phases()).toEqual(["cancelled", "cancelled"]);
+  expect(queue.running).toBe(false);
+});
+
+it("closed while the worker is starting the list, it leaves the batch running", async () => {
+  const { held, run } = await startHeld();
+  await ui?.unmount();
+  ui = undefined;
+  held.resolve(undefined);
+  await run;
+  expect(worker.sent("CAPTION_WORK_CANCEL")).toEqual([]);
+  expect(worker.queue?.running).toBe(true);
+});
+
 it("shows each lecture as the worker reports it", async () => {
   await render();
   await start();
