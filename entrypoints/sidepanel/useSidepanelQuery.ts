@@ -7,7 +7,7 @@ import { messages } from "./query-messages";
 import { QueryGate } from "./query-gate";
 import { coreResult, startOperation } from "./analytics";
 import type { CoreResult, Operation } from "../../src/analytics/report";
-import type { PlaybackEntry } from "./usePlaybackPanel";
+import type { RecordingEntry } from "./useRecordingPicker";
 
 const queryOperations: Partial<
   Record<Request["type"], [Operation, CoreResult | null]>
@@ -314,7 +314,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     openSelection("RECORDING_OPEN", handle);
   const openDocument = (handle: string) =>
     openSelection("DOCUMENT_OPEN", handle);
-  function takePlaybackEntry(handle: string): PlaybackEntry | undefined {
+  function takeRecordingEntry(handle: string): RecordingEntry | undefined {
     const target = recordingTarget.current;
     if (
       state.status !== "success" || !("recordings" in state) ||
@@ -390,7 +390,7 @@ export function useSidepanelQuery(sharedGate?: QueryGate) {
     load,
     openRecording,
     openDocument,
-    takePlaybackEntry,
+    takeRecordingEntry,
     needsCourse,
     query,
     isQueryValid: isRequest(query),

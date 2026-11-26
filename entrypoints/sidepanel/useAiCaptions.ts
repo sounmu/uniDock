@@ -3,13 +3,9 @@ import {
   identifyMedia,
   requestCaptionMediaAccess,
 } from "../../src/captions/media-source";
-import { withCaptionMediaRule } from "../../src/captions/referer-rule";
-import { extractAudio } from "../../src/captions/audio-extract";
-import { mediaRangeReader } from "../../src/captions/media-fetch";
+import { errorCode, submitLecture } from "../../src/captions/submit-lecture";
 import {
   cancelJob,
-  createJob,
-  uploadAudio,
   type JobProgress,
 } from "../../src/captions/job-client";
 import {
@@ -21,7 +17,6 @@ import {
   captionJobKey,
   clearActiveJob,
   loadActiveJobs,
-  saveActiveJob,
 } from "../../src/captions/job-record";
 import { isTerminal, type JobPhase } from "../../src/captions/job-state";
 import type { Transcript } from "../../src/captions/transcript";
@@ -86,11 +81,6 @@ class CaptionFlowError extends Error {
   constructor(readonly code: string) {
     super(code);
   }
-}
-
-function errorCode(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" ? code : "UNKNOWN";
 }
 
 /** Server and client codes are open strings; statistics take fixed codes only. */
@@ -414,60 +404,16 @@ export function useAiCaptions() {
       setPlayer({ tabId: media.tabId, documentId: media.documentId });
       lectureTitle.current = media.title;
       set({ title: media.title || null, durationS: media.durationS || null });
-      const key = await captionJobKey(media.contentId);
-      // The per-lecture key returns this user's existing job for the lecture,
-      // so a repeat request skips extraction and upload entirely.
-      const job = await createJob(
-        key,
-        { durationHintS: media.durationS || undefined },
+      const submitted = await submitLecture(media, {
         signal,
-      );
-      let id = job.id;
-      jobId.current = id;
-      if (!live()) return;
-      if (job.state === "awaiting_upload") {
-        set({ phase: "extracting", progress: 0 });
-        const reader = mediaRangeReader(media.mediaUrl, signal);
-        const audio = await withCaptionMediaRule(media.mediaUrl, async () =>
-          extractAudio(await reader.totalSize(), reader.fetchRange, {
-            signal,
-            fetchRanges: reader.fetchRanges,
-            onProgress: (bytes) => set({ progress: bytes }),
-          }),
-        );
-        if (!live()) return;
-        set({ phase: "uploading", progress: 0 });
-        const upload = (target: string) =>
-          uploadAudio(target, audio, signal, (bytes) => set({ progress: bytes }));
-        try {
-          await upload(id);
-        } catch (error) {
-          const code = errorCode(error);
-          // UPLOAD_CLOSED: another upload of this job already finished, so the
-          // job is simply followed below.
-          if (code === "UPLOAD_CONFLICT") {
-            // The job holds a different length (e.g. an older extraction).
-            // The same key would return the same job, so cancel it to release
-            // the key and upload once into a fresh job.
-            await cancelJob(id, signal);
-            const fresh = await createJob(
-              key,
-              { durationHintS: media.durationS || undefined },
-              signal,
-            );
-            if (!live()) return;
-            if (fresh.id === id || fresh.state !== "awaiting_upload") throw error;
-            id = fresh.id;
-            jobId.current = id;
-            set({ progress: 0 });
-            await upload(id);
-          } else if (code !== "UPLOAD_CLOSED") throw error;
-        }
-      }
-      if (!live()) return;
-      await saveActiveJob({ jobId: id, key });
+        live,
+        onJob: (id) => (jobId.current = id),
+        onPhase: (phase) => set({ phase, progress: 0 }),
+        onProgress: (bytes) => set({ progress: bytes }),
+      });
+      if (!submitted || !live()) return;
       set({ phase: "queued" });
-      await follow(id, ctx, key);
+      await follow(submitted.jobId, ctx, submitted.key);
     });
   }, [discard, follow, run]);
 

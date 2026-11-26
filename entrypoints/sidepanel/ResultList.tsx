@@ -29,7 +29,7 @@ export function ResultList({
   readonly course?: string;
   readonly freshness?: AssignmentFreshnessState;
 }) {
-  if ("opened" in result || "downloaded" in result || "documents" in result)
+  if ("opened" in result || "downloaded" in result || "batch" in result || "documents" in result)
     return null;
   if ("recordings" in result)
     return (

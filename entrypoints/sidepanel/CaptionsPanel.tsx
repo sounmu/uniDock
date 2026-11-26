@@ -16,6 +16,8 @@ import { Notice } from "./ui/Notice";
 import { softDisabled } from "./ui/a11y";
 import { coreResult, startOperation } from "./analytics";
 import { AiCaptionsSection } from "./AiCaptionsSection";
+import { CaptionQueue } from "./CaptionQueue";
+import type { RecordingEntry } from "./useRecordingPicker";
 const messages = {
   ACTIVATE_TAB:
     "강의 플레이어 탭을 선택하고 도구 모음의 uniDock 아이콘을 누른 뒤 다시 감지하세요.",
@@ -34,9 +36,15 @@ export interface CaptionEntry {
 export function CaptionsPanel({
   onConnectionSettings,
   entry,
+  queueEntry,
+  visit = 0,
 }: {
   readonly onConnectionSettings?: () => void;
   readonly entry?: CaptionEntry;
+  /** Recordings to pick from, with the clicked one already selected. */
+  readonly queueEntry?: RecordingEntry;
+  /** Changes each time captions is entered from outside. */
+  readonly visit?: number;
 }) {
   const [state, setState] = useState<
     CaptionResult | { status: "idle" | "loading" }
@@ -45,7 +53,19 @@ export function CaptionsPanel({
   });
   const [notice, setNotice] = useState("");
   const [exportPending, setExportPending] = useState(false);
-  const { detail, open, back } = useDetail<number>();
+  const { detail, open, back, dismiss: dismissDetail } = useDetail<number>();
+  const queueView = useDetail<"queue">();
+  const openQueue = queueView.open;
+  const dismissQueue = queueView.dismiss;
+  const seenVisit = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (seenVisit.current === visit) return;
+    seenVisit.current = visit;
+    // Each entry starts fresh: at the recording's picker, or at detection.
+    dismissDetail();
+    if (queueEntry) openQueue("queue");
+    else dismissQueue();
+  }, [visit, queueEntry, openQueue, dismissQueue, dismissDetail]);
   const [videoTarget, setVideoTarget] = useState<VideoCaptionTarget | null>(null);
   const [aiVideo, setAiVideo] = useState<VideoCaptionDelivery | null>(null);
   // Only official VTT tracks carry video-relative timing; once the panel lets
@@ -232,7 +252,7 @@ export function CaptionsPanel({
       : null;
   return (
     <section>
-      <div hidden={selected !== undefined}>
+      <div hidden={selected !== undefined || queueView.detail !== null}>
         <ScreenHeader
           title="자막 추출"
           action={
@@ -298,6 +318,17 @@ export function CaptionsPanel({
           )}
         </div>
       </div>
+      {__UNIDOCK_AI_CAPTIONS__ && (
+        <div hidden={selected !== undefined}>
+          <CaptionQueue
+            entry={queueEntry}
+            picking={queueView.detail === "queue"}
+            onPick={() => queueView.open("queue")}
+            onBack={queueView.back}
+            onSettings={onConnectionSettings}
+          />
+        </div>
+      )}
       {selected && (
         <DetailView
           title={selected.label}

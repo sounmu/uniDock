@@ -247,6 +247,7 @@ p {
 .settings-card,
 .about-app,
 .playback-playlist,
+.caption-queue,
 .detail-view dl {
   background: var(--glass);
   border: 1px solid var(--glass-brd);
@@ -435,6 +436,58 @@ p {
 }
 .playback-selection-actions > button {
   flex-shrink: 0;
+}
+.caption-queue {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+}
+.caption-queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.caption-queue-head > div {
+  flex: 1;
+  min-width: 0;
+}
+.caption-queue-head h3 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.caption-queue-head .hint {
+  margin: var(--space-1) 0 0;
+}
+.caption-queue-head > button {
+  flex-shrink: 0;
+}
+.caption-queue-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+.caption-queue-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: var(--row-h);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--glass-brd);
+}
+.caption-queue-list strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.caption-queue-list p {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
 }
 .playback-playlist {
   margin-bottom: var(--space-3);

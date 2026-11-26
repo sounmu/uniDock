@@ -767,7 +767,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     services.refuseQuota();
     const { panel } = await openPanelOnPlayer();
     await panel.getByRole("button", { name: "음성 보내기" }).click();
-    await expect(panel.getByText(/하루 7회/)).toBeVisible();
+    await expect(panel.getByText(/오늘 사용 횟수\(하루 7회\)를 모두 썼습니다/)).toBeVisible();
     expect(services.cdn).toEqual([]);
     expect(services.uploads).toHaveLength(0);
   });

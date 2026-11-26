@@ -60,7 +60,7 @@ export function HomeScreen({
             )}
             <button className="settings-row settings-link home-tool" aria-label="자막 추출" aria-describedby="home-captions-description" onClick={() => onTool("captions")}>
               <Icon name="captions" />
-              <span className="row-text"><span className="row-title">자막 추출</span><span className="row-sub" id="home-captions-description">현재 열린 강의의 자막 확인</span></span>
+              <span className="row-text"><span className="row-title">자막 추출</span><span className="row-sub" id="home-captions-description">{__UNIDOCK_AI_CAPTIONS__ ? "열린 강의 자막 확인, 여러 강의 AI 자막" : "현재 열린 강의의 자막 확인"}</span></span>
             </button>
           </div>
         </section>

@@ -40,7 +40,7 @@ const heroText: Record<string, string> = {
   running: "자막 생성 중",
 };
 
-const errorText: Record<string, string> = {
+export const errorText: Record<string, string> = {
   ACTIVATE_TAB: "KU 강의 플레이어 탭을 선택한 뒤 다시 시도하세요.",
   PERMISSION: "강의 영상 서버 접근을 허용해야 음성을 분리할 수 있습니다.",
   UNSUPPORTED_MEDIA: "이 강의에서는 음성 트랙을 찾지 못했습니다.",

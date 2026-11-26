@@ -138,7 +138,7 @@ export function RecordingResults({
               <button className="btn-secondary"
                 {...softDisabled(Boolean(recordingPending || usedRecordingHandles?.has(detail.launchHandle)),
                   () => onCaptions(detail.launchHandle))}>
-                강의 열고 자막 추출
+                {__UNIDOCK_AI_CAPTIONS__ ? "AI 자막 만들기" : "강의 열고 자막 추출"}
               </button>
             )}
             <button

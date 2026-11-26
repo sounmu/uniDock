@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syntheticServer } from "./synthetic-server";
-import { playbackBuild } from "./build-shape";
+import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 
 test("Home and course tools return to their source while main destinations remain reachable", async ({ playwright }) => {
   const profile = await mkdtemp(path.join(tmpdir(), "unidock-navigation-"));
@@ -98,17 +98,25 @@ test("Home and course tools return to their source while main destinations remai
     } else {
       await expect(recording.getByRole("button", { name: "자동 재생", exact: true })).toHaveCount(0);
     }
-    const opened = context.waitForEvent("page");
-    await recording.getByRole("button", { name: "강의 열고 자막 추출", exact: true }).click();
-    const lecture = await opened;
-    await lecture.waitForLoadState("domcontentloaded");
-    expect(lecture.url()).toBe("https://mylms.korea.ac.kr/courses/101/modules/items/902");
-    await expect(panel.getByRole("button", { name: "자막 감지", exact: true })).toBeVisible();
-    await expect(panel.getByRole("status")).toContainText("Synthetic Lecture A");
+    let lecture: Awaited<ReturnType<typeof context.newPage>> | undefined;
+    if (aiCaptionsBuild()) {
+      // AI builds pick lectures for captions instead of opening one.
+      await recording.getByRole("button", { name: "AI 자막 만들기", exact: true }).click();
+      const picker = panel.locator(".playback-picker");
+      await expect(picker.getByRole("checkbox", { name: /Synthetic Lecture A/ }).first()).toBeChecked();
+    } else {
+      const opened = context.waitForEvent("page");
+      await recording.getByRole("button", { name: "강의 열고 자막 추출", exact: true }).click();
+      lecture = await opened;
+      await lecture.waitForLoadState("domcontentloaded");
+      expect(lecture.url()).toBe("https://mylms.korea.ac.kr/courses/101/modules/items/902");
+      await expect(panel.getByRole("button", { name: "자막 감지", exact: true })).toBeVisible();
+      await expect(panel.getByRole("status")).toContainText("Synthetic Lecture A");
+    }
     await capture(panel, "captions-entry");
     await panel.getByRole("button", { name: "← 돌아가기", exact: true }).click();
     await expect(recording).toBeVisible();
-    await lecture.close();
+    await lecture?.close();
     await lms.bringToFront();
 
     await navigation.getByRole("button", { name: "일정", exact: true }).click();

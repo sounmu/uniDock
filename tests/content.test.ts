@@ -2883,3 +2883,91 @@ it("does not publish a read cancelled after its list finished, so its handles st
   });
   expect(sendMessage).not.toHaveBeenCalled();
 });
+
+function captionBatchHarness() {
+  const addListener = vi.fn();
+  const sendMessage = vi.fn().mockResolvedValue({ status: "success", opened: true });
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "fixture-extension",
+      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      onMessage: { addListener },
+      sendMessage,
+    },
+  });
+  vi.stubGlobal("location", { href: origin + "/", origin });
+  query.mockImplementation(async (_origin, _request: Request, _fetch, _now, catalog) => ({
+    status: "success",
+    recordings: catalog.replace(origin, [
+      { module: "Week", title: "Lecture", courseId: "101", itemId: "501", moduleAccess: {}, itemAccess: {} },
+      {
+        module: "Board",
+        title: "Board video",
+        courseId: "101",
+        boardToolId: "7",
+        playerUrl: "https://kucom.korea.ac.kr/em/0123456789abcdef",
+        moduleAccess: {},
+        itemAccess: {},
+      },
+    ]),
+  }));
+  (content as unknown as { main: () => void }).main();
+  const listener = addListener.mock.calls[0]![0];
+  const sender = { id: "fixture-extension", url: "chrome-extension://fixture-extension/sidepanel.html" };
+  const send = async (message: unknown) => {
+    const result = response();
+    expect(listener(message, sender, result.respond)).toBe(true);
+    return result.done;
+  };
+  const admit = async () => {
+    const listed = parseResult(
+      await send(capability({ version: 1, type: "RECORDINGS_LIST", course: "Course" }, crypto.randomUUID())),
+    );
+    if (listed.status !== "success" || !("recordings" in listed)) throw new Error("missing recordings");
+    const handles = listed.recordings.map((item) => item.launchHandle);
+    const admitted = (await send({ version: 1, type: "CAPTION_BATCH_ADMIT", handles })) as { batch?: string };
+    if (!admitted.batch) throw new Error("not admitted");
+    return { batch: admitted.batch, handles };
+  };
+  const open = (batch: string, index: number) =>
+    send({ version: 1, type: "CAPTION_BATCH_OPEN", batch, index });
+  return { sendMessage, send, admit, open };
+}
+
+it("admits a caption batch and opens its lectures after the list handles expired", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const { sendMessage, send, admit, open } = captionBatchHarness();
+  const { batch, handles } = await admit();
+  vi.advanceTimersByTime(600_000);
+  expect(await open(batch, 0)).toEqual({ status: "success", opened: true });
+  expect(await open(batch, 1)).toEqual({ status: "success", opened: true });
+  expect(sendMessage.mock.calls.map(([message]) => message)).toEqual([
+    { version: 1, type: "OPEN_LMS_TARGET", url: `${origin}/courses/101/modules/items/501`, reuse: true },
+    { version: 1, type: "OPEN_LMS_TARGET", url: "https://kucom.korea.ac.kr/em/0123456789abcdef", reuse: true },
+  ]);
+  expect(await open(batch, 0)).toEqual({ status: "error", code: "STALE_SELECTION" });
+  expect(await send({ version: 1, type: "RECORDING_OPEN", handle: handles[0] })).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+});
+
+it("returns a rate-limited lecture to the batch and drops the batch when replaced", async () => {
+  const { sendMessage, admit, open } = captionBatchHarness();
+  const first = await admit();
+  sendMessage.mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" });
+  expect(await open(first.batch, 0)).toEqual({ status: "error", code: "RATE_LIMITED" });
+  expect(await open(first.batch, 0)).toEqual({ status: "success", opened: true });
+  const second = await admit();
+  expect(await open(first.batch, 1)).toEqual({ status: "error", code: "STALE_SELECTION" });
+  expect(await open(second.batch, 1)).toEqual({ status: "success", opened: true });
+});
+
+it("drops the caption batch when the LMS account changes", async () => {
+  const { admit, open } = captionBatchHarness();
+  const { batch } = await admit();
+  vi.mocked(fetch).mockImplementation(async () => Response.json({ id: 43 }));
+  expect(await open(batch, 0)).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
+  vi.mocked(fetch).mockImplementation(async () => Response.json({ id: 42 }));
+  expect(await open(batch, 0)).toEqual({ status: "error", code: "STALE_SELECTION" });
+});

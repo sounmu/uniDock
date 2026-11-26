@@ -1,8 +1,31 @@
 import { type Result } from "./protocol";
-import { navigationUrl } from "./security/navigation";
+import { navigationUrl, playerUrl } from "./security/navigation";
 import { TabRateLimiter } from "./security/rate-limit";
+import { allowedPage } from "./security/policy";
 // A person opens lectures one click at a time.
 const opens = new TabRateLimiter(30, 60_000);
+/** Session key holding the id of the one tab caption work from this list tab
+    opens lectures in; panels in other windows work from other list tabs. */
+export function lectureTabKey(source: number): string {
+  return `unidock-lecture-tab:${source}`;
+}
+
+async function openInLectureTab(url: string, source: number): Promise<void> {
+  const key = lectureTabKey(source);
+  const saved: unknown = (await chrome.storage.session.get(key))[key];
+  // The source tab holds the list being worked through, so it is never reused.
+  if (typeof saved === "number" && saved !== source) {
+    // A closed tab rejects; a tab the user took elsewhere is left alone.
+    const tab = await chrome.tabs.get(saved).catch(() => undefined);
+    // Board recordings open the canonical KU player page directly.
+    if (tab?.url && (allowedPage(tab.url) || playerUrl(tab.url))) {
+      await chrome.tabs.update(saved, { url, active: true });
+      return;
+    }
+  }
+  const tab = await chrome.tabs.create({ url, active: true });
+  if (tab.id !== undefined) await chrome.storage.session.set({ [key]: tab.id });
+}
 // Only our top-frame LMS content script can request a canonical LMS navigation.
 export async function openLmsTab(
   message: unknown,
@@ -11,8 +34,9 @@ export async function openLmsTab(
   if (!message || typeof message !== "object")
     return { status: "error", code: "POLICY" };
   const row = message as Record<string, unknown>;
+  const keys = Object.keys(row).length;
   if (
-    Object.keys(row).length !== 3 ||
+    !(keys === 3 || (keys === 4 && row.reuse === true)) ||
     row.version !== 1 ||
     row.type !== "OPEN_LMS_TARGET" ||
     sender.id !== chrome.runtime.id ||
@@ -29,7 +53,8 @@ export async function openLmsTab(
       return { status: "error", code: "RELOAD_TAB" };
     if (!opens.admit(sender.tab.id))
       return { status: "error", code: "RATE_LIMITED" };
-    await chrome.tabs.create({ url, active: true });
+    if (row.reuse === true) await openInLectureTab(url, sender.tab.id);
+    else await chrome.tabs.create({ url, active: true });
     return { status: "success", opened: true };
   } catch {
     return { status: "error", code: "TAB_OPEN_FAILED" };

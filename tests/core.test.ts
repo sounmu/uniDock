@@ -55,6 +55,37 @@ describe("privacy and policy", () => {
     ])
       expect(isRequest(value)).toBe(false);
   });
+  it("accepts a caption batch admission only with 1 to 100 distinct handles", () => {
+    const handle = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const admit = (handles: unknown, extra = {}) =>
+      isRequest({ version: 1, type: "CAPTION_BATCH_ADMIT", handles, ...extra });
+    expect(admit([handle(1), handle(2)])).toBe(true);
+    expect(admit(Array.from({ length: 100 }, (_, n) => handle(n)))).toBe(true);
+    for (const handles of [[], Array.from({ length: 101 }, (_, n) => handle(n)), [handle(1), handle(1)], ["x"], "x"])
+      expect(admit(handles)).toBe(false);
+    expect(admit([handle(1)], { reuse: true })).toBe(false);
+    expect(isRequest({ version: 1, type: "RECORDING_OPEN", handle: handle(1), reuse: true })).toBe(false);
+  });
+  it("accepts a caption batch open only with a batch id and an in-range index", () => {
+    const batch = "00000000-0000-4000-8000-0000000000b1";
+    const open = (index: unknown, extra = {}) =>
+      isRequest({ version: 1, type: "CAPTION_BATCH_OPEN", batch, index, ...extra });
+    expect(open(0)).toBe(true);
+    expect(open(99)).toBe(true);
+    for (const index of [-1, 1.5, 100, "0"]) expect(open(index)).toBe(false);
+    expect(open(0, { extra: 1 })).toBe(false);
+    expect(isRequest({ version: 1, type: "CAPTION_BATCH_OPEN", batch: "x", index: 0 })).toBe(false);
+  });
+  it("reads a batch id only as the answer to an admission", () => {
+    const batch = "00000000-0000-4000-8000-0000000000b1";
+    const admission = { version: 1, type: "CAPTION_BATCH_ADMIT", handles: [batch] } as const;
+    expect(parseResult({ status: "success", batch }, admission)).toEqual({ status: "success", batch });
+    expect(parseResult({ status: "success", batch })).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+    expect(parseResult({ status: "success", batch: "x" }, admission)).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+    expect(
+      parseResult({ status: "success", opened: true }, { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 0 }),
+    ).toEqual({ status: "success", opened: true });
+  });
   it("re-projects protocol responses", () => {
     expect(
       parseResult({ status: "success", courses: fixture, token: "secret" }),
