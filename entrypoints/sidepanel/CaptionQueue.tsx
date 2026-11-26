@@ -48,8 +48,13 @@ export function CaptionQueue({
   const gate = useRef(new QueryGate()).current;
   const queue = useCaptionQueue();
   const session = useCaptionSession();
-  const submitted = queue.items.filter((item) => item.jobId !== null).length;
-  const account = useCaptionAccount(session, submitted);
+  // The account is read again when a job takes a use and when a cancelled or
+  // failed one gives it back.
+  const usage = queue.items
+    .filter((item) => item.jobId !== null)
+    .map((item) => `${item.jobId}:${item.phase === "failed" || item.phase === "cancelled" ? "released" : "held"}`)
+    .join(",");
+  const account = useCaptionAccount(session, usage);
   const remaining = account ? remainingJobs(account) : null;
   const options = useMemo(
     () => ({ eligible, limit: remaining ?? 7 }),
