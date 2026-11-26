@@ -15,7 +15,7 @@ import {
   type CaptionJobUpdate,
 } from "../../src/captions/job-monitor";
 import type { JobPhase } from "../../src/captions/job-state";
-import { lectureTabKey } from "../../src/open-tab";
+import { lectureTabKey, OPEN_RATE_WINDOW_MS } from "../../src/open-tab";
 import { queryActive, type QueryTarget } from "../../src/transport";
 
 export type QueuePhase = "waiting" | "opening" | JobPhase;
@@ -32,6 +32,7 @@ export interface QueueItem {
 
 const MEDIA_WAIT_MS = 45_000;
 const MEDIA_RETRY_MS = 1_500;
+const RATE_LIMIT_RETRY_MS = 5_000;
 const MAX_RECONNECTS = 5;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
@@ -218,10 +219,26 @@ export function useCaptionQueue() {
         try {
           // The tab may still show the last lecture until the new page commits.
           const previous = await lectureDocument(selection.target.id);
-          const opened = await queryActive(
-            { version: 1, type: "CAPTION_BATCH_OPEN", batch: admitted.batch, index },
-            { target: selection.target, signal },
-          );
+          const open = () =>
+            queryActive(
+              { version: 1, type: "CAPTION_BATCH_OPEN", batch: admitted.batch, index },
+              { target: selection.target, signal },
+            );
+          let opened = await open();
+          // The tab opener's limiter refuses before opening and the list tab
+          // keeps the lecture, so waiting out one window admits it unless
+          // something else keeps opening tabs from this list tab.
+          const retryUntil = Date.now() + OPEN_RATE_WINDOW_MS;
+          while (
+            opened.status !== "success" &&
+            opened.code === "RATE_LIMITED" &&
+            Date.now() < retryUntil
+          ) {
+            await pause(RATE_LIMIT_RETRY_MS, signal);
+            if (signal.aborted) break;
+            opened = await open();
+          }
+          if (signal.aborted) break;
           if (opened.status !== "success") {
             patch(mine, { phase: "failed", errorCode: opened.code });
             if (!LOST_SELECTION.has(opened.code)) continue;

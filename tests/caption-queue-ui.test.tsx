@@ -151,6 +151,59 @@ it("skips a lecture that cannot be opened and goes on", async () => {
   expect(queue.items[1]?.phase).toBe("queued");
 });
 
+it("waits out the tab-open limit and opens the same lecture again", async () => {
+  vi.useFakeTimers();
+  queryActive
+    .mockImplementationOnce(admitted)
+    .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" });
+  for (const shown of ["old", "first", "first", "second"])
+    identifyMedia.mockResolvedValueOnce(media(shown));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a", "b"], target }, String);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await run;
+  });
+  expect(opens().map(([request]) => request.index)).toEqual([0, 0, 1]);
+  expect(phases()).toEqual(["queued", "queued"]);
+});
+
+it("gives up on a lecture still refused after one limit window and goes on", async () => {
+  vi.useFakeTimers();
+  queryActive.mockImplementation(async (request: { type: string; index?: number }) =>
+    request.type === "CAPTION_BATCH_OPEN" && request.index === 0
+      ? { status: "error", code: "RATE_LIMITED" }
+      : admitted(request),
+  );
+  identifyMedia.mockImplementationOnce(noPlayer).mockImplementationOnce(noPlayer);
+  identifyMedia.mockResolvedValue(media("second"));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a", "b"], target }, String);
+    await vi.advanceTimersByTimeAsync(70_000);
+    await run;
+  });
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "RATE_LIMITED" });
+  expect(queue.items[1]?.phase).toBe("queued");
+});
+
+it("stops waiting on the tab-open limit when the run is stopped", async () => {
+  vi.useFakeTimers();
+  queryActive.mockImplementation(async (request: { type: string }) =>
+    request.type === "CAPTION_BATCH_OPEN" ? { status: "error", code: "RATE_LIMITED" } : admitted(request),
+  );
+  identifyMedia.mockImplementation(noPlayer);
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a", "b"], target }, String);
+    await vi.advanceTimersByTimeAsync(1_000);
+    queue.stop();
+    await run;
+  });
+  expect(opens()).toHaveLength(1);
+  expect(phases()).toEqual(["cancelled", "cancelled"]);
+});
+
 it("spends nothing from the list when media access is refused", async () => {
   mediaAccess.mockResolvedValueOnce(false);
   await render();

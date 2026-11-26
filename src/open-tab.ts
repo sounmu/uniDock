@@ -5,7 +5,8 @@ import { allowedPage } from "./security/policy";
 // Shared by clicks and caption-batch opens: a forged request picks its own
 // `reuse` flag, so a second limiter would only double the budget. A batch
 // waits for each lecture's player, and its upload if any, before the next.
-const opens = new TabRateLimiter(30, 60_000);
+export const OPEN_RATE_WINDOW_MS = 60_000;
+const opens = new TabRateLimiter(30, OPEN_RATE_WINDOW_MS);
 /** Session key holding the id of the one tab caption work from this list tab
     opens lectures in; panels in other windows work from other list tabs. */
 export function lectureTabKey(source: number): string {
