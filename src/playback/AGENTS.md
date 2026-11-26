@@ -9,7 +9,7 @@ Earned its file: score ~8.7 (6 files, 48 exports, `runtime.ts` is the largest fi
 |------|----------|-------|
 | Panel/background/content message contract | `bridge.ts` | `PlaybackCommand`, `isPlaybackCommand`, `PlaybackSnapshot`, `PlayerBinding`, `PlayerControl`, `playbackErrors`, `PLAYBACK_DISCOVER` |
 | Orchestration / state machine | `runtime.ts` `PlaybackRuntime` | serialized owner of the ordered playlist and sole player-authorization issuer; `PLAYBACK_ALARM`, `PLAYBACK_PREFLIGHT`, `PLAYBACK_WATCHDOG` |
-| Native video control | `player.ts` `PlaybackPlayer` | metadata/play waits clamped 1..30000 ms; terminal per instance |
+| Native video control | `player.ts` `PlaybackPlayer` | metadata/play waits clamped to 1..`MAX_WAIT_MS`; terminal per instance |
 | KU player start | `ku-player.ts` `initializeKuLecture` | clicks KU's own start control, then tracks primary video |
 | Persisted recovery state | `storage.ts` `ChromePlaybackStore`, `parseStoredPlayback`, `PLAYBACK_STORAGE_KEY` | |
 | Playlist item shapes | `playlist.ts` | `PlaylistItem`, `PlaybackCandidate` |

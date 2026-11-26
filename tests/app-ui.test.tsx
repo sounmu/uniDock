@@ -100,13 +100,11 @@ it("returns keyboard focus to the information trigger when closing it", async ()
   expect(trigger?.hasAttribute("aria-current")).toBe(false);
 });
 it("waits for the pending request then loads the last selected menu automatically", async () => {
-  // Given
   const first = deferred<Result>();
   query
     .mockReturnValueOnce(first.promise)
     .mockResolvedValueOnce({ status: "success", todo: [] });
   ui = await mount(<App />);
-  // When
   await click("일정");
   await click("일정 목록 보기");
   await click("내 과목");
@@ -115,7 +113,6 @@ it("waits for the pending request then loads the last selected menu automaticall
   expect(query).toHaveBeenCalledTimes(1);
   expect(ui.host.querySelector('button[aria-label="새로고침"]')?.getAttribute("aria-busy")).toBe("true");
   await act(async () => first.resolve({ status: "success", todo: [] }));
-  // Then
   expect(query).toHaveBeenCalledTimes(2);
   expect(query.mock.calls[1]?.[0]).toEqual({ version: 1, type: "TODO_LIST" });
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
@@ -124,17 +121,14 @@ it("waits for the pending request then loads the last selected menu automaticall
   );
 });
 it("keeps background results behind captions and drops requests after unmounting", async () => {
-  // Given
   const first = deferred<Result>();
   query.mockReturnValueOnce(first.promise).mockResolvedValue({ status: "success", todo: [] });
   ui = await mount(<App />);
-  // When
   await click("일정");
   await click("일정 목록 보기");
   await click("홈");
   await click("자막 추출");
   await act(async () => first.resolve({ status: "success", todo: [] }));
-  // Then
   expect(query).toHaveBeenCalledTimes(2);
   expect(document.body.textContent).toContain("자막 화면");
   const next = deferred<Result>();
@@ -146,7 +140,6 @@ it("keeps background results behind captions and drops requests after unmounting
   expect(query).toHaveBeenCalledTimes(3);
 });
 it("reloads courses through the content cache when returning during a pending query", async () => {
-  // Given
   const pending = deferred<Result>();
   query
     .mockImplementationOnce(courseQuery)
@@ -154,12 +147,10 @@ it("reloads courses through the content cache when returning during a pending qu
     .mockImplementationOnce(courseQuery);
   ui = await mount(<App />);
   await click("내 과목");
-  // When
   await click("일정");
   await click("일정 목록 보기");
   await click("내 과목");
   await act(async () => pending.resolve({ status: "success", todo: [] }));
-  // Then
   expect(query).toHaveBeenCalledTimes(3);
   expect(query.mock.calls[2]?.[0]).toEqual({
     version: 1,
@@ -168,17 +159,14 @@ it("reloads courses through the content cache when returning during a pending qu
   expect(ui.host.querySelector("li strong")?.textContent).toBe("과목");
 });
 it("runs the queued request even after the previous request fails", async () => {
-  // Given
   const pending = deferred<Result>();
   query
     .mockReturnValueOnce(pending.promise)
     .mockResolvedValueOnce({ status: "success", upcoming: [] });
   ui = await mount(<App />);
-  // When
   await click("일정");
   await click("일정 목록 보기");
   await act(async () => pending.resolve({ status: "error", code: "NETWORK" }));
-  // Then
   expect(query).toHaveBeenCalledTimes(2);
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
 });
@@ -201,17 +189,14 @@ it("does not publish an old course list after a newer view is selected", async (
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
 });
 it("opens the selected course materials view through the four-item rail", async () => {
-  // Given
   query
     .mockImplementationOnce(courseQuery)
     .mockResolvedValueOnce({ status: "success", assignments: [] })
     .mockResolvedValueOnce({ status: "success", documents: [] });
   ui = await mount(<App />);
-  // When
   await click("내 과목");
   await click("과목");
   await click("강의 자료");
-  // Then
   expect(query).toHaveBeenLastCalledWith(
     { version: 1, type: "DOCUMENTS_LIST", courseSelector },
     expect.objectContaining({ onTarget: expect.any(Function) }),
@@ -278,12 +263,9 @@ async function showRecordings() {
   await click("첫 강의");
 }
 it("keeps recordings visible and opens subsequent selections in the original LMS tab", async () => {
-  // Given
   await showRecordings();
   query.mockResolvedValue({ status: "success", opened: true });
-  // When
   await click("강의 열기 ↗");
-  // Then
   expect(
     ui.host.querySelector<HTMLButtonElement>(".detail-view .btn-primary")
       ?.disabled,
@@ -303,16 +285,13 @@ it("keeps recordings visible and opens subsequent selections in the original LMS
   expect(query).toHaveBeenCalledTimes(5);
 });
 it("prevents duplicate opens and preserves the list on a retryable failure", async () => {
-  // Given
   await showRecordings();
   const pending = deferred<Result>();
   query.mockReturnValueOnce(pending.promise);
-  // When
   await click("강의 열기 ↗");
   await click("강의 열기 ↗");
   expect(query).toHaveBeenCalledTimes(4);
   await act(async () => pending.resolve({ status: "error", code: "BUSY" }));
-  // Then
   expect(document.body.textContent).toContain("두 번째 강의");
   query.mockResolvedValueOnce({ status: "error", code: "STALE_SELECTION" });
   await click("강의 열기 ↗");
@@ -326,22 +305,18 @@ it("prevents duplicate opens and preserves the list on a retryable failure", asy
   expect(rowActionLabels()).toEqual(["새로고침 필요", "강의 열기 "]);
 });
 it("does not replace the next menu when an open finishes late", async () => {
-  // Given
   await showRecordings();
   const pending = deferred<Result>();
   query
     .mockReturnValueOnce(pending.promise)
     .mockResolvedValueOnce({ status: "success", todo: [] });
-  // When
   await click("강의 열기 ↗");
   await click("일정");
   await act(async () => pending.resolve({ status: "success", opened: true }));
-  // Then
   expect(document.body.textContent).toContain("조회된 항목이 없습니다");
   expect(document.body.textContent).not.toContain("새 LMS/LTI 탭을 열었습니다");
 });
 it("links task and schedule details to their LMS posts", async () => {
-  // Given
   const html_url = "https://mylms.korea.ac.kr/courses/12/assignments/34";
   query
     .mockResolvedValueOnce({
@@ -419,9 +394,7 @@ it("shows the first-run statistics notice, marks it shown, and dismisses it with
   // The notice stays after the background marks it shown.
   await act(async () => {});
   expect(notice()).not.toBeNull();
-  // When
   await click("확인");
-  // Then
   expect(notice()).toBeNull();
   expect(sendMessage).not.toHaveBeenCalledWith(
     expect.objectContaining({ type: "ANALYTICS_SET" }),
@@ -443,7 +416,6 @@ it("turns statistics off from the change notice", async () => {
   });
 });
 it("focuses the analytics group and returns to its contextual trigger", async () => {
-  // Given
   vi.stubGlobal("chrome", {
     ...chrome,
     runtime: { sendMessage: noticeMessages("first_run") },
@@ -454,9 +426,7 @@ it("focuses the analytics group and returns to its contextual trigger", async ()
     (button) => button.textContent === "자세히",
   );
   trigger?.focus();
-  // When
   await click("자세히");
-  // Then
   expect(document.activeElement).toBe(ui.host.querySelector("#analytics-title"));
   await click("← 돌아가기");
   expect(document.activeElement).toBe(trigger);

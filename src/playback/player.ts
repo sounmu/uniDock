@@ -1,3 +1,5 @@
+const MAX_WAIT_MS = 30000;
+
 export type PlaybackState =
   | "idle"
   | "starting"
@@ -33,7 +35,7 @@ export interface PlaybackOptions {
   /** Intermediary media can end on the same element before the actual content starts. */
   isCompletionMedia?: () => boolean;
   onStateChange?: (status: PlaybackStatus) => void;
-  /** Bounds metadata and play() waits. Clamped to 1..30000 ms. */
+  /** Bounds metadata and play() waits. Clamped to 1..MAX_WAIT_MS. */
   timeoutMs?: number;
 }
 
@@ -67,7 +69,7 @@ export class PlaybackPlayer {
   ) {
     this.document = video.ownerDocument;
     this.url = this.document.location.href;
-    this.timeoutMs = Math.min(30000, Math.max(1, options.timeoutMs ?? 15000));
+    this.timeoutMs = Math.min(MAX_WAIT_MS, Math.max(1, options.timeoutMs ?? 15000));
   }
 
   get status(): PlaybackStatus {

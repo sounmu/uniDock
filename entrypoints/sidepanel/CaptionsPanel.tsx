@@ -18,6 +18,7 @@ import { coreResult, startOperation } from "./analytics";
 import { AiCaptionsSection } from "./AiCaptionsSection";
 import { CaptionQueue } from "./CaptionQueue";
 import type { RecordingEntry } from "./useRecordingPicker";
+const CAPTION_RETENTION_MS = 300_000;
 const messages = {
   ACTIVATE_TAB:
     "강의 플레이어 탭을 선택하고 도구 모음의 uniDock 아이콘을 누른 뒤 다시 감지하세요.",
@@ -69,7 +70,7 @@ export function CaptionsPanel({
   const [videoTarget, setVideoTarget] = useState<VideoCaptionTarget | null>(null);
   const [aiVideo, setAiVideo] = useState<VideoCaptionDelivery | null>(null);
   // Only official VTT tracks carry video-relative timing; once the panel lets
-  // the transcript go after five minutes, the video keeps what it shows.
+  // the transcript go after CAPTION_RETENTION_MS, the video keeps what it shows.
   const videoCues = useMemo(() => {
     if (state.status !== "success" || !videoTarget) return null;
     const caption = state.captions.find(
@@ -146,7 +147,7 @@ export function CaptionsPanel({
       setState({ status: "idle" });
       setExportPending(false);
       setNotice("자막 보관 시간이 만료되었습니다. 다시 감지하세요.");
-    }, 300000);
+    }, CAPTION_RETENTION_MS);
     return () => clearTimeout(timer);
   }, [state]);
   async function detect() {

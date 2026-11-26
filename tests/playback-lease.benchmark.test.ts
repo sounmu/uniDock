@@ -8,12 +8,14 @@ import {
 import type { StoredPlayback } from "../src/playback/storage";
 
 // Opt-in: UNIDOCK_BENCH=1 npx vitest run tests/playback-lease.benchmark.test.ts
-// "Before" = the same tree with HEAD's sequential entrypoints/lms.content.ts:
+// "Before" = the same tree with the sequential src/api/playback-discovery.ts,
+// last seen in the first parent of merge 4535073, which brought the overlap in:
 //   rm -rf /tmp/unidock-before && mkdir /tmp/unidock-before
 //   rsync -a --exclude node_modules --exclude .git --exclude .output --exclude .omo ./ /tmp/unidock-before/
-//   git show HEAD:entrypoints/lms.content.ts > /tmp/unidock-before/entrypoints/lms.content.ts
+//   git show 4535073^1:src/api/playback-discovery.ts > /tmp/unidock-before/src/api/playback-discovery.ts
 //   ln -s "$PWD/node_modules" /tmp/unidock-before/node_modules
 //   (cd /tmp/unidock-before && UNIDOCK_BENCH=1 npx vitest run tests/playback-lease.benchmark.test.ts)
+// The swap works while that module's imports and discoverPlayback's signature stay as they are.
 const RTT_MS = 20;
 const COURSES = 12;
 const RUNS = 7;

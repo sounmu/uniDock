@@ -3,14 +3,17 @@ import { readUrl } from "../security/policy";
 import { object } from "../playback/bridge";
 import { internalId } from "../recordings";
 
+const IDENTITY_TIMEOUT_MS = 1000;
+
 export async function currentAccount(
   origin: string,
   fetcher: typeof fetch = fetch,
 ): Promise<string> {
   const controller = new AbortController();
   // Two identity checks wrap a list miss. Keep their combined budget below
-  // the 23s panel deadline while listQuery retains its own 20s bound.
-  const timer = setTimeout(() => controller.abort(), 1000);
+  // the panel's DOWNLOAD_REQUEST_WINDOW_MS deadline while listQuery retains
+  // its own QUERY_TIMEOUT_MS bound.
+  const timer = setTimeout(() => controller.abort(), IDENTITY_TIMEOUT_MS);
   try {
     const response = await fetcher(
       readUrl("/api/v1/users/self", origin, "/api/v1/users/self").href,

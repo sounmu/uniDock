@@ -230,12 +230,12 @@ const offsetMismatch = async (response: Response) =>
   (await serverErrorCode(response.clone())) === "UPLOAD_OFFSET_MISMATCH";
 
 /**
- * tus core upload: resume from the server's offset, send 8 MiB chunks, and
- * declare the total size on every PATCH (the first one sets it). Two chunks
- * stay in flight: each accepted answer sends the next chunk right away. A
- * broker that answers such an ahead chunk with an offset mismatch gets one
- * chunk at a time for the rest of the upload. A mismatch on the oldest chunk re-reads the
- * offset a few times instead of restarting. Whatever is cancelled mid-flight
+ * tus core upload: resume from the server's offset, send UPLOAD_CHUNK_BYTES
+ * chunks, and declare the total size on every PATCH (the first one sets it).
+ * MAX_CHUNKS_IN_FLIGHT chunks stay in flight: each accepted answer sends the
+ * next chunk right away. A broker that answers such an ahead chunk with an
+ * offset mismatch gets one chunk at a time for the rest of the upload. A
+ * mismatch on the oldest chunk re-reads the offset a few times instead of restarting. Whatever is cancelled mid-flight
  * is never assumed stored: the upload resumes from a HEAD offset.
  *
  * `onProgress` gets the committed offset plus the bytes sent of the chunks in

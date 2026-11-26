@@ -52,11 +52,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 it("requests one browser download when sender, route and filename are canonical", async () => {
-  // Given
   const { download, get } = setup();
-  // When
   const result = await downloadLmsFile(message, sender);
-  // Then
   expect(result).toEqual({ status: "success", downloaded: true });
   expect(get).toHaveBeenCalledWith(7);
   expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
@@ -79,11 +76,8 @@ it.each([
   { ...sender, url: undefined },
   { ...sender, url: "https://canvas.korea.ac.kr/" },
 ])("rejects a forged sender before browser download", async (source) => {
-  // Given
   const { download } = setup();
-  // When
   const result = await downloadLmsFile(message, source);
-  // Then
   expect(result).toEqual({ status: "error", code: "POLICY" });
   expect(download).not.toHaveBeenCalled();
 });
@@ -101,11 +95,8 @@ it.each([
   { ...message, filename: "/tmp/x.pdf" },
   { ...message, filename: "uniDock/A/C:\\x.pdf" },
 ])("rejects URL or filename tampering", async (value) => {
-  // Given
   const { download } = setup();
-  // When
   const result = await downloadLmsFile(value, sender);
-  // Then
   expect(result).toEqual({ status: "error", code: "POLICY" });
   expect(download).not.toHaveBeenCalled();
 });
@@ -139,12 +130,9 @@ it("rejects a replacement document even when its URL is unchanged", async () => 
   expect(download).not.toHaveBeenCalled();
 });
 it("refuses a stale tab before requesting a download", async () => {
-  // Given
   const { download, get } = setup();
   get.mockResolvedValue({ url: `${origin}/courses/202` });
-  // When
   const result = await downloadLmsFile(message, sender);
-  // Then
   expect(result).toEqual({ status: "error", code: "RELOAD_TAB" });
   expect(download).not.toHaveBeenCalled();
 });
@@ -161,13 +149,10 @@ it("refuses a tab that navigated while the source check was pending", async () =
   expect(download).not.toHaveBeenCalled();
 });
 it("drops browser error details when starting a download fails", async () => {
-  // Given
   const { download } = setup();
   download.mockRejectedValue(new Error("token=secret"));
   const log = vi.spyOn(console, "warn").mockImplementation(() => {});
-  // When
   const result = await downloadLmsFile(message, sender);
-  // Then
   expect(result).toEqual({ status: "error", code: "DOWNLOAD_FAILED" });
   expect(log.mock.calls.flat().join(" ")).not.toContain("secret");
 });

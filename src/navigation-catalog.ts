@@ -38,6 +38,8 @@ interface Entry {
 export const CAPTION_BATCH_IDLE_MS = 1_800_000;
 const moduleItemPath = /^\/courses\/[1-9]\d{0,19}\/modules\/items\/[1-9]\d{0,19}$/;
 
+const HANDLE_TTL_MS = 300_000;
+
 /** Lectures a caption run was admitted for, opened once each by position.
     The list's handles are already spent, so a long upload cannot outlive them. */
 export class CaptionBatch {
@@ -137,7 +139,7 @@ export class NavigationCatalog {
       this.add(handle, {
         url: safe,
         kind: "recording",
-        expires: now + 300000,
+        expires: now + HANDLE_TTL_MS,
         moduleAccess: target.moduleAccess,
         itemAccess: target.itemAccess,
       });
@@ -164,7 +166,7 @@ export class NavigationCatalog {
               )
             : "",
       }));
-      this.timer = setTimeout(() => this.expire(), 300000);
+      this.timer = setTimeout(() => this.expire(), HANDLE_TTL_MS);
       return result;
     } catch (error) {
       this.clear();
@@ -194,7 +196,7 @@ export class NavigationCatalog {
         this.add(lmsHandle, {
           url,
           kind: "document",
-          expires: now + 300000,
+          expires: now + HANDLE_TTL_MS,
           moduleAccess: target.moduleAccess,
           itemAccess: target.itemAccess,
         });
@@ -212,7 +214,7 @@ export class NavigationCatalog {
             module: target.module,
             // Downloads are saved under the actual file name, not the item title.
             title: target.filename,
-            expires: now + 300000,
+            expires: now + HANDLE_TTL_MS,
             moduleAccess: target.moduleAccess,
             itemAccess: target.itemAccess,
           });
@@ -226,7 +228,7 @@ export class NavigationCatalog {
           downloadHandle,
         };
       });
-      this.timer = setTimeout(() => this.expire(), 300000);
+      this.timer = setTimeout(() => this.expire(), HANDLE_TTL_MS);
       return result;
     } catch (error) {
       this.clear();

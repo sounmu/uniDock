@@ -75,7 +75,6 @@ async function refreshMaterials() {
   await act(async () => button.click());
 }
 it("exposes native mixed selection and clears it for all or no available files", async () => {
-  // Given
   await materials();
   const all = document.querySelector<HTMLInputElement>(
     'input[aria-label="전체 선택"]',
@@ -87,9 +86,7 @@ it("exposes native mixed selection and clears it for all or no available files",
   expect(all.indeterminate).toBe(false);
   expect(all.checked).toBe(false);
 
-  // When
   await act(async () => first.click());
-  // Then
   expect(all.indeterminate).toBe(true);
   expect(all.checked).toBe(false);
 
@@ -101,7 +98,6 @@ it("exposes native mixed selection and clears it for all or no available files",
   expect(all.checked).toBe(false);
 });
 it("recalculates mixed selection when a selected file becomes unavailable", async () => {
-  // Given
   await materials();
   const all = document.querySelector<HTMLInputElement>(
     'input[aria-label="전체 선택"]',
@@ -114,9 +110,7 @@ it("recalculates mixed selection when a selected file becomes unavailable", asyn
   expect(all.indeterminate).toBe(true);
   query.mockResolvedValue({ status: "success", downloaded: true });
 
-  // When
   await click("선택 다운로드 (1)");
-  // Then
   expect(all.indeterminate).toBe(false);
   expect(all.checked).toBe(false);
   expect(first.disabled).toBe(true);
@@ -152,9 +146,7 @@ it.each([0, 100])(
     if (!origin) throw new Error("Missing course control");
     origin.focus();
 
-    // When
     await act(async () => origin.click());
-    // Then
     const heading = document.querySelector(".course-context h2");
     expect(document.activeElement).toBe(heading);
     expect(origin.isConnected).toBe(false);
@@ -182,29 +174,23 @@ it.each([0, 100])(
   },
 );
 it("focuses the course list heading when the originating course disappears", async () => {
-  // Given
   await materials();
   query.mockImplementationOnce(async (_request, options) => {
     options.onTarget(target);
     return { status: "success", courses: [] };
   });
-  // When
   await click("← 과목 선택");
-  // Then
   expect(document.activeElement).toBe(document.querySelector("main h1"));
 });
 it("requests all downloadable files sequentially and marks a failed item without replay", async () => {
-  // Given
   await materials();
   const first = deferred<Result>();
   query
     .mockReturnValueOnce(first.promise)
     .mockResolvedValueOnce({ status: "error", code: "DOWNLOAD_FAILED" });
-  // When
   await click("자료 전체 다운로드");
   expect(query).toHaveBeenCalledTimes(4);
   await act(async () => first.resolve({ status: "success", downloaded: true }));
-  // Then
   expect(query.mock.calls.slice(3)).toEqual(
     documents.slice(0, 2).map((item) => [
       {
@@ -222,7 +208,6 @@ it("requests all downloadable files sequentially and marks a failed item without
   expect(query).toHaveBeenCalledTimes(5);
 });
 it("continues a running batch in settings and retains the materials list on return", async () => {
-  // Given
   await materials();
   const first = deferred<Result>();
   query
@@ -236,7 +221,6 @@ it("continues a running batch in settings and retains the materials list on retu
       .map(([request]) => request.handle),
   ).toEqual([documents[0]?.downloadHandle]);
 
-  // When
   const refresh = document.querySelector<HTMLButtonElement>(
     'button[aria-label="강의 자료 새로고침"]',
   );
@@ -264,13 +248,11 @@ it("continues a running batch in settings and retains the materials list on retu
   ).toBe(2);
 });
 it("stops the batch on a rate limit and keeps the remaining files retryable", async () => {
-  // Given
   await materials();
   query
     .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" })
     .mockResolvedValueOnce({ status: "success", downloaded: true })
     .mockResolvedValueOnce({ status: "success", downloaded: true });
-  // When
   await click("자료 전체 다운로드");
   // Then: only the refused request was sent, and nothing is marked failed.
   expect(query).toHaveBeenCalledTimes(4);
@@ -285,7 +267,6 @@ it("stops the batch on a rate limit and keeps the remaining files retryable", as
   expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
 });
 it("downloads only the checked subset and keeps selection when returning from details", async () => {
-  // Given
   await materials();
   query.mockResolvedValue({ status: "success", downloaded: true });
   const checkbox = document.querySelector<HTMLInputElement>(
@@ -293,11 +274,9 @@ it("downloads only the checked subset and keeps selection when returning from de
   );
   if (!checkbox) throw new Error("Missing checkbox");
   await act(async () => checkbox.click());
-  // When
   await click("two.pdf");
   await click("← 목록");
   await click("선택 다운로드 (1)");
-  // Then
   expect(checkbox.checked).toBe(true);
   expect(query.mock.calls.slice(3).map(([request]) => request.handle)).toEqual([
     documents[1]?.downloadHandle,
@@ -307,7 +286,6 @@ it("downloads only the checked subset and keeps selection when returning from de
 it.each(["일정", "취소", "녹화 강의"])(
   "stops unsent downloads when %s is selected",
   async (action) => {
-    // Given
     await materials();
     const first = deferred<Result>();
     query
@@ -316,12 +294,10 @@ it.each(["일정", "취소", "녹화 강의"])(
         ? { status: "success", recordings: [] }
         : { status: "success", todo: [] });
     await click("자료 전체 다운로드");
-    // When
     await click(action);
     await act(async () =>
       first.resolve({ status: "success", downloaded: true }),
     );
-    // Then
     expect(
       query.mock.calls.filter(
         ([request]) => request.type === "DOCUMENT_DOWNLOAD",
@@ -362,12 +338,9 @@ it("does not offer a restart until a cancelled request has drained", async () =>
   ).not.toBeNull();
 });
 it("requires refresh when the download capability has expired", async () => {
-  // Given
   await materials();
   query.mockResolvedValue({ status: "error", code: "STALE_SELECTION" });
-  // When
   await click("자료 전체 다운로드");
-  // Then
   expect(chips()).toEqual(["실패", "실패", "LMS에서 확인"]);
   expect(
     document.querySelector<HTMLButtonElement>(".material-actions .btn-primary")
@@ -383,7 +356,6 @@ it.each([
 ])(
   "tracks a completed matching download with MIME %s",
   async (mime, status) => {
-    // Given
     await materials();
     query.mockResolvedValue({ status: "success", downloaded: true });
     const item = {
@@ -394,7 +366,6 @@ it.each([
       state: "in_progress",
       mime,
     };
-    // When
     await click("자료 전체 다운로드");
     await act(async () => {
       onCreated.addListener.mock.calls[0]?.[0]({
@@ -409,7 +380,6 @@ it.each([
         state: { current: "complete" },
       });
     });
-    // Then
     expect(chips()).toEqual([status, "요청됨", "LMS에서 확인"]);
     expect(search).toHaveBeenCalledWith({ id: 42 });
   },
@@ -553,11 +523,9 @@ it("does not preserve an old list observation for a new acknowledgement", async 
   expect(chips()).toEqual(["실패", "대기", "LMS에서 확인"]);
 });
 it("leaves unassociated and foreign download events unconfirmed", async () => {
-  // Given
   await materials();
   query.mockResolvedValue({ status: "success", downloaded: true });
   await click("자료 전체 다운로드");
-  // When
   await act(async () => {
     onCreated.addListener.mock.calls[0]?.[0]({
       id: 42,
@@ -572,7 +540,6 @@ it("leaves unassociated and foreign download events unconfirmed", async () => {
       state: { current: "complete" },
     });
   });
-  // Then
   expect(chips()).toEqual(["요청됨", "요청됨", "LMS에서 확인"]);
   expect(search).not.toHaveBeenCalled();
 });
@@ -633,7 +600,6 @@ it("does not bind a stale download search to a refreshed matching row", async ()
   expect(chips()).toEqual(["완료", "요청됨", "LMS에서 확인"]);
 });
 it("continues tracking a started download after cancelling pending batch items", async () => {
-  // Given
   await materials();
   const first = deferred<Result>();
   query.mockReturnValueOnce(first.promise);
@@ -650,7 +616,6 @@ it("continues tracking a started download after cancelling pending batch items",
     onCreated.addListener.mock.calls[0]?.[0](item);
   });
 
-  // When
   await click("취소");
   await act(async () => first.resolve({ status: "success", downloaded: true }));
   search.mockResolvedValueOnce([
@@ -663,11 +628,9 @@ it("continues tracking a started download after cancelling pending batch items",
     });
   });
 
-  // Then
   expect(chips()).toEqual(["완료", "취소됨", "LMS에서 확인"]);
 });
 it("ignores a held download search after unmount", async () => {
-  // Given
   await materials();
   query.mockResolvedValue({ status: "success", downloaded: true });
   await click("자료 전체 다운로드");
@@ -691,7 +654,6 @@ it("ignores a held download search after unmount", async () => {
     });
   });
 
-  // When
   await ui.unmount();
   await act(async () => {
     heldSearch.resolve([
@@ -703,7 +665,6 @@ it("ignores a held download search after unmount", async () => {
     ]);
   });
 
-  // Then
   expect(onCreated.removeListener).toHaveBeenCalled();
   expect(onChanged.removeListener).toHaveBeenCalled();
 });
@@ -812,7 +773,6 @@ it("lets a new course handoff proceed without an old completion unlocking it", a
   expect(newButton.disabled).toBe(false);
 });
 it("shows the instructor title with the real file name in rows and details", async () => {
-  // Given
   await materials([
     { ...documents[0]!, title: "1주차 강의자료", filename: "week1.pptx" },
     documents[1]!,
@@ -826,9 +786,7 @@ it("shows the instructor title with the real file name in rows and details", asy
     ["1주차 강의자료", "week1.pptx"],
     ["two.pdf", "Course"],
   ]);
-  // When
   await click("1주차 강의자료");
-  // Then
   expect(document.querySelector(".detail-view")?.textContent).toContain(
     "week1.pptx",
   );
