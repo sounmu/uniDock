@@ -373,7 +373,7 @@ function AiCaptionsContent({
         <Body
           foot={
             <div className="ai-run-foot">
-              <p className="ai-note">패널을 닫아도 계속 진행돼요</p>
+              {state.started && <p className="ai-note">패널을 닫아도 계속 진행돼요</p>}
               <button className="btn-ghost" onClick={() => cancel()}>
                 취소
               </button>

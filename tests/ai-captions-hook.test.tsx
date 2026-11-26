@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mount } from "./ui-helpers";
+import { deferred, mount } from "./ui-helpers";
 import { fakeWorker, forgetWork, type FakeWorker } from "./caption-work-helpers";
 
 const identifyMedia = vi.hoisted(() => vi.fn());
@@ -366,6 +366,67 @@ it("a reopened panel shows the upload that went on without it, and can cancel it
   ]);
   expect(hook.state.phase).toBe("idle");
   expect(cancelJob).not.toHaveBeenCalled();
+});
+
+/** Runs every promise continuation queued so far; no timer is involved. */
+const drained = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
+it("marks the run as held by the worker only once the worker reports it", async () => {
+  const access = deferred<boolean>();
+  requestCaptionMediaAccess.mockReturnValue(access.promise);
+  ui = await mount(<Probe />);
+  const started = worker.next("CAPTION_WORK_START");
+  await act(async () => {
+    generating = hook.generate();
+  });
+  expect(hook.state).toMatchObject({ phase: "identifying", started: false });
+  await act(async () => {
+    access.resolve(true);
+    await started;
+  });
+  await drained();
+  expect(hook.state).toMatchObject({ phase: "identifying", started: true });
+});
+
+it("shows the run again when its cancel did not reach the worker, so it can be cancelled", async () => {
+  const { run } = await start();
+  await prepared(uploading);
+  worker.answer = (command) =>
+    command.type === "CAPTION_WORK_CANCEL" ? { status: "error", code: "UNKNOWN" } : undefined;
+  await act(async () => hook.cancel());
+  await drained();
+  expect(hook.state).toMatchObject({ phase: "uploading", title: "3주차 강의" });
+  expect(cancelJob).not.toHaveBeenCalled();
+
+  worker.answer = undefined;
+  await act(async () => hook.cancel());
+  await drained();
+  expect(worker.sent("CAPTION_WORK_CANCEL")).toEqual([
+    { version: 1, type: "CAPTION_WORK_CANCEL", kind: "single", run },
+    { version: 1, type: "CAPTION_WORK_CANCEL", kind: "single", run },
+  ]);
+  expect(hook.state.phase).toBe("idle");
+  expect(worker.single).toBeNull();
+});
+
+it("a reopened panel shows the run that replaced the one it found while the player was identified", async () => {
+  const later = "00000000-0000-4000-8000-000000000002";
+  worker.single = inFlight();
+  const identified = deferred<Awaited<ReturnType<typeof identifyMedia>>>();
+  const media = await identifyMedia();
+  identifyMedia.mockReturnValueOnce(identified.promise);
+  ui = await mount(<Probe />);
+  await drained();
+  // Another panel page cancelled that run and started one for the same lecture.
+  await worker.report({ single: inFlight({ run: later, phase: "extracting" }) });
+  await act(async () => identified.resolve(media));
+  await drained();
+  expect(hook.state.phase).toBe("extracting");
+
+  await act(async () => hook.cancel());
+  expect(worker.sent("CAPTION_WORK_CANCEL")).toEqual([
+    { version: 1, type: "CAPTION_WORK_CANCEL", kind: "single", run: later },
+  ]);
 });
 
 it("a reopened panel follows the job once the run it found has uploaded", async () => {

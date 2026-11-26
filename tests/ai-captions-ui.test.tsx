@@ -23,6 +23,7 @@ const base: AiCaptionState = {
   title: null,
   durationS: null,
   restoredFromCache: false,
+  started: true,
 };
 
 vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
@@ -272,6 +273,17 @@ it("marks finished steps and says at every step that the panel may close", async
   await render();
   const queued = [...ui.host.querySelectorAll(".ai-steps li")];
   expect(queued.map((li) => li.className)).toEqual(["done", "now", ""]);
+  expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
+});
+
+it("says the panel may close only once the worker holds the run", async () => {
+  current = { ...base, phase: "identifying", started: false };
+  await render();
+  expect(ui.host.textContent).not.toContain("패널을 닫아도 계속 진행돼요");
+  expect(ui.host.textContent).toContain("취소");
+  await ui.unmount();
+  current = { ...base, phase: "identifying", started: true };
+  await render();
   expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
 });
 

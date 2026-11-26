@@ -54,6 +54,8 @@ export interface AiCaptionState {
   title: string | null;
   durationS: number | null;
   restoredFromCache: boolean;
+  /** The worker holds the work, so closing the panel no longer stops it. */
+  started: boolean;
 }
 
 const IDLE: AiCaptionState = {
@@ -66,7 +68,14 @@ const IDLE: AiCaptionState = {
   title: null,
   durationS: null,
   restoredFromCache: false,
+  started: false,
 };
+
+/** A run of the offscreen document a reopened card can pick up. */
+function pendingRun() {
+  const single = workState().single;
+  return single && (preparingPhase(single.phase) || single.phase === "failed") ? single : null;
+}
 const MAX_RECONNECTS = 5;
 
 interface Run {
@@ -127,36 +136,6 @@ export function useAiCaptions() {
     setState(IDLE);
     setPlayer(null);
   }, [stopLocal]);
-
-  /**
-   * Cancel or source-document loss: stop the run and cancel the server job.
-   * Before the server has the audio the offscreen document holds the job and
-   * cancels it; an accepted job is this panel's to cancel.
-   */
-  const discard = useCallback(() => {
-    const id = jobId.current;
-    const work = workRun.current;
-    const active = !isTerminal(phase.current);
-    untrack.current?.();
-    forget();
-    const release = (accepted: string) => {
-      void cancelJob(accepted).catch(() => safeLog("REQUEST_FAILED"));
-      void clearActiveJob(accepted);
-    };
-    if (work)
-      void workCommand({
-        version: 1,
-        type: "CAPTION_WORK_CANCEL",
-        kind: "single",
-        run: work,
-      }).then((reply) => {
-        // The document handed the job over just before this cancel reached it.
-        if (!id && reply.status === "success" && reply.accepted) release(reply.accepted);
-      });
-    if (!id) return;
-    if (active) release(id);
-    else void clearActiveJob(id);
-  }, [forget]);
 
   const run = useCallback(async (body: (run: Run) => Promise<void>) => {
     stopLocal();
@@ -323,7 +302,7 @@ export function useAiCaptions() {
                 ? shown
                 : { tabId, documentId },
             );
-          set({ title: single.title || null, durationS: single.durationS || null });
+          set({ title: single.title || null, durationS: single.durationS || null, started: true });
           if (single.phase === "failed")
             return finish(() => reject(new CaptionFlowError(single.errorCode ?? "UNKNOWN")));
           if (single.phase !== "queued") return set({ phase: single.phase });
@@ -343,6 +322,49 @@ export function useAiCaptions() {
     set({ phase: "queued" });
     await follow(accepted.jobId, ctx, accepted.key);
   }, [follow, forget]);
+
+  /**
+   * Cancel or source-document loss: stop the run and cancel the server job.
+   * Before the server has the audio the offscreen document holds the job and
+   * cancels it; an accepted job is this panel's to cancel.
+   */
+  const discard = useCallback(() => {
+    const id = jobId.current;
+    const work = workRun.current;
+    const tab = jobTab.current;
+    const active = !isTerminal(phase.current);
+    untrack.current?.();
+    forget();
+    const after = generation.current;
+    const release = (accepted: string) => {
+      void cancelJob(accepted).catch(() => safeLog("REQUEST_FAILED"));
+      void clearActiveJob(accepted);
+    };
+    if (work)
+      void workCommand({
+        version: 1,
+        type: "CAPTION_WORK_CANCEL",
+        kind: "single",
+        run: work,
+      }).then(async (reply) => {
+        if (reply.status === "success") {
+          // The document handed the job over just before this cancel reached it.
+          if (!id && reply.accepted) release(reply.accepted);
+          return;
+        }
+        // The cancel did not reach the worker: a run that goes on is shown
+        // again, so it can still be cancelled.
+        await workCommand({ version: 1, type: "CAPTION_WORK_GET" });
+        if (!mounted.current || generation.current !== after) return;
+        if (workState().single?.run !== work) return;
+        workRun.current = work;
+        jobTab.current = tab;
+        void run((ctx) => prepare(work, ctx));
+      });
+    if (!id) return;
+    if (active) release(id);
+    else void clearActiveJob(id);
+  }, [forget, prepare, run]);
 
   useEffect(() => {
     mounted.current = true;
@@ -396,10 +418,7 @@ export function useAiCaptions() {
       ]);
       // Reading or uploading audio went on while no panel was open, or just
       // failed: this lecture's card picks the run up where it is.
-      const single = workState().single;
-      const pending =
-        single && (preparingPhase(single.phase) || single.phase === "failed") ? single : null;
-      if ((!saved.length && !cached && !pending) || stale()) return;
+      if ((!saved.length && !cached && !pendingRun()) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
@@ -413,6 +432,11 @@ export function useAiCaptions() {
         source = { tabId: media.tabId, windowId: media.windowId };
         jobTab.current = source;
         setPlayer({ tabId: media.tabId, documentId: media.documentId });
+        // Asked again: another panel may have replaced the run while the
+        // player was being identified.
+        await workCommand({ version: 1, type: "CAPTION_WORK_GET" });
+        if (stale()) return;
+        const pending = pendingRun();
         if (
           pending &&
           pending.tabId === media.tabId &&
@@ -462,7 +486,12 @@ export function useAiCaptions() {
       jobId.current = id;
       void run(async (ctx) => {
         if (ctx.epoch !== restoreEpoch) return discard();
-        ctx.set({ phase: "queued", title: title || null, durationS: durationS || null });
+        ctx.set({
+          phase: "queued",
+          title: title || null,
+          durationS: durationS || null,
+          started: true,
+        });
         await follow(id, ctx, key);
       });
     })().catch((error: unknown) => {
