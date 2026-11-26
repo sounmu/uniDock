@@ -55,6 +55,7 @@ async function lectureDocument(source: number): Promise<string | null> {
 }
 
 function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);

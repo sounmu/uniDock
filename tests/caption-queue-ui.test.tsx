@@ -204,6 +204,30 @@ it("stops waiting on the tab-open limit when the run is stopped", async () => {
   expect(phases()).toEqual(["cancelled", "cancelled"]);
 });
 
+it("ends at once when stopped while a refused open is still in flight", async () => {
+  vi.useFakeTimers();
+  let refuse: (() => void) | undefined;
+  queryActive.mockImplementation((request: { type: string }) =>
+    request.type === "CAPTION_BATCH_OPEN"
+      ? new Promise((resolve) => (refuse = () => resolve({ status: "error", code: "RATE_LIMITED" })))
+      : admitted(request),
+  );
+  identifyMedia.mockImplementation(noPlayer);
+  await render();
+  let finished = false;
+  await act(async () => {
+    const run = queue.start({ handles: ["a", "b"], target }, String).then(() => (finished = true));
+    await vi.advanceTimersByTimeAsync(0);
+    queue.stop();
+    refuse?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(finished).toBe(true);
+    await run;
+  });
+  expect(opens()).toHaveLength(1);
+  expect(phases()).toEqual(["cancelled", "cancelled"]);
+});
+
 it("spends nothing from the list when media access is refused", async () => {
   mediaAccess.mockResolvedValueOnce(false);
   await render();
