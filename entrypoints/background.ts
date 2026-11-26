@@ -1,4 +1,4 @@
-import { openLmsTab } from "../src/open-tab";
+import { openLmsTab, verifyLectureTab } from "../src/open-tab";
 import { downloadLmsFile } from "../src/download-tab";
 import { defineBackground } from "wxt/utils/define-background";
 import { safeLog } from "../src/security/logger";
@@ -818,6 +818,14 @@ export default defineBackground(() => {
     }
     if (object(message) && message.type === "DOWNLOAD_LMS_FILE") {
       void downloadLmsFile(message, sender).then(respond);
+      return true;
+    }
+    if (
+      __UNIDOCK_AI_CAPTIONS__ &&
+      object(message) &&
+      message.type === "VERIFY_LECTURE_TAB"
+    ) {
+      void verifyLectureTab(message, sender).then(respond);
       return true;
     }
     if (

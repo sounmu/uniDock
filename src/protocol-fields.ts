@@ -63,4 +63,5 @@ export const resultKey = {
   DOCUMENT_DOWNLOAD: "downloaded",
   CAPTION_BATCH_ADMIT: "batch",
   CAPTION_BATCH_OPEN: "opened",
+  CAPTION_BATCH_VERIFY: "verified",
 } as const;

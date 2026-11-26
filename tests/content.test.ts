@@ -2929,7 +2929,9 @@ function captionBatchHarness() {
   };
   const open = (batch: string, index: number) =>
     send({ version: 1, type: "CAPTION_BATCH_OPEN", batch, index });
-  return { sendMessage, send, admit, open };
+  const verify = (batch: string, index: number) =>
+    send({ version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: "PLAYER" });
+  return { sendMessage, send, admit, open, verify };
 }
 
 it("admits a caption batch and opens its lectures after the list handles expired", async () => {
@@ -2959,6 +2961,38 @@ it("returns a rate-limited lecture to the batch and drops the batch when replace
   const second = await admit();
   expect(await open(first.batch, 1)).toEqual({ status: "error", code: "STALE_SELECTION" });
   expect(await open(second.batch, 1)).toEqual({ status: "success", opened: true });
+});
+
+it("asks the background about the lecture it opened and passes on only the verdict", async () => {
+  const { sendMessage, admit, open, verify } = captionBatchHarness();
+  const { batch } = await admit();
+  await open(batch, 1);
+  sendMessage.mockResolvedValueOnce({ status: "success", verified: true });
+  expect(await verify(batch, 1)).toEqual({ status: "success", verified: true });
+  expect(sendMessage).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "VERIFY_LECTURE_TAB",
+    url: "https://kucom.korea.ac.kr/em/0123456789abcdef",
+    document: "PLAYER",
+  });
+  sendMessage.mockResolvedValueOnce({ status: "error", code: "LECTURE_MISMATCH" });
+  expect(await verify(batch, 1)).toEqual({ status: "error", code: "LECTURE_MISMATCH" });
+});
+
+it("confirms nothing for a lecture it did not open or when the background cannot answer", async () => {
+  const { sendMessage, admit, open, verify } = captionBatchHarness();
+  const { batch } = await admit();
+  await open(batch, 0);
+  expect(await verify(batch, 1)).toEqual({ status: "error", code: "STALE_SELECTION" });
+  expect(await verify("00000000-0000-4000-8000-0000000000b9", 0)).toEqual({
+    status: "error",
+    code: "STALE_SELECTION",
+  });
+  expect(sendMessage).toHaveBeenCalledOnce();
+  sendMessage.mockRejectedValueOnce(new Error("worker gone"));
+  expect(await verify(batch, 0)).toEqual({ status: "error", code: "LECTURE_MISMATCH" });
+  // The default answer here is an open's, which is not a verdict.
+  expect(await verify(batch, 0)).toEqual({ status: "error", code: "INVALID_RESPONSE" });
 });
 
 it("drops the caption batch when the LMS account changes", async () => {

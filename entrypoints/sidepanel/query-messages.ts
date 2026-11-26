@@ -23,4 +23,6 @@ export const messages: Record<ErrorCode, string> = {
   DOWNLOAD_FAILED:
     "자료 다운로드를 시작하지 못했습니다. 목록을 새로고침한 뒤 다시 시도하세요.",
   RATE_LIMITED: "짧은 시간에 요청이 많습니다. 1분 뒤 다시 시도하세요.",
+  LECTURE_MISMATCH:
+    "열린 탭의 영상이 고른 강의인지 확인하지 못해 음성을 보내지 않았습니다. 다시 시도하세요.",
 };

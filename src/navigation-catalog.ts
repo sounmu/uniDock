@@ -71,6 +71,13 @@ export class CaptionBatch {
     this.expires = now + CAPTION_BATCH_IDLE_MS;
     return { url, restore: () => this.used.delete(index) };
   }
+  /** The URL a lecture was opened at, to check what its tab shows; null
+      for a lecture that is not open. */
+  opened(index: number, origin: string, now = Date.now()): string | null {
+    const target = this.targets[index];
+    if (!target || !this.used.has(index) || this.expires <= now) return null;
+    return navigationUrl(target.url, origin);
+  }
 }
 export interface NavigationCatalogCapacity {
   reserve(count: number): boolean;

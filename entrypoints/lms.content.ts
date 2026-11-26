@@ -224,6 +224,32 @@ export default defineContentScript({
         return { status: "error", code: "TAB_OPEN_FAILED" };
       }
     }
+    // Opens nothing and answers only yes or no, so holding the batch is
+    // enough; the URL goes to the background and never back to the panel.
+    async function verifyCaptionBatch(
+      batch: string,
+      index: number,
+      player: string,
+    ): Promise<Result> {
+      const url =
+        captionBatch?.id === batch
+          ? captionBatch.targets.opened(index, location.origin)
+          : null;
+      if (!url) return { status: "error", code: "STALE_SELECTION" };
+      try {
+        return parseResult(
+          await chrome.runtime.sendMessage({
+            version: 1,
+            type: "VERIFY_LECTURE_TAB",
+            url,
+            document: player,
+          }),
+          { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: player },
+        );
+      } catch {
+        return { status: "error", code: "LECTURE_MISMATCH" };
+      }
+    }
     async function download(
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,
       deadline: number,
@@ -848,7 +874,9 @@ export default defineContentScript({
                     ? admitCaptionBatch(request.handles)
                     : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_OPEN"
                       ? openCaptionBatch(request.batch, request.index)
-                      : list(request, parsed.refresh);
+                      : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_VERIFY"
+                        ? verifyCaptionBatch(request.batch, request.index, request.document)
+                        : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);
         }

@@ -48,7 +48,9 @@ const batch = "00000000-0000-4000-8000-0000000000b1";
 const admitted = async (request: { type: string }) =>
   request.type === "CAPTION_BATCH_ADMIT"
     ? { status: "success", batch }
-    : { status: "success", opened: true };
+    : request.type === "CAPTION_BATCH_VERIFY"
+      ? { status: "success", verified: true }
+      : { status: "success", opened: true };
 const opens = () =>
   queryActive.mock.calls.filter(([request]) => request.type === "CAPTION_BATCH_OPEN");
 let posted: unknown[];
@@ -116,7 +118,7 @@ function hangingSubmission(awaitingUpload: boolean) {
 
 const phases = () => queue.items.map((item) => item.phase);
 
-it("opens each lecture in the lecture tab and waits for its own player", async () => {
+it("opens each lecture in the lecture tab and sends the player confirmed as its own", async () => {
   vi.useFakeTimers();
   // The tab still shows a lecture from an earlier run until the first open
   // commits, then each later open briefly still shows the lecture before it.
@@ -131,7 +133,9 @@ it("opens each lecture in the lecture tab and waits for its own player", async (
   expect(queryActive.mock.calls.map(([request]) => request)).toEqual([
     { version: 1, type: "CAPTION_BATCH_ADMIT", handles: ["a", "b"] },
     { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 0 },
+    { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index: 0, document: "first" },
     { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 1 },
+    { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index: 1, document: "second" },
   ]);
   expect(identifyMedia).toHaveBeenCalledWith(9);
   expect(submitLecture.mock.calls.map(([found]) => found.documentId)).toEqual(["first", "second"]);
@@ -149,6 +153,66 @@ it("skips a lecture that cannot be opened and goes on", async () => {
   await act(() => queue.start({ handles: ["a", "b"], target }, String));
   expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "TAB_OPEN_FAILED" });
   expect(queue.items[1]?.phase).toBe("queued");
+});
+
+it.each([
+  ["shows another lecture", async () => ({ status: "error", code: "LECTURE_MISMATCH" })],
+  ["cannot be asked about", () => Promise.reject(new Error("no receiver"))],
+])("sends no audio from a lecture tab that %s, and goes on", async (_case, answer) => {
+  vi.useFakeTimers();
+  let shown = "other";
+  queryActive.mockImplementation(
+    async (request: { type: string; index?: number; document?: string }) => {
+      if (request.type === "CAPTION_BATCH_OPEN" && request.index === 1) shown = "second";
+      return request.type === "CAPTION_BATCH_VERIFY" && request.document === "other"
+        ? answer()
+        : admitted(request);
+    },
+  );
+  identifyMedia.mockImplementation(async () => media(shown));
+  identifyMedia.mockImplementationOnce(noPlayer);
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a", "b"], target }, String);
+    await vi.advanceTimersByTimeAsync(50_000);
+    await run;
+  });
+  expect(queryActive).toHaveBeenCalledWith(
+    { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index: 0, document: "other" },
+    expect.objectContaining({ target }),
+  );
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "LECTURE_MISMATCH", jobId: null });
+  expect(submitLecture.mock.calls.map(([found]) => found.documentId)).toEqual(["second"]);
+  expect(queue.items[1]?.phase).toBe("queued");
+});
+
+it("treats a tab that never leaves the previous lecture as a mismatch without asking", async () => {
+  vi.useFakeTimers();
+  identifyMedia.mockImplementation(async () => media("old"));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a"], target }, String);
+    await vi.advanceTimersByTimeAsync(50_000);
+    await run;
+  });
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "LECTURE_MISMATCH" });
+  expect(queryActive.mock.calls.map(([request]) => request.type)).toEqual([
+    "CAPTION_BATCH_ADMIT",
+    "CAPTION_BATCH_OPEN",
+  ]);
+  expect(submitLecture).not.toHaveBeenCalled();
+});
+
+it("stops the queue when the list tab is lost while a lecture is confirmed", async () => {
+  queryActive.mockImplementation(async (request: { type: string }) =>
+    request.type === "CAPTION_BATCH_VERIFY" ? { status: "error", code: "RELOAD_TAB" } : admitted(request),
+  );
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  await render();
+  await act(() => queue.start({ handles: ["a", "b"], target }, String));
+  expect(queue.items.map((item) => item.errorCode)).toEqual(["RELOAD_TAB", "RELOAD_TAB"]);
+  expect(opens()).toHaveLength(1);
+  expect(submitLecture).not.toHaveBeenCalled();
 });
 
 it("waits out the tab-open limit and opens the same lecture again", async () => {

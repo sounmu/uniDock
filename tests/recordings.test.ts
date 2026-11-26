@@ -132,6 +132,18 @@ it("keeps admitted lectures past the handle lifetime, once each, until idle or l
   expect(batch.take(1, origin, later + CAPTION_BATCH_IDLE_MS)).toBeNull();
 });
 
+it("names the address of a lecture only while that lecture is open", () => {
+  const { store, listed } = captionStore();
+  const batch = store.takeCaptionBatch(listed.map((item) => item.launchHandle), origin, now)!;
+  expect(batch.opened(0, origin, now)).toBeNull();
+  const first = batch.take(0, origin, now);
+  expect(batch.opened(0, origin, now)).toBe(`${origin}/courses/101/modules/items/501`);
+  expect(batch.opened(1, origin, now)).toBeNull();
+  expect(batch.opened(0, origin, now + CAPTION_BATCH_IDLE_MS)).toBeNull();
+  first!.restore();
+  expect(batch.opened(0, origin, now)).toBeNull();
+});
+
 it("rejects duplicate, expired, and wrong-kind batches without partial consumption", () => {
   const store = catalog();
   const [recording] = store.replace(

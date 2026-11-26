@@ -2085,3 +2085,45 @@ it("forgets the subtitles of a closed tab", async () => {
   expect(fixture.sendMessage).toHaveBeenCalledTimes(1);
   expect(fixture.session).toEqual({});
 });
+
+it("answers only a list tab's top frame about the lecture tab it opened", async () => {
+  const addListener = vi.fn();
+  const list = "https://mylms.korea.ac.kr/courses/101/modules";
+  const lecture = "https://mylms.korea.ac.kr/courses/101/modules/items/501";
+  const executeScript = vi.fn().mockResolvedValue([
+    { frameId: 0, documentId: "TOP", result: lecture },
+    { frameId: 4, documentId: "PLAYER", result: "https://kucom.korea.ac.kr/em/0123456789abcdef" },
+  ]);
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      session: { get: vi.fn(async (key: string) => ({ [key]: 9 })) },
+    },
+    tabs: { get: vi.fn().mockResolvedValue({ url: list }) },
+    scripting: { executeScript },
+  });
+  background.main();
+  const listener = addListener.mock.calls[0]![0];
+  const ask = (sender: object) =>
+    new Promise((resolve) => {
+      expect(
+        listener({ version: 1, type: "VERIFY_LECTURE_TAB", url: lecture, document: "PLAYER" }, sender, resolve),
+      ).toBe(true);
+    });
+  const sender = { id: "test", frameId: 0, url: list, tab: { id: 3 } };
+  expect(await ask({ ...sender, frameId: 2 })).toEqual({ status: "error", code: "POLICY" });
+  expect(executeScript).not.toHaveBeenCalled();
+  expect(await ask(sender)).toEqual({ status: "success", verified: true });
+  expect(executeScript).toHaveBeenCalledWith({ target: { tabId: 9, allFrames: true }, func: expect.any(Function) });
+});
