@@ -72,6 +72,7 @@ assert.deepEqual(
     "declarativeNetRequestWithHostAccess",
     "downloads",
     "identity",
+    "offscreen",
     "scripting",
     "sidePanel",
     "storage",
@@ -131,7 +132,7 @@ files.sort();
 let bundle = "";
 for (const file of files) {
   assert(
-    /^(?:manifest\.json|sidepanel\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup|player)\.js|assets\/[\w-]+\.css)$/.test(
+    /^(?:manifest\.json|sidepanel\.html|offscreen\.html|updates\.html|privacy\.html|THIRD_PARTY_NOTICES\.txt|background\.js|icons\/(?:16|32|48|128)\.png|chunks\/[\w-]+\.js|content-scripts\/(?:lms|lms-popup|player)\.js|assets\/[\w-]+\.css)$/.test(
       file,
     ),
     `Unexpected package path: ${file}`,

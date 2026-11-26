@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   identifyMedia,
+  MediaSourceError,
   requestCaptionMediaAccess,
 } from "../../src/captions/media-source";
-import { errorCode, submitLecture } from "../../src/captions/submit-lecture";
+import { subscribeWork, workCommand, workState } from "../../src/captions/work-client";
+import { errorCode, preparingPhase } from "../../src/captions/work-protocol";
 import {
   cancelJob,
   type JobProgress,
@@ -43,8 +45,6 @@ export interface AiCaptionResult {
 
 export interface AiCaptionState {
   phase: JobPhase;
-  /** Bytes extracted, then bytes uploaded. */
-  progress: number | null;
   serverProgress: JobProgress | null;
   workerOffline: boolean;
   errorCode: string | null;
@@ -58,7 +58,6 @@ export interface AiCaptionState {
 
 const IDLE: AiCaptionState = {
   phase: "idle",
-  progress: null,
   serverProgress: null,
   workerOffline: false,
   errorCode: null,
@@ -101,6 +100,8 @@ export function useAiCaptions() {
   const [player, setPlayer] = useState<VideoCaptionTarget | null>(null);
   const controller = useRef<AbortController | null>(null);
   const jobId = useRef<string | null>(null);
+  /** The preparation run this card shows; it lives in the offscreen document. */
+  const workRun = useRef<string | null>(null);
   const jobTab = useRef<{ tabId: number; windowId: number } | null>(null);
   const lectureTitle = useRef("");
   const phase = useRef<JobPhase>("idle");
@@ -119,6 +120,7 @@ export function useAiCaptions() {
   const forget = useCallback(() => {
     operation.current = null;
     jobId.current = null;
+    workRun.current = null;
     jobTab.current = null;
     phase.current = "idle";
     stopLocal();
@@ -126,17 +128,34 @@ export function useAiCaptions() {
     setPlayer(null);
   }, [stopLocal]);
 
-  /** Cancel or source-document loss: stop local work and cancel the server job. */
+  /**
+   * Cancel or source-document loss: stop the run and cancel the server job.
+   * Before the server has the audio the offscreen document holds the job and
+   * cancels it; an accepted job is this panel's to cancel.
+   */
   const discard = useCallback(() => {
     const id = jobId.current;
+    const work = workRun.current;
     const active = !isTerminal(phase.current);
     untrack.current?.();
     forget();
-    if (id) {
-      if (active)
-        void cancelJob(id).catch(() => safeLog("REQUEST_FAILED"));
-      void clearActiveJob(id);
-    }
+    const release = (accepted: string) => {
+      void cancelJob(accepted).catch(() => safeLog("REQUEST_FAILED"));
+      void clearActiveJob(accepted);
+    };
+    if (work)
+      void workCommand({
+        version: 1,
+        type: "CAPTION_WORK_CANCEL",
+        kind: "single",
+        run: work,
+      }).then((reply) => {
+        // The document handed the job over just before this cancel reached it.
+        if (!id && reply.status === "success" && reply.accepted) release(reply.accepted);
+      });
+    if (!id) return;
+    if (active) release(id);
+    else void clearActiveJob(id);
   }, [forget]);
 
   const run = useCallback(async (body: (run: Run) => Promise<void>) => {
@@ -267,6 +286,64 @@ export function useAiCaptions() {
       start();
     }), [forget]);
 
+  /**
+   * Shows a preparation run of the offscreen document until the server has its
+   * audio, then follows the accepted job. The run does not depend on this
+   * panel: one that started before the panel opened is shown the same way.
+   */
+  const prepare = useCallback(async (id: string, ctx: Run) => {
+    const { signal, live, set } = ctx;
+    const accepted = await new Promise<{ jobId: string; key: string } | null>(
+      (resolve, reject) => {
+        let unsubscribe = () => {};
+        let settled = false;
+        const finish = (act: () => void) => {
+          if (settled) return;
+          settled = true;
+          unsubscribe();
+          signal.removeEventListener("abort", stop);
+          act();
+        };
+        const stop = () => finish(() => resolve(null));
+        const check = () => {
+          if (settled) return;
+          if (!live()) return stop();
+          const single = workState().single;
+          // Stopped from another panel page, or its sign-in ended.
+          if (single?.run !== id)
+            return finish(() => {
+              forget();
+              resolve(null);
+            });
+          const { tabId, documentId } = single;
+          if (single.title) lectureTitle.current = single.title;
+          if (documentId)
+            setPlayer((shown) =>
+              shown?.tabId === tabId && shown.documentId === documentId
+                ? shown
+                : { tabId, documentId },
+            );
+          set({ title: single.title || null, durationS: single.durationS || null });
+          if (single.phase === "failed")
+            return finish(() => reject(new CaptionFlowError(single.errorCode ?? "UNKNOWN")));
+          if (single.phase !== "queued") return set({ phase: single.phase });
+          const { jobId: job, key } = single;
+          finish(() =>
+            job && key ? resolve({ jobId: job, key }) : reject(new CaptionFlowError("RESPONSE")),
+          );
+        };
+        unsubscribe = subscribeWork(check);
+        if (signal.aborted) return stop();
+        signal.addEventListener("abort", stop, { once: true });
+        check();
+      },
+    );
+    if (!accepted || !live()) return;
+    jobId.current = accepted.jobId;
+    set({ phase: "queued" });
+    await follow(accepted.jobId, ctx, accepted.key);
+  }, [follow, forget]);
+
   useEffect(() => {
     mounted.current = true;
     const changedSources = new Set<number>();
@@ -315,8 +392,14 @@ export function useAiCaptions() {
       const [saved, cached] = await Promise.all([
         loadActiveJobs(),
         hasCachedTranscripts().catch(() => false),
+        workCommand({ version: 1, type: "CAPTION_WORK_GET" }),
       ]);
-      if ((!saved.length && !cached) || stale()) return;
+      // Reading or uploading audio went on while no panel was open, or just
+      // failed: this lecture's card picks the run up where it is.
+      const single = workState().single;
+      const pending =
+        single && (preparingPhase(single.phase) || single.phase === "failed") ? single : null;
+      if ((!saved.length && !cached && !pending) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
@@ -330,6 +413,16 @@ export function useAiCaptions() {
         source = { tabId: media.tabId, windowId: media.windowId };
         jobTab.current = source;
         setPlayer({ tabId: media.tabId, documentId: media.documentId });
+        if (
+          pending &&
+          pending.tabId === media.tabId &&
+          (pending.documentId === null || pending.documentId === media.documentId)
+        ) {
+          workRun.current = pending.run;
+          lectureTitle.current = title;
+          void run((ctx) => prepare(pending.run, ctx));
+          return;
+        }
         key = await captionJobKey(media.contentId);
       } catch {
         return;
@@ -385,37 +478,38 @@ export function useAiCaptions() {
       chrome.tabs.onUpdated.removeListener(changed);
       chrome.tabs.onRemoved.removeListener(removed);
       chrome.storage.onChanged.removeListener(storageChanged);
-      // Closing the panel stops local capture only; accepted jobs keep running.
+      // Closing the panel only stops showing the work: reading, uploading
+      // and accepted jobs all go on without it.
       stopLocal();
     };
-  }, [discard, follow, run, stopLocal]);
+  }, [discard, follow, prepare, run, stopLocal]);
 
   const generate = useCallback(async () => {
     const access = requestCaptionMediaAccess();
     discard();
     operation.current = startOperation("ai_captions_generate");
     await run(async (ctx) => {
-      const { signal, live, set } = ctx;
+      const { live, set } = ctx;
       set({ ...IDLE, phase: "identifying" });
       if (!(await access)) throw new CaptionFlowError("PERMISSION");
-      const media = await identifyMedia();
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!live()) return;
-      jobTab.current = { tabId: media.tabId, windowId: media.windowId };
-      setPlayer({ tabId: media.tabId, documentId: media.documentId });
-      lectureTitle.current = media.title;
-      set({ title: media.title || null, durationS: media.durationS || null });
-      const submitted = await submitLecture(media, {
-        signal,
-        live,
-        onJob: (id) => (jobId.current = id),
-        onPhase: (phase) => set({ phase, progress: 0 }),
-        onProgress: (bytes) => set({ progress: bytes }),
+      if (tab?.id === undefined) throw new MediaSourceError("ACTIVATE_TAB");
+      const id = crypto.randomUUID();
+      workRun.current = id;
+      jobTab.current = { tabId: tab.id, windowId: tab.windowId };
+      const started = await workCommand({
+        version: 1,
+        type: "CAPTION_WORK_START",
+        kind: "single",
+        run: id,
+        tabId: tab.id,
       });
-      if (!submitted || !live()) return;
-      set({ phase: "queued" });
-      await follow(submitted.jobId, ctx, submitted.key);
+      if (!live()) return;
+      if (started.status === "error") throw new CaptionFlowError(started.code);
+      await prepare(id, ctx);
     });
-  }, [discard, follow, run]);
+  }, [discard, prepare, run]);
 
   const cancel = useCallback(() => {
     operation.current?.cancel();

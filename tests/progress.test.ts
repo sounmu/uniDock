@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  captionPreparing,
   captionProgressItem,
   isProgressState,
   playbackProgressItem,
   progressActive,
   progressText,
+  workProgressItems,
   type ProgressItem,
 } from "../src/progress";
 import { ProgressHub } from "../src/progress-hub";
+import type { JobPhase } from "../src/captions/job-state";
+import type { QueueWork, SingleWork } from "../src/captions/work-protocol";
 import type { PlaybackSnapshot } from "../src/playback/bridge";
 
 const KEY = `unidock-${"a".repeat(40)}`;
@@ -54,6 +58,73 @@ it("projects a worker snapshot without its lecture key", () => {
   });
   expect(item).toEqual({ ...running, percent: 50 });
   expect(JSON.stringify(item)).not.toContain(KEY);
+});
+
+const RUN = "00000000-0000-4000-8000-000000000001";
+const BATCH = "00000000-0000-4000-8000-0000000000b1";
+const single = (phase: SingleWork["phase"]): SingleWork => ({
+  run: RUN,
+  tabId: 3,
+  documentId: null,
+  phase,
+  jobId: phase === "identifying" ? null : "job_1",
+  key: null,
+  errorCode: phase === "failed" ? "MEDIA_DENIED" : null,
+  title: "3주차 강의",
+  durationS: 60,
+});
+const queue = (running: boolean, phases: QueueWork["items"][number]["phase"][]): QueueWork => ({
+  run: BATCH,
+  tabId: 3,
+  running,
+  items: phases.map((phase, index) => ({
+    handle: `00000000-0000-4000-8000-00000000000${index}`,
+    title: `강의 ${index + 1}`,
+    phase,
+    errorCode: null,
+    jobId: ["extracting", "uploading", "queued"].includes(phase) ? `job_q${index}` : null,
+    key: null,
+  })),
+});
+const preparing = (id: string, phase: JobPhase): ProgressItem => ({
+  kind: "captions",
+  id,
+  phase,
+  percent: null,
+  workerOffline: false,
+});
+
+it("reports the lecture being prepared and a failed preparation, never a job the server accepted", () => {
+  expect(workProgressItems({ single: null, queue: null })).toEqual([]);
+  expect(workProgressItems({ single: single("identifying"), queue: null })).toEqual([
+    preparing(RUN, "identifying"),
+  ]);
+  expect(workProgressItems({ single: single("uploading"), queue: null })).toEqual([
+    preparing("job_1", "uploading"),
+  ]);
+  expect(workProgressItems({ single: single("failed"), queue: null })).toEqual([
+    preparing("job_1", "failed"),
+  ]);
+  expect(workProgressItems({ single: single("queued"), queue: null })).toEqual([]);
+
+  // A list shows one item for the lecture in hand; between lectures it is still preparing.
+  expect(
+    workProgressItems({ single: null, queue: queue(true, ["queued", "uploading", "waiting"]) }),
+  ).toEqual([preparing("job_q1", "uploading")]);
+  expect(workProgressItems({ single: null, queue: queue(true, ["queued", "opening"]) })).toEqual([
+    preparing(BATCH, "identifying"),
+  ]);
+  expect(workProgressItems({ single: null, queue: queue(true, ["queued", "waiting"]) })).toEqual([
+    preparing(BATCH, "identifying"),
+  ]);
+  expect(workProgressItems({ single: null, queue: queue(false, ["queued", "failed"]) })).toEqual([]);
+
+  const items = workProgressItems({ single: single("extracting"), queue: null });
+  expect(isProgressState({ version: 1, type: "PROGRESS_STATE", items })).toBe(true);
+  expect(JSON.stringify(items)).not.toContain("3주차");
+  expect(captionPreparing(items[0]!)).toBe(true);
+  expect(captionPreparing(running)).toBe(false);
+  expect(captionPreparing(playbackProgressItem(playback("playing"))!)).toBe(false);
 });
 
 it("accepts only exact progress states", () => {
@@ -268,36 +339,55 @@ it("moves an LMS tab's pill with the tab between windows", async () => {
   expect(tabMessage.mock.calls).toEqual([[3, hub.state(), TOP]]);
 });
 
-it("never shows preparation as in progress once no panel page is left to do it", async () => {
+it("shows preparation on LMS pages with no panel open, because it goes on without one", async () => {
   twoWindows();
   const hub = new ProgressHub();
-  hub.setCaptions([snapshot("uploading")]);
+  hub.setWork({ single: single("uploading"), queue: null });
+  hub.setWork({ single: single("uploading"), queue: null });
   await delivered();
-  expect(tabMessage).not.toHaveBeenCalled();
-  expect(sendMessage).toHaveBeenCalledWith(hub.state());
-
-  hub.setPanels(new Set([1]));
-  await delivered();
+  expect(hub.state().items).toEqual([preparing("job_1", "uploading")]);
+  expect(sendMessage).toHaveBeenCalledExactlyOnceWith(hub.state());
   expect(tabMessage.mock.calls).toEqual([
-    [3, NOTHING, TOP],
+    [3, hub.state(), TOP],
     [4, hub.state(), TOP],
   ]);
 
-  // The last panel page closed: an upload it was doing stopped with it.
+  // A window's own panel shows it instead; closing that panel brings the pill back.
+  tabMessage.mockClear();
+  hub.setPanels(new Set([1]));
+  await delivered();
+  expect(tabMessage.mock.calls).toEqual([[3, NOTHING, TOP]]);
   tabMessage.mockClear();
   hub.setPanels(new Set());
+  await delivered();
+  expect(tabMessage.mock.calls).toEqual([[3, hub.state(), TOP]]);
+
+  tabMessage.mockClear();
+  hub.tabReady(5, LMS, 2);
+  expect(tabMessage.mock.calls).toEqual([[5, hub.state(), TOP]]);
+
+  // The run ended and was dismissed: the pages are told once, and then left alone.
+  tabMessage.mockClear();
+  hub.setWork({ single: null, queue: null });
   await delivered();
   expect(tabMessage.mock.calls).toEqual([
     [3, NOTHING, TOP],
     [4, NOTHING, TOP],
   ]);
+});
 
-  // A job the server accepted goes on without a panel.
-  tabMessage.mockClear();
-  hub.setCaptions([snapshot("queued")]);
-  await delivered();
-  expect(tabMessage.mock.calls).toEqual([
-    [3, hub.state(), TOP],
-    [4, hub.state(), TOP],
+it("lists a job once while the monitor and the preparation both still report it", () => {
+  const hub = new ProgressHub();
+  hub.setWork({ single: single("uploading"), queue: queue(true, ["waiting"]) });
+  expect(hub.state().items).toEqual([
+    preparing("job_1", "uploading"),
+    preparing(BATCH, "identifying"),
   ]);
+  hub.setCaptions([snapshot("queued")]);
+  expect(hub.state().items).toEqual([
+    { ...running, phase: "queued", percent: null },
+    preparing(BATCH, "identifying"),
+  ]);
+  hub.setWork({ single: single("queued"), queue: null });
+  expect(hub.state().items).toEqual([{ ...running, phase: "queued", percent: null }]);
 });

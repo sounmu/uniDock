@@ -32,7 +32,6 @@ const item = (phase: QueueItem["phase"]): QueueItem => ({
   handle: "a",
   title: "강의",
   phase,
-  progress: null,
   errorCode: null,
   jobId: "job-a",
 });

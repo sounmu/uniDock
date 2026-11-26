@@ -1,6 +1,7 @@
 import type { JobProgress } from "./captions/job-client";
 import type { CaptionJobSnapshot } from "./captions/job-monitor";
 import type { JobPhase } from "./captions/job-state";
+import { preparingPhase, type WorkRuns } from "./captions/work-protocol";
 import type { PlaybackSnapshot, RuntimeStatus } from "./playback/bridge";
 
 /**
@@ -68,11 +69,39 @@ export function progressActive(item: ProgressItem): boolean {
   return item.status !== "failed";
 }
 
-/** Preparing a job before the server has its audio; only a panel page does this. */
-export function panelWork(item: ProgressItem): boolean {
-  return (
-    item.kind === "captions" && ["identifying", "extracting", "uploading"].includes(item.phase)
-  );
+/** Preparing a job before the server has its audio: the offscreen document's part. */
+export function captionPreparing(item: ProgressItem): boolean {
+  return item.kind === "captions" && preparingPhase(item.phase);
+}
+
+/**
+ * Caption preparation as progress items: the lecture being read or uploaded,
+ * and one that failed before the server had its audio. A job the server
+ * accepted is the job monitor's to report.
+ */
+export function workProgressItems({ single, queue }: WorkRuns): ProgressItem[] {
+  const item = (id: string, phase: JobPhase): ProgressItem => ({
+    kind: "captions",
+    id,
+    phase,
+    percent: null,
+    workerOffline: false,
+  });
+  const items: ProgressItem[] = [];
+  if (single && (preparingPhase(single.phase) || single.phase === "failed"))
+    items.push(item(single.jobId ?? single.run, single.phase));
+  if (queue?.running) {
+    const current = queue.items.find(
+      (entry) => entry.phase === "opening" || preparingPhase(entry.phase),
+    );
+    items.push(
+      item(
+        current?.jobId ?? queue.run,
+        current && preparingPhase(current.phase) ? current.phase : "identifying",
+      ),
+    );
+  }
+  return items;
 }
 
 export type ProgressTone = "run" | "wait" | "done" | "error";

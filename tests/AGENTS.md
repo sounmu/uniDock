@@ -8,6 +8,7 @@ Vitest unit/UI suites (flat, ~60 files) plus `e2e/` (Playwright, own AGENTS.md) 
 |------|----------|-------|
 | React mount / click / race helpers | `ui-helpers.tsx` | `mount`, `click(label, index)`, `deferred<T>()` |
 | Caption server fakes | `caption-server-helpers.ts` | `fixture(name)` reads `fixtures/caption-api/`, `json()`, `googleRedirect()`, fixed `EXTENSION_ID` |
+| Fake worker for AI caption work | `caption-work-helpers.ts` | `fakeWorker()` answers `CAPTION_WORK_*` commands, pushes states with `report()` and resolves `next(type)` on the next command; `forgetWork()` resets the panel's copy between tests |
 | Content-script protocol, cache, accounts | `content.test.ts` | 2,008 LOC, the largest unit suite |
 | Background, playback runtime | `background.test.ts`, `playback-runtime.test.ts` | ~1,580 LOC each |
 | Python CLI parity | `contract.test.ts`, `items-ui.test.tsx`, `recordings.test.ts` | read `fixtures/python-contract.json` |

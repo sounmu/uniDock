@@ -13,6 +13,7 @@ Why this file exists: it is the root of the subtree, and the extension surface (
 | `player.content.ts` | `defineContentScript({matches: [...LMS_MATCHES, "https://kucom.korea.ac.kr/em/*"], allFrames: true})` | Static entry only when `UNIDOCK_PLAYBACK=1`. The `entrypoints:resolved` hook in `wxt.config.ts` sets `skipped` on the `player` entry otherwise |
 | `lms-popup.content.ts` | `registration: "runtime"` | NOT in the manifest. Built as `content-scripts/lms-popup.js`; `src/popup-settings.ts` registers it via `chrome.scripting.registerContentScripts` after the user opts in and grants the optional `lms.korea.ac.kr` host permission |
 | `sidepanel/` | HTML entry (`index.html`) | Becomes `sidepanel.html` plus the `side_panel` manifest key. See `sidepanel/AGENTS.md` |
+| `offscreen/` | HTML entry (`index.html`) | Unlisted page `offscreen.html`, only when `UNIDOCK_AI_CAPTIONS=1` (the `entrypoints:resolved` hook skips it otherwise; the same flag adds the `offscreen` permission). Never opened as a tab: the worker creates it with `chrome.offscreen.createDocument` (reason `BLOBS`) while AI caption audio is read and uploaded, and closes it when nothing is in flight. It has no extension API but `chrome.runtime` |
 | `updates/` | HTML entry (`index.html`) | Unlisted page `updates.html`, linked from `sidepanel/UpdateNotice.tsx`; shows the manifest version and links `privacy.html` (from `../public/`) |
 
 - Permissions, `host_permissions`, CSP and `connect-src` are NOT declared in entry files. They live in the `manifest()` function of `wxt.config.ts`, which builds them from the `UNIDOCK_*` env flags.
@@ -26,9 +27,10 @@ Why this file exists: it is the root of the subtree, and the extension surface (
 | Install/update handling (badge, reinjecting LMS scripts) | `background.ts` `onInstalled`; `src/update-notice.ts` |
 | Playback runtime (alarms-driven) | `createChromePlaybackRuntime` in `background.ts`, `src/playback/` |
 | LMS progress pill delivery and panel windows | `background.ts` wires `ProgressHub` to `PanelPresence` (`runtime.onConnect` for `PANEL_PORT`, checked with `panelSender`) and to `tabs.onUpdated` / `tabs.onAttached`; `sidepanel/main.tsx` calls `announcePanel`; `src/progress-hub.ts`, `src/panel-presence.ts` |
+| AI caption audio outside the panel | `background.ts` wires `CaptionWorkHost`: `CAPTION_WORK_*` commands from the panel (`panelSender`), the `CAPTION_WORK_PORT` port and `CAPTION_OFFSCREEN_*` requests from the offscreen document (`offscreenSender`), and a changed sign-in (`sessionEnded`); `offscreen/main.ts` calls `startCaptionWork`; `src/captions/work-host.ts`, `work-runner.ts`, `offscreen-link.ts`, `work-protocol.ts` |
 | LMS message, cache and capability lifecycle | `lms.content.ts`; account reads and playback discovery live in `src/api/account.ts` and `src/api/playback-discovery.ts` |
 | Native-video control in KUCOM frames | `player.content.ts`, `src/playback/player.ts`, `ku-player.ts` |
-| Unit tests | `tests/background.test.ts`, `tests/content.test.ts`, `tests/player-content.test.ts` |
+| Unit tests | `tests/background.test.ts`, `tests/content.test.ts`, `tests/player-content.test.ts`, `tests/offscreen-entry.test.ts` |
 
 ## CONVENTIONS
 - Cross-context messages are `{ version: 1, type: ... }` objects. Receivers validate the shape (`isAnalyticsCommand`, `isPlayerControl`, ...) and the sender before acting.

@@ -305,7 +305,7 @@ async function commit(
  * shared promise: callers queue on the lock and each re-checks the stored
  * session under it, so a request of one login can never join another's refresh.
  */
-function refreshSession(stale: CaptionSession): Promise<CaptionSession | null> {
+function refreshSession(stale: SessionRef): Promise<CaptionSession | null> {
   return withLock(REFRESH_LOCK, async () => {
     const { epoch, session: current } = await withLock(COMMIT_LOCK, readSnapshot);
     // Another page already refreshed this login: use its result. A different
@@ -347,6 +347,45 @@ async function usableSession(loginId?: string): Promise<CaptionSession> {
   return next;
 }
 
+/** What a request needs of a session: its access token, never the refresh token. */
+export interface AccessGrant {
+  /** The stored session generation the token belongs to. */
+  readonly id: string;
+  readonly loginId: string;
+  readonly accessToken: string;
+}
+
+/** Names a stored session generation without its token. */
+export type SessionRef = Pick<AccessGrant, "id" | "loginId">;
+
+export interface SessionAccess {
+  /** Throws LOGIN_REQUIRED without a session, or under another login than `loginId`. */
+  current(loginId?: string): Promise<AccessGrant>;
+  /** The same login's next token; null once that login ended. */
+  refresh(used: SessionRef): Promise<AccessGrant | null>;
+  /** Forgets a session the broker refused, if it is still the stored one. */
+  reject(used: SessionRef): Promise<void>;
+}
+
+/** The session in extension storage: pages and the worker read it themselves. */
+export const storedSessionAccess: SessionAccess = {
+  current: usableSession,
+  refresh: refreshSession,
+  reject: async (used) => {
+    await commit({ sessionId: used.id }, null);
+  },
+};
+
+let sessionAccess = storedSessionAccess;
+
+/**
+ * The offscreen document has no storage API. It borrows access tokens from
+ * the worker, which stays the only reader and writer of the stored session.
+ */
+export function setSessionAccess(access: SessionAccess): void {
+  sessionAccess = access;
+}
+
 function withBearer<T extends ServerInit>(init: T, bearer: string): T {
   return {
     ...init,
@@ -367,16 +406,16 @@ export async function authorizedFetch(
   /** Send only under this login; another login means LOGIN_REQUIRED. */
   loginId?: string,
 ): Promise<Response> {
-  let used = await usableSession(loginId);
+  let used = await sessionAccess.current(loginId);
   let response = await serverFetch(path, withBearer(init, used.accessToken), signal);
   if (response.status === 401 && (await serverErrorCode(response)) === "TOKEN_EXPIRED") {
-    const next = await refreshSession(used);
+    const next = await sessionAccess.refresh(used);
     if (!next) throw new CaptionServerError("LOGIN_REQUIRED");
     used = next;
     response = await serverFetch(path, withBearer(init, used.accessToken), signal);
   }
   if (response.status === 401) {
-    await commit({ sessionId: used.id }, null);
+    await sessionAccess.reject(used);
     throw new CaptionServerError("LOGIN_REQUIRED");
   }
   return response;

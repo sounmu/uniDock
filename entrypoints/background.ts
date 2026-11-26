@@ -46,7 +46,14 @@ import {
   returnPopupGrant,
   syncPopupAutoClose,
 } from "../src/popup-settings";
-import { installCaptionRuleCleanup } from "../src/captions/referer-rule";
+import { CaptionMediaRules } from "../src/captions/referer-rule";
+import { CaptionWorkHost } from "../src/captions/work-host";
+import {
+  CAPTION_WORK_PORT,
+  isCaptionWorkCommand,
+  isOffscreenRequest,
+  offscreenSender,
+} from "../src/captions/work-protocol";
 import { ProgressHub } from "../src/progress-hub";
 import { PanelPresence, panelPortWindow } from "../src/panel-presence";
 import {
@@ -54,8 +61,12 @@ import {
   CAPTION_JOB_PORT,
   CaptionJobMonitor,
 } from "../src/captions/job-monitor";
-import { withCaptionCacheLock } from "../src/captions/transcript-cache";
 import {
+  CAPTION_TRANSCRIPT_CACHE_KEY,
+  withCaptionCacheLock,
+} from "../src/captions/transcript-cache";
+import {
+  CAPTION_SESSION_EPOCH_KEY,
   CAPTION_SESSION_KEY,
   revokeAndClear,
 } from "../src/caption-server-settings";
@@ -494,12 +505,10 @@ async function clearFallbackBadge() {
 }
 
 export default defineBackground(() => {
-  if (
-    __UNIDOCK_AI_CAPTIONS__ &&
-    chrome.declarativeNetRequest &&
-    chrome.runtime.onConnect
-  )
-    void installCaptionRuleCleanup(panelSender);
+  const captionRules =
+    __UNIDOCK_AI_CAPTIONS__ && chrome.declarativeNetRequest ? new CaptionMediaRules() : null;
+  // Session rules outlive the worker that added them.
+  if (__UNIDOCK_AI_CAPTIONS__ && captionRules) void captionRules.sweep();
   const progress = __UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__ ? new ProgressHub() : null;
   if (progress && chrome.tabs?.onUpdated)
     chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
@@ -547,6 +556,34 @@ export default defineBackground(() => {
       .catch(() => {});
     chrome.runtime.onStartup?.addListener(() => void captionJobs.resume());
     chrome.runtime.onInstalled?.addListener(() => void captionJobs.resume());
+  }
+  // Reading and uploading lecture audio runs in the offscreen document this
+  // host creates on demand, so it goes on after the panel closes.
+  const captionWork =
+    __UNIDOCK_AI_CAPTIONS__ && captionJobs && captionRules && chrome.offscreen
+      ? new CaptionWorkHost({
+          monitor: captionJobs,
+          rules: captionRules,
+          onWork: (runs) => progress?.setWork(runs),
+        })
+      : null;
+  if (__UNIDOCK_AI_CAPTIONS__ && captionWork) {
+    chrome.runtime.onConnect.addListener((port) => {
+      if (port.name !== CAPTION_WORK_PORT) return;
+      if (!port.sender || !offscreenSender(port.sender)) return port.disconnect();
+      captionWork.connect(port);
+    });
+    // Local data was deleted or the sign-in changed: a run must not go on
+    // under, or touch the jobs of, another account.
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      const cache = changes[CAPTION_TRANSCRIPT_CACHE_KEY];
+      const epoch = changes[CAPTION_SESSION_EPOCH_KEY];
+      if (
+        (area === "local" && cache?.oldValue !== undefined && cache.newValue === undefined) ||
+        (area === "session" && epoch && epoch.oldValue !== epoch.newValue)
+      )
+        captionWork.sessionEnded();
+    });
   }
   chrome.runtime.onInstalled?.addListener((details) => {
     void markUpdate(details);
@@ -829,6 +866,30 @@ export default defineBackground(() => {
         }
         return { ok: false };
       })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (__UNIDOCK_AI_CAPTIONS__ && isCaptionWorkCommand(message)) {
+      if (!panelSender(sender)) {
+        respond({ status: "error", code: "POLICY" });
+        return false;
+      }
+      if (!captionWork) {
+        respond({ status: "error", code: "UNAVAILABLE" });
+        return false;
+      }
+      void captionWork
+        .command(message)
+        .then(respond, () => respond({ status: "error", code: "UNKNOWN" }));
+      return true;
+    }
+    if (__UNIDOCK_AI_CAPTIONS__ && isOffscreenRequest(message)) {
+      if (!captionWork || !offscreenSender(sender)) {
+        respond({ status: "error", code: "POLICY" });
+        return false;
+      }
+      void captionWork
+        .request(message)
+        .then(respond, () => respond({ status: "error", code: "UNKNOWN" }));
       return true;
     }
     if (object(message) && message.type === "DOWNLOAD_LMS_FILE") {

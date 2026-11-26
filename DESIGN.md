@@ -12,9 +12,9 @@ page is open in a window (the side panel, the popup fallback or
 `sidepanel.html` in a tab), that window's LMS tabs show no capsule, because the
 panel already shows the work. It returns when the panel closes, and panels in
 other windows change nothing. A returning capsule shows only work that is still
-going: a job the server accepted keeps its progress, while preparation that
-needs a panel (reading and uploading lecture audio) is never shown as in
-progress once no panel page is open.
+going. Reading and uploading lecture audio runs outside the panel, so that
+preparation is shown with no panel page open, the same as a job the server
+accepted.
 
 Layout: Home and the shared shell use one document-scrolling column and the
 existing floating bottom capsule, now with four equal entries: 홈, 내 과목,

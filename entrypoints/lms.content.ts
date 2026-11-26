@@ -16,6 +16,7 @@ import { currentAccount } from "../src/api/account";
 import { discoverPlayback } from "../src/api/playback-discovery";
 import { learningxToken } from "../src/security/learningx-token";
 import {
+  isRequest,
   panelCancel,
   panelQuery,
   parseResult,
@@ -730,6 +731,17 @@ export default defineContentScript({
             return false;
           }
         }
+        // The worker opens each admitted caption lecture, so a batch goes on
+        // after the panel that admitted it has closed. No page may ask for it.
+        if (
+          __UNIDOCK_AI_CAPTIONS__ &&
+          isRequest(message) &&
+          message.type === "CAPTION_BATCH_OPEN"
+        ) {
+          if (!backgroundSender(sender) || !allowedPage(location.href)) return false;
+          void openCaptionBatch(message.batch, message.index).then(respond);
+          return true;
+        }
         const cancellation = panelCancel(message);
         if (cancellation) {
           // Only the panel scope that issued the read can abort that read.
@@ -846,9 +858,7 @@ export default defineContentScript({
                   ? open(request.handle, request.type)
                   : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_ADMIT"
                     ? admitCaptionBatch(request.handles)
-                    : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_OPEN"
-                      ? openCaptionBatch(request.batch, request.index)
-                      : list(request, parsed.refresh);
+                    : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);
         }

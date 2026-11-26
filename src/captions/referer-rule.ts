@@ -1,20 +1,14 @@
 import { allowedCaptionMediaUrl, CAPTION_MEDIA_HOST } from "../security/policy";
 import { safeLog } from "../security/logger";
 import { KOREA_ORIGINS } from "../security/origins";
+import {
+  CAPTION_RULE_ID_MIN,
+  CAPTION_RULE_ID_SPAN,
+  isCaptionRuleId,
+} from "./work-protocol";
 
-export const CAPTION_RULE_PORT = "unidock-caption-rule";
-const RULE_ID_MIN = 1_947_000;
-const RULE_ID_SPAN = 1000;
 const PLAYER_REFERER = `${KOREA_ORIGINS.player}/`;
-const MAX_FAILED_RECONNECTS = 5;
-export const CAPTION_RULE_KEEPALIVE_MS = 20_000;
 export const CAPTION_RULE_SWEEP_GRACE_MS = 10_000;
-
-const isReady = (message: unknown) =>
-  (message as { type?: unknown } | null)?.type === "ready";
-
-const isCaptionRuleId = (id: number) =>
-  Number.isInteger(id) && id >= RULE_ID_MIN && id < RULE_ID_MIN + RULE_ID_SPAN;
 
 function rule(mediaUrl: string, id: number): chrome.declarativeNetRequest.Rule {
   return {
@@ -50,109 +44,85 @@ async function removeRules(ids: number[]): Promise<void> {
   }
 }
 
+/** How the offscreen document, which has no declarativeNetRequest API, asks the worker for its rule. */
+export interface CaptionRuleChannel {
+  /** Resolves once the worker installed the rule; false when it could not. */
+  add(id: number, mediaUrl: string): Promise<boolean>;
+  remove(id: number): Promise<void>;
+}
+
 /**
- * Run `fn` with a session rule that sets Referer on the extension's own request
- * for exactly `mediaUrl`. The panel removes the rule on success, failure and
- * cancel; the open port lets the background remove it if the panel closes.
- * While it runs the panel posts a keepalive on the port, because since Chrome
- * 114 an open port alone does not keep the worker alive. If the worker still
- * restarts, the port drops and the panel reconnects under the same name; each
- * worker answers "ready", which resets the failure count and makes the panel
- * re-add the same rule in case a sweep removed it.
+ * Run `fn` while a session rule sets Referer on the extension's own request
+ * for exactly `mediaUrl`. The rule is removed on success, failure and cancel.
+ * The channel keeps it alive across worker restarts and the worker removes it
+ * when the document goes away.
  */
 export async function withCaptionMediaRule<T>(
   mediaUrl: string,
+  channel: CaptionRuleChannel,
   fn: () => Promise<T>,
 ): Promise<T> {
   if (!allowedCaptionMediaUrl(mediaUrl)) throw new Error("UNSUPPORTED_MEDIA");
   const id =
-    RULE_ID_MIN + (crypto.getRandomValues(new Uint32Array(1))[0]! % RULE_ID_SPAN);
-  const name = `${CAPTION_RULE_PORT}:${id}`;
-  let finished = false;
-  let ruleAdded = false;
-  let failedReconnects = 0;
-  let port!: chrome.runtime.Port;
-  const reassert = async () => {
-    if (finished || !ruleAdded) return;
+    CAPTION_RULE_ID_MIN +
+    (crypto.getRandomValues(new Uint32Array(1))[0]! % CAPTION_RULE_ID_SPAN);
+  try {
+    if (!(await channel.add(id, mediaUrl))) throw new Error("RULE");
+    return await fn();
+  } finally {
+    await channel.remove(id);
+  }
+}
+
+/**
+ * Worker side: the only caller of declarativeNetRequest for caption media.
+ * A rule lives while the document that asked for it holds its port: `clear`
+ * runs when that port drops. Session rules outlive a worker, so a new worker
+ * removes the ones its document has not asked for again within the grace
+ * period: no exit path leaves a rule behind, and a restart never removes a
+ * rule still in use.
+ */
+export class CaptionMediaRules {
+  private readonly live = new Set<number>();
+
+  async add(id: number, mediaUrl: string): Promise<boolean> {
+    if (!isCaptionRuleId(id) || !allowedCaptionMediaUrl(mediaUrl)) return false;
+    this.live.add(id);
     try {
       await chrome.declarativeNetRequest.updateSessionRules({
         removeRuleIds: [id],
         addRules: [rule(mediaUrl, id)],
       });
+      return true;
     } catch {
+      this.live.delete(id);
       safeLog("REQUEST_FAILED");
+      return false;
     }
-  };
-  const connect = () => {
-    const current = chrome.runtime.connect({ name });
-    port = current;
-    current.onMessage.addListener((message: unknown) => {
-      if (!isReady(message)) return;
-      failedReconnects = 0;
-      void reassert();
-    });
-    current.onDisconnect.addListener(() => {
-      void chrome.runtime.lastError;
-      if (!finished && failedReconnects++ < MAX_FAILED_RECONNECTS) connect();
-    });
-  };
-  connect();
-  const keepalive = setInterval(() => {
-    try {
-      port.postMessage({ type: "keepalive" });
-    } catch {
-      // A dropped port is reconnected by its onDisconnect handler.
-    }
-  }, CAPTION_RULE_KEEPALIVE_MS);
-  try {
-    await chrome.declarativeNetRequest.updateSessionRules({
-      addRules: [rule(mediaUrl, id)],
-    });
-    ruleAdded = true;
-    return await fn();
-  } finally {
-    finished = true;
-    clearInterval(keepalive);
-    await removeRules([id]);
-    port.disconnect();
   }
-}
 
-/**
- * Background side. A rule is removed when its panel port disconnects (panel
- * closed or crashed). On worker start, rules whose panel has not reconnected
- * within the grace period are removed, so no exit path leaves a rule behind
- * and a restart never removes a rule a panel is still using.
- */
-export function installCaptionRuleCleanup(
-  fromPanel: (sender: chrome.runtime.MessageSender) => boolean,
-  graceMs = CAPTION_RULE_SWEEP_GRACE_MS,
-): Promise<void> {
-  const live = new Set<number>();
-  chrome.runtime.onConnect.addListener((port) => {
-    const match = /^unidock-caption-rule:(\d+)$/.exec(port.name);
-    if (!match) return;
-    const id = Number(match[1]);
-    if (!isCaptionRuleId(id) || !port.sender || !fromPanel(port.sender)) {
-      port.disconnect();
-      return;
-    }
-    live.add(id);
-    // Keepalive messages need no reply; receiving them keeps the worker alive.
-    port.onMessage.addListener(() => undefined);
-    port.postMessage({ type: "ready" });
-    port.onDisconnect.addListener(() => {
-      live.delete(id);
-      void removeRules([id]);
-    });
-  });
-  return new Promise<void>((resolve) => setTimeout(resolve, graceMs))
-    .then(() => chrome.declarativeNetRequest.getSessionRules())
-    .then(
-    (rules) =>
-      removeRules(
-        rules.map((r) => r.id).filter((id) => isCaptionRuleId(id) && !live.has(id)),
-      ),
-    () => safeLog("REQUEST_FAILED"),
-  );
+  async remove(id: number): Promise<void> {
+    this.live.delete(id);
+    await removeRules([id]);
+  }
+
+  async clear(): Promise<void> {
+    const ids = [...this.live];
+    this.live.clear();
+    await removeRules(ids);
+  }
+
+  sweep(graceMs = CAPTION_RULE_SWEEP_GRACE_MS): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, graceMs))
+      .then(() => chrome.declarativeNetRequest.getSessionRules())
+      .then(
+        (rules) =>
+          removeRules(
+            rules
+              .map((r) => r.id)
+              .filter((id) => isCaptionRuleId(id) && !this.live.has(id)),
+          ),
+        () => safeLog("REQUEST_FAILED"),
+      );
+  }
 }
