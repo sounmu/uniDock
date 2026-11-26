@@ -10,6 +10,7 @@ import { ListRow } from "../ui/ListRow";
 import { StatusChip } from "../ui/StatusChip";
 import { Notice } from "../ui/Notice";
 import { newTab } from "../ui/a11y";
+import { useStickyHeight } from "../ui/sticky-height";
 import {
   ResourceControls,
   defaultResourceFilters,
@@ -21,6 +22,7 @@ import { startOperation } from "../analytics";
 const none: readonly Document[] = [];
 export function MaterialsTab({ model }: { readonly model: PanelModel }) {
   const { state, course, downloads, recordingAction } = model;
+  const actionBar = useStickyHeight("--material-bar-h");
   const refreshing = state.status === "loading";
   const result = model.pendingResult ?? state;
   const ready = result.status === "success" && "documents" in result;
@@ -93,7 +95,7 @@ export function MaterialsTab({ model }: { readonly model: PanelModel }) {
             freshness={{ updatedAt: model.updatedAt, pending: refreshing }}
           />
         )}
-        <div className="material-actions">
+        <div className="material-actions" ref={actionBar}>
           {items.length > 0 && (
             <label className="remaining-toggle">
               <input

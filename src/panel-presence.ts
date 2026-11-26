@@ -28,7 +28,10 @@ export class PanelPresence {
 
   /** Only for a port whose sender passed `panelSender`. */
   connect(port: chrome.runtime.Port, windowId: number): void {
-    this.panels.set(port, { windowId, tabId: port.sender?.tab?.id });
+    // A panel page in a tab reports the window it has now, not the one it read
+    // before connecting; a move after this arrives through tabMoved.
+    const tab = port.sender?.tab;
+    this.panels.set(port, { windowId: tab?.windowId ?? windowId, tabId: tab?.id });
     port.onDisconnect.addListener(() => {
       void chrome.runtime.lastError;
       this.panels.delete(port);
@@ -71,7 +74,8 @@ export function announcePanel(): void {
     if (id === undefined || id < 0) return;
     const port = chrome.runtime.connect({ name: `${PANEL_PORT}:${id}` });
     let alive: ReturnType<typeof setInterval> | undefined;
-    port.onMessage.addListener(() => {
+    port.onMessage.addListener((message: unknown) => {
+      if ((message as { type?: unknown } | null)?.type !== "ready") return;
       alive ??= setInterval(() => {
         try {
           port.postMessage({ type: "alive" });

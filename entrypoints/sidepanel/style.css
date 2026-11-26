@@ -111,7 +111,8 @@
   /* Fallback document top of the AI caption card until it measures its own. */
   --captions-card-top: 108px;
   /* Page-coloured, blurred backing for sticky bars (work strip, playback
-     header, material actions); App sets --work-strip-h to the strip height. */
+     header, material actions); useStickyHeight publishes --work-strip-h and
+     --material-bar-h. */
   --sticky-surface: color-mix(in srgb, var(--page) 82%, transparent);
   --focus-width: 2px;
   --focus-offset: 2px;
@@ -123,14 +124,10 @@
   font-size: var(--fs-md);
   line-height: var(--lh-body);
   color-scheme: light dark;
-  scroll-padding-top: calc(var(--work-strip-h, 0px) + var(--space-3));
-  scroll-padding-bottom: var(--tabbar-space);
-}
-:root:has(main .material-actions) {
   scroll-padding-top: calc(
-    var(--work-strip-h, 0px) + var(--control-h-lg) + var(--space-2) * 2 +
-      var(--space-3)
+    var(--work-strip-h, 0px) + var(--material-bar-h, 0px) + var(--space-3)
   );
+  scroll-padding-bottom: var(--tabbar-space);
 }
 @media (prefers-color-scheme: dark) {
   :root {

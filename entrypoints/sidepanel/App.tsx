@@ -14,6 +14,7 @@ import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { ProgressStrip } from "./ProgressStrip";
 import { useActivity } from "./progress-activity";
+import { useStickyHeight } from "./ui/sticky-height";
 import { QueryGate } from "./query-gate";
 import { useAnalytics } from "./useAnalytics";
 import { markNoticeShown, setAnalyticsEnabled } from "./analytics";
@@ -54,22 +55,7 @@ export function App() {
   const activity = useActivity(__UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__);
   const restoreInfoFocus = useRef(false);
   const toolHeading = useRef<HTMLParagraphElement>(null);
-  // Sticky bars below the work strip (playback header, material actions) and
-  // the root scroll-padding start under its current height.
-  const workStrip = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const strip = workStrip.current;
-    if (!strip) return;
-    const root = document.documentElement;
-    const measure = () => root.style.setProperty("--work-strip-h", `${strip.offsetHeight}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(strip);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--work-strip-h");
-    };
-  }, []);
+  const workStrip = useStickyHeight("--work-strip-h");
   useLayoutEffect(() => {
     if (tool.detail) toolHeading.current?.focus({ preventScroll: true });
   }, [tool.detail]);

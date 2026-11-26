@@ -7,13 +7,13 @@ import {
 } from "../src/panel-presence";
 import { CAPTION_JOB_PORT } from "../src/captions/job-monitor";
 
-function fakePort(name: string, tabId?: number) {
+function fakePort(name: string, tabId?: number, tabWindow?: number) {
   const closed: (() => void)[] = [];
   const received: ((message: unknown) => void)[] = [];
   const post = vi.fn();
   const port = {
     name,
-    sender: tabId === undefined ? {} : { tab: { id: tabId } },
+    sender: tabId === undefined ? {} : { tab: { id: tabId, windowId: tabWindow } },
     postMessage: post,
     onDisconnect: { addListener: (listener: () => void) => closed.push(listener) },
     onMessage: { addListener: (listener: (message: unknown) => void) => received.push(listener) },
@@ -89,6 +89,13 @@ it("counts a panel page whose port already closed until its disconnect arrives",
   expect(seen.at(-1)).toEqual([]);
 });
 
+it("records the window a panel tab is in when its port connects, not the one in its name", () => {
+  const seen: number[][] = [];
+  const presence = new PanelPresence((windows) => seen.push([...windows]));
+  presence.connect(fakePort("unidock-panel:1", 8, 4).port, 1);
+  expect(seen.at(-1)).toEqual([4]);
+});
+
 it("follows a panel page in a tab to the window its tab moved to", () => {
   const seen: number[][] = [];
   const presence = new PanelPresence((windows) => seen.push([...windows].sort()));
@@ -109,6 +116,10 @@ it("names the port after the page's window and keeps the worker awake once accep
   await looked();
   expect(connect.mock.calls).toEqual([[{ name: "unidock-panel:7" }]]);
 
+  vi.advanceTimersByTime(PANEL_ALIVE_MS);
+  expect(ports[0]!.post).not.toHaveBeenCalled();
+
+  ports[0]!.receive({ type: "other" });
   vi.advanceTimersByTime(PANEL_ALIVE_MS);
   expect(ports[0]!.post).not.toHaveBeenCalled();
 
