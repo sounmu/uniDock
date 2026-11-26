@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mount, click } from "./ui-helpers";
+import { act } from "react";
+import { mount, click, deferred } from "./ui-helpers";
 import type { AiCaptionState } from "../entrypoints/sidepanel/useAiCaptions";
 
 const generate = vi.hoisted(() => vi.fn());
 const cancel = vi.hoisted(() => vi.fn());
 const downloadCaption = vi.hoisted(() => vi.fn());
+const getAccount = vi.hoisted(() => vi.fn());
 let current: AiCaptionState;
-let session: { email: string } | null = { email: "student@example.com" };
+let session: { email: string; loginId: string } | null = {
+  email: "student@example.com",
+  loginId: "login-a",
+};
 const base: AiCaptionState = {
   phase: "idle",
   progress: null,
@@ -32,6 +37,10 @@ vi.mock("../src/captions/download", async (original) => ({
   ...(await original<object>()),
   downloadCaption,
 }));
+vi.mock("../src/captions/job-client", async (original) => ({
+  ...(await original<object>()),
+  getAccount,
+}));
 vi.mock("../entrypoints/sidepanel/useCaptionSession", () => ({
   useCaptionSession: () => session,
 }));
@@ -40,10 +49,58 @@ let ui: Awaited<ReturnType<typeof mount>>;
 
 beforeEach(() => {
   current = { ...base };
-  session = { email: "student@example.com" };
+  session = { email: "student@example.com", loginId: "login-a" };
   vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => undefined) } });
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   downloadCaption.mockResolvedValue({ status: "complete" });
+  getAccount.mockRejectedValue(new Error("offline"));
+});
+
+const account = (used: number, reserved = 0, resetsAt = "2026-11-27T00:00:00+09:00") => ({
+  email: "student@example.com",
+  quota: { limit: 7, used, reserved, resetsAt },
+});
+
+it("shows today's remaining count before generating and in the confirmation", async () => {
+  getAccount.mockResolvedValue(account(2, 1));
+  await render();
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("4 / 7회");
+  await click("AI 자막 만들기");
+  expect(ui.host.textContent).toContain("오늘 남은 4회 중 1회가 차감돼요");
+});
+
+it("reads the quota again once it resets", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  getAccount.mockResolvedValueOnce(account(7, 0, new Date(Date.now() + 1_000).toISOString()));
+  getAccount.mockResolvedValue(account(0));
+  await render();
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("0 / 7회");
+  await act(async () => vi.advanceTimersByTime(2_100));
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("7 / 7회");
+  vi.useRealTimers();
+});
+
+it("never shows another sign-in's quota", async () => {
+  getAccount.mockResolvedValueOnce(account(7));
+  await render();
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("0 / 7회");
+  const pending = deferred<ReturnType<typeof account>>();
+  getAccount.mockReturnValueOnce(pending.promise);
+  session = { email: "other@example.com", loginId: "login-b" };
+  const { AiCaptionsSection } = await import("../entrypoints/sidepanel/AiCaptionsSection");
+  await ui.render(<AiCaptionsSection />);
+  expect(ui.host.querySelector(".ai-facts")?.textContent).not.toContain("0 / 7회");
+  await act(async () => pending.resolve(account(1)));
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("6 / 7회");
+});
+
+it("blocks generation once today's quota is spent", async () => {
+  getAccount.mockResolvedValue(account(7));
+  await render();
+  expect(ui.host.querySelector(".ai-facts")?.textContent).toContain("0 / 7회");
+  await click("AI 자막 만들기");
+  expect(ui.host.querySelector('[aria-label="AI 자막 생성 확인"]')).toBeNull();
+  expect(generate).not.toHaveBeenCalled();
 });
 afterEach(async () => {
   await ui?.unmount();
@@ -184,10 +241,10 @@ it("sends a signed-out user straight to the AI settings to log in", async () => 
   expect(onSettings).toHaveBeenCalledOnce();
 });
 
-it("shows the weekly quota, a plain queue state and transcription progress", async () => {
+it("shows the daily quota, a plain queue state and transcription progress", async () => {
   current = { ...base, phase: "failed", errorCode: "QUOTA_EXCEEDED" };
   await render();
-  expect(ui.host.textContent).toContain("주 7회");
+  expect(ui.host.textContent).toContain("하루 7회");
   await ui.unmount();
   current = { ...base, phase: "queued", workerOffline: true };
   await render();

@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PlaybackPanel } from "./PlaybackPanel";
 import type { PlaybackEntry } from "./usePlaybackPanel";
-import { CaptionsPanel } from "./CaptionsPanel";
+import { CaptionsPanel, type CaptionEntry } from "./CaptionsPanel";
+import { ActiveLectureCard } from "./ActiveLectureCard";
+import { useActiveLecture } from "./useActiveLecture";
 import { useSidepanelQuery } from "./useSidepanelQuery";
 import { Rail, type Section, type ToolSection } from "./ui/Rail";
 import { useDetail } from "./ui/DetailView";
@@ -28,7 +30,8 @@ export function App() {
   const navigationRevision = useRef(0);
   const [info, setInfo] = useState(false);
   const [captionsOpened, setCaptionsOpened] = useState(false);
-  const [captionEntry, setCaptionEntry] = useState<{ readonly title: string }>();
+  const [captionEntry, setCaptionEntry] = useState<CaptionEntry>();
+  const activeLecture = useActiveLecture(__UNIDOCK_AI_CAPTIONS__);
   const [playbackOpened, setPlaybackOpened] = useState(false);
   const [playbackEntry, setPlaybackEntry] = useState<PlaybackEntry>();
   const analytics = useAnalytics(info ? "INFO" : tool.detail === "captions" ? "CAPTIONS"
@@ -111,6 +114,12 @@ export function App() {
         info={info} active={activity.length ? ["home"] : []} />
       <main>
         <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
+        {activeLecture && !info && tool.detail !== "captions" && (
+          <ActiveLectureCard lecture={activeLecture} onOpen={() => {
+            setCaptionEntry({ title: activeLecture.title, detect: true });
+            openTool("captions");
+          }} />
+        )}
         <UpdateNotice />
         {noticeOpen && !noticeDismissed && (
           <aside hidden={info} className="notice" aria-label="사용 통계 안내">

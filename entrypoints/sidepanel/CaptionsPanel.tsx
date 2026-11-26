@@ -26,12 +26,17 @@ const messages = {
   TIMEOUT: "자막 감지 시간이 초과되었습니다. 잠시 후 다시 시도하세요.",
   RELOAD_TAB: "강의 문서가 변경되었습니다. 현재 강의에서 다시 감지하세요.",
 };
+export interface CaptionEntry {
+  readonly title: string;
+  /** The player is already open, so detection starts without a click. */
+  readonly detect?: boolean;
+}
 export function CaptionsPanel({
   onConnectionSettings,
   entry,
 }: {
   readonly onConnectionSettings?: () => void;
-  readonly entry?: { readonly title: string };
+  readonly entry?: CaptionEntry;
 }) {
   const [state, setState] = useState<
     CaptionResult | { status: "idle" | "loading" }
@@ -93,7 +98,8 @@ export function CaptionsPanel({
     };
     if (entry) {
       clear();
-      setNotice(`${entry.title} 강의를 열었습니다. 플레이어가 준비되면 자막 감지를 누르세요.`);
+      if (entry.detect) void detect();
+      else setNotice(`${entry.title} 강의를 열었습니다. 플레이어가 준비되면 자막 감지를 누르세요.`);
     }
     chrome.tabs.onUpdated.addListener(updated);
     chrome.tabs.onRemoved.addListener(removed);

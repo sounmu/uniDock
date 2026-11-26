@@ -763,11 +763,11 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     expect(services.cdn).toEqual([]);
   });
 
-  test("a weekly quota refusal is shown before any media is read", async () => {
+  test("a daily quota refusal is shown before any media is read", async () => {
     services.refuseQuota();
     const { panel } = await openPanelOnPlayer();
     await panel.getByRole("button", { name: "음성 보내기" }).click();
-    await expect(panel.getByText(/주 7회/)).toBeVisible();
+    await expect(panel.getByText(/하루 7회/)).toBeVisible();
     expect(services.cdn).toEqual([]);
     expect(services.uploads).toHaveLength(0);
   });

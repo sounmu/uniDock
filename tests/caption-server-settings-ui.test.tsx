@@ -9,7 +9,7 @@ const getAccount = vi.hoisted(() => vi.fn());
 const getWorkerStatus = vi.hoisted(() => vi.fn());
 const getSessionCount = vi.hoisted(() => vi.fn());
 const signOutEverywhere = vi.hoisted(() => vi.fn());
-let session: { email: string } | null | undefined;
+let session: { email: string; loginId: string } | null | undefined;
 
 vi.mock("../entrypoints/sidepanel/useCaptionSession", () => ({
   useCaptionSession: () => session,
@@ -56,7 +56,7 @@ it("offers Google login when signed out and explains a refused account", async (
 });
 
 it("shows the account, weekly usage and worker state, and logs out", async () => {
-  session = { email: "student@example.com" };
+  session = { email: "student@example.com", loginId: "login-a" };
   ui = await mount(<CaptionServerSettings />);
   await act(async () => {
     await vi.waitFor(() => expect(getSessionCount).toHaveBeenCalled());

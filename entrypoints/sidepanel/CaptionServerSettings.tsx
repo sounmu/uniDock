@@ -4,12 +4,8 @@ import {
   signOut,
   signOutEverywhere,
 } from "../../src/caption-server-settings";
-import {
-  getAccount,
-  getSessionCount,
-  getWorkerStatus,
-  type CaptionAccount,
-} from "../../src/captions/job-client";
+import { getSessionCount, getWorkerStatus } from "../../src/captions/job-client";
+import { useCaptionAccount } from "./useCaptionAccount";
 import { useCaptionSession } from "./useCaptionSession";
 
 const loginErrors: Record<string, string> = {
@@ -24,7 +20,7 @@ const code = (error: unknown) =>
 
 export function CaptionServerSettings() {
   const session = useCaptionSession();
-  const [account, setAccount] = useState<CaptionAccount | null>(null);
+  const account = useCaptionAccount(session);
   const [worker, setWorker] = useState<"online" | "offline" | null>(null);
   const [devices, setDevices] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
@@ -33,16 +29,11 @@ export function CaptionServerSettings() {
 
   useEffect(() => {
     if (!signedIn) {
-      setAccount(null);
       setWorker(null);
       setDevices(null);
       return;
     }
     let live = true;
-    void getAccount().then(
-      (value) => live && setAccount(value),
-      () => live && setAccount(null),
-    );
     void getWorkerStatus().then(
       (value) => live && setWorker(value),
       () => live && setWorker(null),
@@ -140,7 +131,7 @@ export function CaptionServerSettings() {
             </div>
             <div className="settings-row">
               <div className="row-text">
-                <p className="row-title">이번 주 사용</p>
+                <p className="row-title">오늘 사용</p>
                 <p className="row-sub">
                   {account
                     ? `${account.quota.used} / ${account.quota.limit}회 · ${new Date(

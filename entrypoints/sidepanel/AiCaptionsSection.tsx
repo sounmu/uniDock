@@ -12,6 +12,8 @@ import { downloadCaption, exportTranscript } from "../../src/captions/download";
 import { coreResult, startOperation } from "./analytics";
 import { useAiCaptions, type AiCaptionState } from "./useAiCaptions";
 import { useCaptionSession } from "./useCaptionSession";
+import { remainingJobs, useCaptionAccount } from "./useCaptionAccount";
+import { softDisabled } from "./ui/a11y";
 import { AiCaptionReader } from "./AiCaptionReader";
 
 // Before the server starts, only show what the user can act on: preparing
@@ -50,7 +52,7 @@ const errorText: Record<string, string> = {
   LOGIN_REQUIRED: "설정에서 Google 계정으로 다시 로그인하세요.",
   ACCOUNT_NOT_ALLOWED: "이 Google 계정으로는 AI 자막을 쓸 수 없습니다.",
   QUOTA_EXCEEDED:
-    "이번 주 사용 횟수(주 7회)를 모두 썼습니다. 매주 월요일 0시(KST)에 다시 채워집니다.",
+    "오늘 사용 횟수(하루 7회)를 모두 썼습니다. 매일 0시(KST)에 다시 채워집니다.",
   ACTIVE_JOB_EXISTS:
     "다른 강의의 AI 자막 생성이 진행 중입니다. 끝난 뒤 다시 시도하세요.",
   RATE_LIMITED: "요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
@@ -214,6 +216,9 @@ function AiCaptionsContent({
 }: AiCaptionsProps & { readonly flow: ReturnType<typeof useAiCaptions> }) {
   const { state, generate, cancel } = flow;
   const session = useCaptionSession();
+  const account = useCaptionAccount(session, state.phase);
+  const remaining = account ? remainingJobs(account) : null;
+  const spent = remaining === 0;
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState("");
   const running =
@@ -288,11 +293,11 @@ function AiCaptionsContent({
             <>
               <button
                 className="btn-primary"
-                onClick={() => {
+                {...softDisabled(spent, () => {
                   setConfirming(false);
                   setNotice("");
                   void generate();
-                }}
+                })}
               >
                 음성 보내기
               </button>
@@ -307,7 +312,14 @@ function AiCaptionsContent({
             <ul className="ai-checks">
               <li>{checkIcon}강의 음성만 보내고, 처리 후 지워요</li>
               <li>{checkIcon}자막은 이 브라우저에 저장해 다시 볼 수 있어요</li>
-              <li>{checkIcon}이번 주 사용 횟수 1회가 차감돼요</li>
+              <li>
+                {checkIcon}
+                {remaining === null
+                  ? "오늘 사용 횟수 1회가 차감돼요"
+                  : spent
+                    ? "오늘 사용 횟수를 모두 썼어요. 매일 0시(KST)에 다시 채워져요"
+                    : `오늘 남은 ${remaining}회 중 1회가 차감돼요`}
+              </li>
             </ul>
           </div>
         </Body>
@@ -489,7 +501,7 @@ function AiCaptionsContent({
       <Body
         foot={
           <>
-            <button className="btn-primary" onClick={() => setConfirming(true)}>
+            <button className="btn-primary" {...softDisabled(spent, () => setConfirming(true))}>
               AI 자막 만들기
             </button>
             {settingsButton}
@@ -501,8 +513,8 @@ function AiCaptionsContent({
           <p className="ai-lead-sub">강의 음성으로 문장마다 시간을 붙여 드려요</p>
           <dl className="ai-facts">
             <div>
-              <dt>사용 가능</dt>
-              <dd>주 7회</dd>
+              <dt>오늘 남은 횟수</dt>
+              <dd>{account ? `${remaining} / ${account.quota.limit}회` : "하루 7회"}</dd>
             </div>
             <div>
               <dt>최대 강의 길이</dt>
