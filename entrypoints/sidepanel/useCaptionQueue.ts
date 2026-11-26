@@ -16,6 +16,7 @@ import {
 } from "../../src/captions/job-monitor";
 import type { JobPhase } from "../../src/captions/job-state";
 import { lectureTabKey, OPEN_RATE_WINDOW_MS } from "../../src/open-tab";
+import type { Result } from "../../src/protocol";
 import { queryActive, type QueryTarget } from "../../src/transport";
 import { publishQueuePreparing } from "./progress-activity";
 
@@ -37,7 +38,7 @@ const RATE_LIMIT_RETRY_MS = 5_000;
 const MAX_RECONNECTS = 5;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
-// Opens that fail this way fail the same way for every remaining lecture.
+// The list tab answers this way for every remaining lecture too.
 const LOST_SELECTION = new Set(["LOGIN_REQUIRED", "RELOAD_TAB", "STALE_SELECTION"]);
 // A run stopped by a sign-in change must not touch the next account's jobs.
 const SESSION_CHANGED = "session-changed";
@@ -49,6 +50,12 @@ const PREPARING: ReadonlySet<QueuePhase> = new Set([
   "extracting",
   "uploading",
 ]);
+
+class QueueError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
 
 async function savedLectureTab(source: number): Promise<number | null> {
   const key = lectureTabKey(source);
@@ -76,23 +83,42 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** The player in the lecture tab once it shows a document other than the
-    previous lecture's; the KU player loads a moment after the page. */
+/** The player in the lecture tab once `confirm` says its document belongs to
+    the lecture just opened; the KU player loads a moment after the page, and
+    the previous lecture's document is never asked about. A player that is
+    found but not confirmed in time is a mismatch, so its audio is not read;
+    a tab that moved on to a page without a player is not. */
 async function lectureMedia(
   source: number,
   previous: string | null,
+  confirm: (player: string) => Promise<Result>,
   signal: AbortSignal,
 ): Promise<MediaSource> {
   const deadline = Date.now() + MEDIA_WAIT_MS;
+  let unverified = false;
   for (;;) {
     const saved = await savedLectureTab(source);
-    if (saved !== null) {
-      const media = await identifyMedia(saved).catch(() => null);
-      if (media && media.documentId !== previous) return media;
-    }
+    const media = saved === null ? null : await identifyMedia(saved).catch(() => null);
+    // A stop or a local-data wipe during either read must not reach the
+    // submission, which writes to storage before it looks at the signal.
     if (signal.aborted) throw new MediaSourceError("UNSUPPORTED_MEDIA");
-    if (Date.now() >= deadline) throw new MediaSourceError("UNSUPPORTED_MEDIA");
-    await pause(MEDIA_RETRY_MS, signal);
+    let limited = false;
+    if (media && media.documentId !== previous) {
+      unverified = true;
+      const verdict = await confirm(media.documentId);
+      if (signal.aborted) throw new MediaSourceError("UNSUPPORTED_MEDIA");
+      if ("verified" in verdict) return media;
+      if (verdict.status === "error" && LOST_SELECTION.has(verdict.code))
+        throw new QueueError(verdict.code);
+      limited = verdict.status === "error" && verdict.code === "RATE_LIMITED";
+    }
+    if (Date.now() >= deadline) {
+      if (limited) throw new QueueError("RATE_LIMITED");
+      throw unverified || media
+        ? new QueueError("LECTURE_MISMATCH")
+        : new MediaSourceError("UNSUPPORTED_MEDIA");
+    }
+    await pause(limited ? RATE_LIMIT_RETRY_MS : MEDIA_RETRY_MS, signal);
   }
 }
 
@@ -259,7 +285,18 @@ export function useCaptionQueue() {
             break;
           }
           patch(mine, { phase: "identifying" });
-          const media = await lectureMedia(selection.target.id, previous, signal);
+          // The list tab knows the address it opened; the panel passes only
+          // the id of the player document it read the media from.
+          const media = await lectureMedia(
+            selection.target.id,
+            previous,
+            (player) =>
+              queryActive(
+                { version: 1, type: "CAPTION_BATCH_VERIFY", batch: admitted.batch, index, document: player },
+                { target: selection.target, signal },
+              ).catch((): Result => ({ status: "error", code: "LECTURE_MISMATCH" })),
+            signal,
+          );
           let job: string | null = null;
           const submitted = await submitLecture(media, {
             signal,
@@ -292,7 +329,7 @@ export function useCaptionQueue() {
           await release();
           const code = errorCode(error);
           patch(mine, { phase: "failed", progress: null, errorCode: code });
-          if (FATAL.has(code)) {
+          if (FATAL.has(code) || LOST_SELECTION.has(code)) {
             patch((item) => item.phase === "waiting", { phase: "failed", errorCode: code });
             break;
           }

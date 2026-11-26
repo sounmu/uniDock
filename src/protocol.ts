@@ -28,6 +28,7 @@ export const errors = [
   "TAB_OPEN_FAILED",
   "DOWNLOAD_FAILED",
   "RATE_LIMITED",
+  "LECTURE_MISMATCH",
 ] as const;
 export type ErrorCode = (typeof errors)[number];
 export type ListRequest =
@@ -72,7 +73,15 @@ export type Request =
   /** Spends a caption selection at once; the list tab keeps its lectures. */
   | { version: 1; type: "CAPTION_BATCH_ADMIT"; handles: readonly string[] }
   /** Opens one admitted lecture in the lecture tab kept for caption work. */
-  | { version: 1; type: "CAPTION_BATCH_OPEN"; batch: string; index: number };
+  | { version: 1; type: "CAPTION_BATCH_OPEN"; batch: string; index: number }
+  /** Asks whether a player document belongs to the lecture opened at `index`. */
+  | {
+      version: 1;
+      type: "CAPTION_BATCH_VERIFY";
+      batch: string;
+      index: number;
+      document: string;
+    };
 export type PanelQueryMessage =
   | Exclude<Request, { type: "DOCUMENT_DOWNLOAD" }>
   | {
@@ -109,6 +118,10 @@ export function validHandle(value: unknown): value is string {
     )
   );
 }
+/** A Chrome document id: an opaque token, never an LMS identifier. */
+export function validDocument(value: unknown): value is string {
+  return typeof value === "string" && /^[\w-]{1,64}$/.test(value);
+}
 export const DOWNLOAD_REQUEST_WINDOW_MS = 23_000;
 export function validDownloadDeadline(
   value: unknown,
@@ -133,6 +146,7 @@ export type Result =
   | { status: "success"; opened: true }
   | { status: "success"; downloaded: true }
   | { status: "success"; batch: string }
+  | { status: "success"; verified: true }
   | { status: "success"; courses: Course[] }
   | { status: "success"; assignments: Assignment[] }
   | { status: "success"; deadlines: Deadline[] }
@@ -165,9 +179,11 @@ export function isRequest(value: unknown): value is Request {
       row.handles.every(validHandle) &&
       new Set(row.handles).size === row.handles.length
     );
-  if (row.type === "CAPTION_BATCH_OPEN")
+  if (row.type === "CAPTION_BATCH_OPEN" || row.type === "CAPTION_BATCH_VERIFY")
     return (
-      keys.length === 4 &&
+      (row.type === "CAPTION_BATCH_OPEN"
+        ? keys.length === 4
+        : keys.length === 5 && validDocument(row.document)) &&
       validHandle(row.batch) &&
       Number.isInteger(row.index) &&
       (row.index as number) >= 0 &&
@@ -319,6 +335,13 @@ export function parseResult(
         expected?.type === "CAPTION_BATCH_ADMIT"
       )
         return { status: "success", batch: row.batch };
+      if (
+        row.status === "success" &&
+        row.verified === true &&
+        Object.keys(row).length === 2 &&
+        expected?.type === "CAPTION_BATCH_VERIFY"
+      )
+        return { status: "success", verified: true };
       if (
         row.status === "success" &&
         row.downloaded === true &&
