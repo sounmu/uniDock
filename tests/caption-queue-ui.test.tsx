@@ -217,11 +217,17 @@ it("cancels the job whose audio was not uploaded when stopped", async () => {
     run = queue.start({ handles: ["a", "b"], target }, String);
   });
   await vi.waitFor(() => expect(phases()[0]).toBe("extracting"));
+  let cancelled!: () => void;
+  cancelJob.mockReturnValueOnce(new Promise<void>((resolve) => (cancelled = resolve)));
+  await act(async () => queue.stop());
+  await vi.waitFor(() => expect(cancelJob).toHaveBeenCalledWith("job-open"));
+  // A restart could get the same job back, so the run holds until it is cancelled.
+  expect(queue.running).toBe(true);
   await act(async () => {
-    queue.stop();
+    cancelled();
     await run;
   });
-  expect(cancelJob).toHaveBeenCalledWith("job-open");
+  expect(queue.running).toBe(false);
   expect(phases()).toEqual(["cancelled", "cancelled"]);
   expect(opens()).toHaveLength(1);
 });

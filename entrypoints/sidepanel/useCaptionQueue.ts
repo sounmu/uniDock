@@ -246,7 +246,7 @@ export function useCaptionQueue() {
             onProgress: (bytes) => patch(mine, { progress: bytes }),
           });
           if (!submitted) {
-            void release();
+            await release();
             break;
           }
           unfinished = null;
@@ -254,10 +254,11 @@ export function useCaptionQueue() {
           track(submitted.jobId, submitted.key);
         } catch (error) {
           if (signal.aborted) {
-            void release();
+            await release();
             break;
           }
-          // The next lecture may need the use this job still holds.
+          // The next lecture, or a restart after a stop, may need the use this
+          // job holds, and may get the same job back for the same lecture.
           await release();
           const code = errorCode(error);
           patch(mine, { phase: "failed", progress: null, errorCode: code });
