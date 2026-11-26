@@ -2,6 +2,14 @@
 
 ## 0.7.0 - 2026-11-26
 
+- Pick several lectures by course and week and make their AI captions one after
+  another in one lecture tab. Home "자막 추출" and a recording's caption button
+  both open this picker, and it never lets you pick more lectures than today's
+  remaining uses.
+- AI captions allow 7 uses a day instead of 7 a week, and the pick and confirm
+  screens show how many are left today.
+- When the active tab is a lecture player, the captions panel offers to make
+  captions for that lecture at the top.
 - Keep two AI caption audio upload chunks in flight and show upload progress
   continuously while each chunk is sent. Older caption servers fall back to one
   chunk at a time.
@@ -10,8 +18,9 @@
 - Match every loading skeleton to the size and position of its loaded rows.
 - Draw checkboxes with theme colors so the wide tap area no longer flashes a
   gray square.
-- Release notes also cover uniDock Server 1.1.0, which transcribes English
-  lectures in English and stops repeated-sentence loops.
+- Release notes also cover uniDock Server 1.2.0, which resets the caption limit
+  daily and accepts two upload chunks at once, and 1.1.0, which transcribes
+  English lectures in English and stops repeated-sentence loops.
 - Update bundled release notes, privacy-policy version labels, and release
   documentation.
 
