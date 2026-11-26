@@ -254,6 +254,42 @@ it("cancelling after the hand-over names the job for the caller to cancel", asyn
   expect(last().single).toBeNull();
 });
 
+it.each([
+  { job: "an uploaded job", state: "awaiting_upload", worker: "takes it", takes: true },
+  { job: "an uploaded job", state: "awaiting_upload", worker: "refuses it", takes: false },
+  { job: "an existing job", state: "queued", worker: "takes it", takes: true },
+])(
+  "a cancel during the hand-over of $job names it once the worker $worker",
+  async ({ state, takes }) => {
+    link.media.mockResolvedValue(found(1));
+    createJob.mockResolvedValue(job("job-1", state));
+    const handing = deferred();
+    const asked = deferred();
+    link.accept.mockImplementation(() => {
+      asked.resolve();
+      return handing.promise;
+    });
+    await runner.command(startSingle);
+    await asked.promise;
+
+    let outcome: unknown;
+    const cancelling = runner.command(cancel("single")).then((value) => (outcome = value));
+    await drained();
+    // The caller hears of the job only once the worker has settled it.
+    expect(outcome).toBeUndefined();
+    expect(last()).toEqual({ single: null, queue: null, unfinished: [] });
+
+    if (takes) handing.resolve();
+    else handing.reject(failure("STORAGE"));
+    await cancelling;
+    expect(outcome).toEqual({ status: "success", accepted: "job-1" });
+    // The caller cancels it; the document does not.
+    expect(cancelJob).not.toHaveBeenCalled();
+    await drained();
+    expect(last().single).toBeNull();
+  },
+);
+
 it("ignores a cancel for a run it does not hold", async () => {
   link.media.mockReturnValue(new Promise(() => {}));
   await runner.command(startSingle);
@@ -642,6 +678,45 @@ it("stopping cancels the lecture in flight and leaves queued jobs alone", async 
   expect(await runner.command(cancel("queue"))).toEqual({ status: "success", accepted: null });
   expect(cancelJob).toHaveBeenCalledOnce();
 });
+
+it.each([
+  { worker: "takes", takes: true },
+  { worker: "refuses", takes: false },
+])(
+  "stopping during a lecture's hand-over cancels its job once, after the worker $worker it",
+  async ({ takes }) => {
+    link.open.mockResolvedValue(opened(null));
+    link.media.mockResolvedValueOnce(found(1)).mockResolvedValueOnce(found(2));
+    const handing = deferred();
+    const asked = deferred();
+    link.accept.mockImplementationOnce(() => {
+      asked.resolve();
+      return handing.promise;
+    });
+    await runner.command(startQueue());
+    await asked.promise;
+
+    let outcome: unknown;
+    const stopping = runner.command(cancel("queue")).then((value) => (outcome = value));
+    await drained();
+    expect(itemPhases()).toEqual(["cancelled", "cancelled"]);
+    // The job is released only once the worker has settled it.
+    expect(outcome).toBeUndefined();
+    expect(cancelJob).not.toHaveBeenCalled();
+
+    if (takes) handing.resolve();
+    else handing.reject(failure("STORAGE"));
+    await stopping;
+    expect(outcome).toEqual({ status: "success", accepted: null });
+    expect(cancelJob).toHaveBeenCalledExactlyOnceWith("job-1");
+    expect(last().unfinished).toEqual([]);
+    await drained();
+    expect(itemPhases()).toEqual(["cancelled", "cancelled"]);
+    expect(last().queue!.running).toBe(false);
+    expect(link.open).toHaveBeenCalledOnce();
+    expect(cancelJob).toHaveBeenCalledOnce();
+  },
+);
 
 it("forgets a stopped list on dismiss, but never a running one", async () => {
   const dismiss = { version: 1, type: "CAPTION_WORK_DISMISS", run } as const;

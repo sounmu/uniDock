@@ -52,6 +52,9 @@ interface Run<State> {
   /** A job the server has no audio of yet: stopping or failing cancels it,
       so it does not keep holding one of today's uses. */
   unfinished: string | null;
+  /** The job being handed to the worker, or handed over: the server has its
+      audio, so a cancel names it to the caller once the hand-over settles. */
+  handover: Promise<string> | null;
 }
 
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -127,6 +130,7 @@ export class CaptionWorkRunner {
         },
         controller,
         unfinished: null,
+        handover: null,
       };
       this.single = run;
       this.publish();
@@ -149,6 +153,7 @@ export class CaptionWorkRunner {
       },
       controller,
       unfinished: null,
+      handover: null,
     };
     this.queue = run;
     this.publish();
@@ -184,9 +189,9 @@ export class CaptionWorkRunner {
     if (run?.state.run !== id) return DONE;
     this.single = null;
     run.controller.abort();
-    const accepted = run.state.phase === "queued" ? run.state.jobId : null;
+    const { handover } = run;
     await this.release(run);
-    return { status: "success", accepted };
+    return { status: "success", accepted: handover ? await handover : null };
   }
 
   private async stopQueue(id: string): Promise<CommandOutcome> {
@@ -194,7 +199,14 @@ export class CaptionWorkRunner {
     if (run?.state.run !== id || !run.state.running) return DONE;
     run.controller.abort();
     this.endQueue(run);
+    const { handover } = run;
     await this.release(run);
+    // The lecture in flight was being handed over: no panel cancels a list's
+    // jobs, so once the worker has settled it, it is released here.
+    if (handover) {
+      run.unfinished = await handover;
+      await this.release(run);
+    }
     return DONE;
   }
 
@@ -255,7 +267,19 @@ export class CaptionWorkRunner {
       },
       accept: async (jobId, key) => {
         run.unfinished = null;
-        await this.link.accept(jobId, key);
+        const accepting = this.link.accept(jobId, key);
+        run.handover = accepting.then(
+          () => jobId,
+          () => jobId,
+        );
+        try {
+          await accepting;
+        } catch (error) {
+          // Not taken over: the run fails and the job, whose audio the server
+          // has, is left alone unless a cancel already asked for it.
+          run.handover = null;
+          throw error;
+        }
       },
     });
   }
@@ -366,6 +390,8 @@ export class CaptionWorkRunner {
             onPhase: (phase) => this.setItems(run, mine, { phase }),
           });
           if (!submitted || !live()) return;
+          // Queued: the worker follows it, and a stop leaves it alone.
+          run.handover = null;
           this.setItems(run, mine, { phase: "queued", jobId: submitted.jobId });
         } catch (error) {
           if (!live()) return;
