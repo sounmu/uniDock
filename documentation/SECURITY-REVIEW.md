@@ -196,7 +196,7 @@
 
 ## 2026-10-23 AI 자막 생성 (개발 빌드 전용)
 
-이 기능은 `UNIDOCK_AI_CAPTIONS=1` 빌드에서만 컴파일됩니다. `scripts/package-release.mjs`가 이 플래그로 만든 빌드의 패키징을 거부합니다. 번들에서 CDN 호스트, `declarativeNetRequest`, 작업 API 경로, `unidock.caption-` 저장 키, 규칙 포트 이름, AI 자막 분석 이름(`captions_ai`, `caption_server_`)이 나오면 패키징이 실패합니다. 배포 빌드에는 이 기능의 코드·버튼·설정이 없습니다.
+이 기능은 `UNIDOCK_AI_CAPTIONS=1` 빌드에서만 컴파일됩니다. `scripts/package-release.mjs`가 이 플래그로 만든 빌드의 패키징을 거부합니다. 번들에서 CDN 호스트, `declarativeNetRequest`, 작업 API 경로, `unidock.caption-` 저장 키, 규칙 포트 이름, AI 자막 분석 이름(`captions_ai`, `caption_server_`)이 나오면 패키징이 실패합니다. 배포 빌드에는 이 기능의 코드·버튼·설정이 없습니다. (이후 변경: 이 문단은 기능이 개발 빌드 전용이던 때의 상태입니다. 0.4.0부터 배포 빌드에 AI 자막이 들어가며, `scripts/package-release.mjs`는 이제 `UNIDOCK_AI_CAPTIONS=1` 빌드를 요구합니다. 배포판에는 자막 코드와 `declarativeNetRequestWithHostAccess`·`identity` 권한이 있고, 강의 영상 CDN은 사용자가 음성을 보낼 때만 요청하는 선택 호스트 권한입니다. 지금의 패키징 검사는 아래 0.4.0 절을 따릅니다.)
 
 ### 권한과 호스트
 
