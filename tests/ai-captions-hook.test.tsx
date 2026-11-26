@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { deferred, mount } from "./ui-helpers";
 import { fakeWorker, forgetWork, type FakeWorker } from "./caption-work-helpers";
@@ -414,8 +414,8 @@ it("a reopened panel shows the run that replaced the one it found while the play
   worker.single = inFlight();
   const identified = deferred<Awaited<ReturnType<typeof identifyMedia>>>();
   const media = await identifyMedia();
-  identifyMedia.mockReturnValueOnce(identified.promise);
-  ui = await mount(<Probe />);
+  identifyMedia.mockReturnValue(identified.promise);
+  ui = await mount(<StrictMode><Probe /></StrictMode>);
   await drained();
   // Another panel page cancelled that run and started one for the same lecture.
   await worker.report({ single: inFlight({ run: later, phase: "extracting" }) });
@@ -427,6 +427,22 @@ it("a reopened panel shows the run that replaced the one it found while the play
   expect(worker.sent("CAPTION_WORK_CANCEL")).toEqual([
     { version: 1, type: "CAPTION_WORK_CANCEL", kind: "single", run: later },
   ]);
+});
+
+it("a reopened panel follows the job of a run that handed it over while the player was identified", async () => {
+  getJob.mockReturnValue(new Promise(() => {}));
+  worker.single = inFlight();
+  const identified = deferred<Awaited<ReturnType<typeof identifyMedia>>>();
+  const media = await identifyMedia();
+  identifyMedia.mockReturnValue(identified.promise);
+  ui = await mount(<StrictMode><Probe /></StrictMode>);
+  await drained();
+  // The saved jobs were read while the run still uploaded: the list was empty.
+  await worker.report({ single: inFlight({ phase: "queued" }) });
+  await act(async () => identified.resolve(media));
+  await drained();
+  expect(hook.state).toMatchObject({ phase: "queued", title: "3주차 강의" });
+  expect(getJob).toHaveBeenCalledWith("job_1", expect.anything());
 });
 
 it("a reopened panel follows the job once the run it found has uploaded", async () => {

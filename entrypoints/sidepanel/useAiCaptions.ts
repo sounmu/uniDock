@@ -418,7 +418,8 @@ export function useAiCaptions() {
       ]);
       // Reading or uploading audio went on while no panel was open, or just
       // failed: this lecture's card picks the run up where it is.
-      if ((!saved.length && !cached && !pendingRun()) || stale()) return;
+      const found = pendingRun();
+      if ((!saved.length && !cached && !found) || stale()) return;
       // Show the saved job only on the lecture it was made for.
       let key: string;
       let title: string;
@@ -436,7 +437,12 @@ export function useAiCaptions() {
         // player was being identified.
         await workCommand({ version: 1, type: "CAPTION_WORK_GET" });
         if (stale()) return;
-        const pending = pendingRun();
+        // The run found may also have handed its job over meanwhile, after the
+        // saved jobs were read: it is followed through the run.
+        const current = workState().single;
+        const pending =
+          pendingRun() ??
+          (current?.phase === "queued" && current.run === found?.run ? current : null);
         if (
           pending &&
           pending.tabId === media.tabId &&
