@@ -17,8 +17,9 @@
   being read or uploaded.
 - Release notes also cover uniDock Server 1.3.0, which reuses an existing
   transcript for the same audio and still counts one use.
-- Update bundled release notes, privacy-policy version labels and the lecture
-  check wording, and release documentation.
+- Update bundled release notes, privacy-policy version labels, the lecture
+  check wording, and the caption-reuse retention wording (each request keeps
+  its own copy for six months), and release documentation.
 
 ## 0.7.0 - 2026-11-26
 
