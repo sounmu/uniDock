@@ -54,6 +54,22 @@ export function App() {
   const activity = useActivity(__UNIDOCK_AI_CAPTIONS__ || __UNIDOCK_PLAYBACK__);
   const restoreInfoFocus = useRef(false);
   const toolHeading = useRef<HTMLParagraphElement>(null);
+  // Sticky bars below the work strip (playback header, material actions) and
+  // the root scroll-padding start under its current height.
+  const workStrip = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const strip = workStrip.current;
+    if (!strip) return;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty("--work-strip-h", `${strip.offsetHeight}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(strip);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--work-strip-h");
+    };
+  }, []);
   useLayoutEffect(() => {
     if (tool.detail) toolHeading.current?.focus({ preventScroll: true });
   }, [tool.detail]);
@@ -120,13 +136,15 @@ export function App() {
       <Rail section={model.section} onSelect={select} onInfo={() => showInfo()}
         info={info} active={activity.length ? ["home"] : []} />
       <main>
-        <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
-        {activeLecture && !info && tool.detail !== "captions" && (
-          <ActiveLectureCard lecture={activeLecture} onOpen={() => {
-            setCaptionEntry({ title: activeLecture.title, detect: true });
-            openTool("captions");
-          }} />
-        )}
+        <div className="work-strip" ref={workStrip}>
+          <ProgressStrip activity={activity.filter((entry) => info || entry.section !== tool.detail)} onOpen={openTool} />
+          {activeLecture && !info && tool.detail !== "captions" && (
+            <ActiveLectureCard lecture={activeLecture} onOpen={() => {
+              setCaptionEntry({ title: activeLecture.title, detect: true });
+              openTool("captions");
+            }} />
+          )}
+        </div>
         <UpdateNotice />
         {noticeOpen && !noticeDismissed && (
           <aside hidden={info} className="notice" aria-label="사용 통계 안내">

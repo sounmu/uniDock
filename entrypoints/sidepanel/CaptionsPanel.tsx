@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { timedCues } from "../../src/captions/transcript";
 import type { VideoCaptionTarget } from "../../src/video-captions";
 import { useVideoCaptions, type VideoCaptionDelivery } from "./useVideoCaptions";
@@ -55,6 +55,24 @@ export function CaptionsPanel({
   const [exportPending, setExportPending] = useState(false);
   const { detail, open, back, dismiss: dismissDetail } = useDetail<number>();
   const queueView = useDetail<"queue">();
+  // The AI caption card fills the panel down to the tab bar minus the
+  // several-lecture card below it, so both stay on one screen as either grows.
+  const queueBox = useRef<HTMLDivElement>(null);
+  const [queueSpace, setQueueSpace] = useState(0);
+  useLayoutEffect(() => {
+    const box = queueBox.current;
+    if (!box) return;
+    const measure = () => {
+      const card = box.firstElementChild;
+      const margin = card ? parseFloat(getComputedStyle(card).marginTop) || 0 : 0;
+      const height = box.getBoundingClientRect().height;
+      setQueueSpace(height ? Math.ceil(height + margin) : 0);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
   const openQueue = queueView.open;
   const dismissQueue = queueView.dismiss;
   const seenVisit = useRef<number | undefined>(undefined);
@@ -251,7 +269,7 @@ export function CaptionsPanel({
       ? state.code
       : null;
   return (
-    <section>
+    <section style={{ "--caption-queue-space": `${queueSpace}px` } as CSSProperties}>
       <div hidden={selected !== undefined || queueView.detail !== null}>
         <ScreenHeader
           title="자막 추출"
@@ -319,7 +337,7 @@ export function CaptionsPanel({
         </div>
       </div>
       {__UNIDOCK_AI_CAPTIONS__ && (
-        <div hidden={selected !== undefined}>
+        <div ref={queueBox} hidden={selected !== undefined}>
           <CaptionQueue
             entry={queueEntry}
             picking={queueView.detail === "queue"}

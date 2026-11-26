@@ -117,6 +117,8 @@ Layout: video selection uses a text-only list grouped by module, inspired by Thi
 
 Layout: a single full-width content column with a floating four-tab bottom capsule, preserving the approved glass surface. The document owns vertical scrolling. Content and navigation share 16px horizontal outer spacing (`--space-4`); the sticky playback header compensates by the same inset. Navigation has four equal `minmax(0,1fr)` columns, 44px minimum-height buttons, 20px icons and 11px permanent labels. Its bottom gap stays 12px plus the bottom safe area. Main bottom padding and root scroll-padding reserve `--tabbar-space` (54px bar + 12px gap + 24px breathing room + safe area). Target widths are 320–420px without horizontal overflow. Hidden lists stay mounted and restore scroll/focus when returning from tools or details.
 
+Layout: the document stays the only scroller. Work in progress and the lecture open in the active tab sit in one work strip that sticks under the top edge; the playback header and the materials action bar stick directly under it (`--work-strip-h`), and root scroll-padding reserves their height so focused rows are never covered. On captions without a provided track, the AI caption card fills the column down to the several-lecture card, which keeps the usual gap above the tab bar; the card gives back exactly the space the several-lecture card takes as either changes, and only content taller than the screen scrolls the page.
+
 Radius roles: 4px for square checkboxes, 8px for small row actions, 12px for buttons/fields/inline guidance, 16px for cards, and 999px for tabs, segments, chips and switches. Nested rectangular surfaces use outer radius minus inset, rounded to the nearest scale step; capsules contain capsules.
 
 ## 5. Components
@@ -166,7 +168,7 @@ Source-grouped material rows (PDF, PPTX and PPT in one list, no format filter or
 
 ## 7. Depth & Surface
 
-Translucent glass cards have a 1px highlight border and a soft shadow: `0 6px 20px rgba(0,0,0,.06)` with an inset white highlight in light mode; dark mode uses `.35` shadow opacity and a translucent highlight. Only the bottom tab bar and sticky playback toolbar use backdrop blur (`blur(18px) saturate(160%)`). Individual cards never blur their backdrop. The page background is flat neutral gray or charcoal.
+Translucent glass cards have a 1px highlight border and a soft shadow: `0 6px 20px rgba(0,0,0,.06)` with an inset white highlight in light mode; dark mode uses `.35` shadow opacity and a translucent highlight. Only the bottom tab bar and the sticky bars (work strip, playback header, materials action bar) use backdrop blur (`blur(18px) saturate(160%)`) over the shared `--sticky-surface` page tint. Individual cards never blur their backdrop. The page background is flat neutral gray or charcoal.
 
 ## 8. Accessibility Constraints & Accepted Debt
 

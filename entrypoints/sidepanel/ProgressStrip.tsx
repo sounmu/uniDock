@@ -31,9 +31,17 @@ export function ProgressStrip({
             <small>{text.detail}</small>
           </span>
           {text.percent !== null && (
-            <span className="progress-row-bar" aria-hidden="true">
-              <i style={{ width: `${text.percent}%` }} />
-            </span>
+            <svg className="progress-row-ring" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9.5" />
+              <circle
+                cx="12"
+                cy="12"
+                r="9.5"
+                pathLength={100}
+                strokeDasharray={`${text.percent} 100`}
+                transform="rotate(-90 12 12)"
+              />
+            </svg>
           )}
         </button>
       ))}
