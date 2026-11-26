@@ -125,6 +125,23 @@ it("reports a rule Chrome refused and does not keep it from the next sweep", asy
   expect(updates).toEqual([{ removeRuleIds: [1947005] }]);
 });
 
+it("keeps a rule Chrome would not remove, and removes it on the next clear", async () => {
+  const rules = new CaptionMediaRules();
+  await rules.add(1947001, url);
+  await rules.add(1947002, url);
+  updates = [];
+  refuse = true;
+  await rules.remove(1947001);
+  await rules.clear();
+  expect(updates).toEqual([]);
+
+  refuse = false;
+  await rules.clear();
+  expect(updates).toEqual([{ removeRuleIds: [1947001, 1947002] }]);
+  await rules.clear();
+  expect(updates).toHaveLength(1);
+});
+
 it("removes a rule on request, and every rule of a document that went away", async () => {
   const rules = new CaptionMediaRules();
   await rules.add(1947001, url);

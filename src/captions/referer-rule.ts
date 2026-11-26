@@ -35,12 +35,15 @@ function rule(mediaUrl: string, id: number): chrome.declarativeNetRequest.Rule {
   };
 }
 
-async function removeRules(ids: number[]): Promise<void> {
-  if (!ids.length) return;
+/** Whether Chrome removed the rules; a refused removal leaves them installed. */
+async function removeRules(ids: number[]): Promise<boolean> {
+  if (!ids.length) return true;
   try {
     await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: ids });
+    return true;
   } catch {
     safeLog("REQUEST_FAILED");
+    return false;
   }
 }
 
@@ -101,27 +104,27 @@ export class CaptionMediaRules {
     }
   }
 
+  // A rule Chrome did not remove stays listed, so the next `clear` tries again.
   async remove(id: number): Promise<void> {
-    this.live.delete(id);
-    await removeRules([id]);
+    if (await removeRules([id])) this.live.delete(id);
   }
 
   async clear(): Promise<void> {
     const ids = [...this.live];
-    this.live.clear();
-    await removeRules(ids);
+    if (await removeRules(ids)) for (const id of ids) this.live.delete(id);
   }
 
   sweep(graceMs = CAPTION_RULE_SWEEP_GRACE_MS): Promise<void> {
     return new Promise<void>((resolve) => setTimeout(resolve, graceMs))
       .then(() => chrome.declarativeNetRequest.getSessionRules())
       .then(
-        (rules) =>
-          removeRules(
+        async (rules) => {
+          await removeRules(
             rules
               .map((r) => r.id)
               .filter((id) => isCaptionRuleId(id) && !this.live.has(id)),
-          ),
+          );
+        },
         () => safeLog("REQUEST_FAILED"),
       );
   }
