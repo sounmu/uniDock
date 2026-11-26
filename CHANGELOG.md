@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 - 2026-11-26
+
+- Keep two AI caption audio upload chunks in flight and show upload progress
+  continuously while each chunk is sent. Older caption servers fall back to one
+  chunk at a time.
+- Save caption TXT and JSON downloads under `uniDock/`, next to course
+  materials, instead of `output/`.
+- Match every loading skeleton to the size and position of its loaded rows.
+- Draw checkboxes with theme colors so the wide tap area no longer flashes a
+  gray square.
+- Release notes also cover uniDock Server 1.1.0, which transcribes English
+  lectures in English and stops repeated-sentence loops.
+- Update bundled release notes, privacy-policy version labels, and release
+  documentation.
+
 ## 0.6.0 - 2026-11-24
 
 - Show timed official (VTT) and AI captions on the KU lecture video as a native
