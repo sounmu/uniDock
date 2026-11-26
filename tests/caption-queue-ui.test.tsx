@@ -156,7 +156,8 @@ it("waits out the tab-open limit and opens the same lecture again", async () => 
   queryActive
     .mockImplementationOnce(admitted)
     .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" });
-  for (const shown of ["old", "first", "first", "second"])
+  // Each open attempt first reads what the tab shows.
+  for (const shown of ["old", "old", "first", "first", "second"])
     identifyMedia.mockResolvedValueOnce(media(shown));
   await render();
   await act(async () => {
@@ -168,15 +169,34 @@ it("waits out the tab-open limit and opens the same lecture again", async () => 
   expect(phases()).toEqual(["queued", "queued"]);
 });
 
+it("compares against what the tab shows right before a retried open", async () => {
+  vi.useFakeTimers();
+  queryActive
+    .mockImplementationOnce(admitted)
+    .mockResolvedValueOnce({ status: "error", code: "RATE_LIMITED" });
+  // The user switches the lecture tab to another lecture during the wait;
+  // it stays readable until the retried open commits.
+  for (const shown of ["old", "switched", "switched", "first"])
+    identifyMedia.mockResolvedValueOnce(media(shown));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a"], target }, String);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await run;
+  });
+  expect(submitLecture.mock.calls.map(([found]) => found.documentId)).toEqual(["first"]);
+});
+
 it("gives up on a lecture still refused after one limit window and goes on", async () => {
   vi.useFakeTimers();
-  queryActive.mockImplementation(async (request: { type: string; index?: number }) =>
-    request.type === "CAPTION_BATCH_OPEN" && request.index === 0
-      ? { status: "error", code: "RATE_LIMITED" }
-      : admitted(request),
-  );
-  identifyMedia.mockImplementationOnce(noPlayer).mockImplementationOnce(noPlayer);
-  identifyMedia.mockResolvedValue(media("second"));
+  let secondOpened = false;
+  queryActive.mockImplementation(async (request: { type: string; index?: number }) => {
+    if (request.type === "CAPTION_BATCH_OPEN" && request.index === 0)
+      return { status: "error", code: "RATE_LIMITED" };
+    if (request.type === "CAPTION_BATCH_OPEN") secondOpened = true;
+    return admitted(request);
+  });
+  identifyMedia.mockImplementation(() => (secondOpened ? Promise.resolve(media("second")) : noPlayer()));
   await render();
   await act(async () => {
     const run = queue.start({ handles: ["a", "b"], target }, String);

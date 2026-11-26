@@ -218,13 +218,16 @@ export function useCaptionQueue() {
             ? cancelJob(unfinished).catch(() => {})
             : Promise.resolve();
         try {
-          // The tab may still show the last lecture until the new page commits.
-          const previous = await lectureDocument(selection.target.id);
-          const open = () =>
-            queryActive(
+          // The tab may still show the last lecture until the new page commits,
+          // and the user may switch it during a retry wait, so read it per attempt.
+          let previous: string | null = null;
+          const open = async () => {
+            previous = await lectureDocument(selection.target.id);
+            return queryActive(
               { version: 1, type: "CAPTION_BATCH_OPEN", batch: admitted.batch, index },
               { target: selection.target, signal },
             );
+          };
           let opened = await open();
           // The tab opener's limiter refuses before opening and the list tab
           // keeps the lecture, so waiting out one window admits it unless
