@@ -27,10 +27,14 @@ export function useActiveLecture(enabled: boolean): ActiveLecture | null {
     };
     const updated = (
       _tabId: number,
-      change: { status?: string; title?: string },
+      change: { status?: string; title?: string; url?: string },
       tab: chrome.tabs.Tab,
     ) => {
-      if (tab.active && (change.status === "complete" || change.title !== undefined)) probe();
+      if (
+        tab.active &&
+        (change.status === "complete" || change.title !== undefined || change.url !== undefined)
+      )
+        probe();
     };
     const visible = () => {
       if (document.visibilityState === "visible") probe();
