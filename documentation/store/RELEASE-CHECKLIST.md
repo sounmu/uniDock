@@ -182,7 +182,7 @@ AI 자막 (실제 Chrome, 압축 해제한 `.output/chrome-mv3`):
 - [ ] 자막 없는 실제 KU 강의에서 ‘AI 자막 생성’ → 확인 화면 문구 → ‘음성 보내기’ 때 CDN 권한 프롬프트 허용·거절(거절 시 요청 없음) → 업로드 → 대기 → ‘AI 생성’ 자막 표시 → TXT·JSON 다운로드
 - [ ] 네트워크 탭에서 CDN 요청이 음성 범위만 받는지, 자막 서버 요청에 LMS 쿠키·URL·과목 ID·강의 제목·KU 콘텐츠 ID가 없는지 확인
 - [ ] 진행 중 패널 닫기·다시 열기, 탭 이동·닫기 취소, 같은 강의 재요청 시 기존 작업 표시, 작업 종료 후 `chrome.declarativeNetRequest` 세션 규칙이 남지 않는지 확인
-- [ ] 주 7회 초과 시 안내와 초기화 시각, 처리 서버 꺼짐 안내
+- [ ] 하루 7회 초과 시 안내와 초기화 시각, 처리 서버 꺼짐 안내
 - [ ] ‘로컬 데이터 모두 삭제’ 후 `unidock.caption-session.v1`·`unidock.caption-install-salt.v1`·`unidock.caption-active-job.v1`이 없고 다시 로그인을 요구하는지 확인
 - [ ] UI·콘솔·오류 문구 어디에도 자막 서버 hostname이 보이지 않는지 확인
 
