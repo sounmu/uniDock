@@ -88,9 +88,9 @@ export function startCaptionWork(): void {
   const rules = new Map<number, string>();
   const adding = new Map<number, (ok: boolean) => void>();
   const removing = new Map<number, () => void>();
-  const post = (message: WorkPortMessage) => {
+  const post = (message: WorkPortMessage, target = port) => {
     try {
-      port?.postMessage(message);
+      target?.postMessage(message);
     } catch {
       // A dropped port is reconnected by its onDisconnect handler.
     }
@@ -169,10 +169,12 @@ export function startCaptionWork(): void {
           runner.sessionEnded();
           return;
         case "command":
+          // The reply goes back on the port the command came on: a worker that
+          // restarted meanwhile numbers its own commands from 1 again.
           void runner
             .command(command.command)
             .catch((): CommandOutcome => ({ status: "error", code: "UNKNOWN" }))
-            .then((outcome) => post({ type: "reply", id: command.id, ...outcome }));
+            .then((outcome) => post({ type: "reply", id: command.id, ...outcome }, current));
       }
     });
     current.onDisconnect.addListener(() => {

@@ -176,6 +176,28 @@ it("runs the worker's command and answers on the port with its id", async () => 
   expect(port().posted.at(-1)).toEqual({ type: "reply", id: 8, status: "error", code: "UNKNOWN" });
 });
 
+it("answers a command only to the worker that sent it, never to a restarted one", async () => {
+  startCaptionWork();
+  let finish!: (outcome: unknown) => void;
+  runner.command.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+  const asking = port();
+  asking.receive({
+    type: "command",
+    id: 1,
+    command: { version: 1, type: "CAPTION_WORK_CANCEL", kind: "queue", run },
+  });
+  asking.drop();
+  const restarted = port();
+  restarted.receive({ type: "ready" });
+  restarted.posted.length = 0;
+
+  finish({ status: "success", accepted: null });
+  await settled();
+  expect(restarted).not.toBe(asking);
+  expect(restarted.posted).toEqual([]);
+  expect(asking.posted).toEqual([]);
+});
+
 it("ends its runs when the worker says the sign-in changed, and ignores anything malformed", () => {
   startCaptionWork();
   port().receive({ type: "session-ended" });
