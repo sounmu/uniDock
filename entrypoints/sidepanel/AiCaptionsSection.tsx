@@ -69,6 +69,8 @@ export const errorText: Record<string, string> = {
   INFERENCE_TIMEOUT: "처리 시간이 초과됐습니다. 이번 사용 횟수는 돌려받습니다.",
   INFERENCE_FAILED: "자막 생성에 실패했습니다. 이번 사용 횟수는 돌려받습니다.",
   LECTURE_MISMATCH: messages.LECTURE_MISMATCH,
+  RELOAD_TAB: messages.RELOAD_TAB,
+  STALE_SELECTION: messages.STALE_SELECTION,
 };
 
 const settingsErrors = new Set(["LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER"]);

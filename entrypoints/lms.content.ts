@@ -231,13 +231,16 @@ export default defineContentScript({
       index: number,
       player: string,
     ): Promise<Result> {
+      const epoch = lifecycleEpoch;
+      const current = captionBatch;
       const url =
-        captionBatch?.id === batch
-          ? captionBatch.targets.opened(index, location.origin)
+        current?.id === batch
+          ? current.targets.opened(index, location.origin)
           : null;
       if (!url) return { status: "error", code: "STALE_SELECTION" };
+      let verdict: Result;
       try {
-        return parseResult(
+        verdict = parseResult(
           await chrome.runtime.sendMessage({
             version: 1,
             type: "VERIFY_LECTURE_TAB",
@@ -247,8 +250,14 @@ export default defineContentScript({
           { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: player },
         );
       } catch {
-        return { status: "error", code: "LECTURE_MISMATCH" };
+        verdict = { status: "error", code: "LECTURE_MISMATCH" };
       }
+      // A verdict for a batch this tab no longer holds must not release audio.
+      if (epoch !== lifecycleEpoch)
+        return { status: "error", code: "RELOAD_TAB" };
+      if (captionBatch !== current)
+        return { status: "error", code: "STALE_SELECTION" };
+      return verdict;
     }
     async function download(
       message: Extract<Request, { type: "DOCUMENT_DOWNLOAD" }>,

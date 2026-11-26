@@ -87,8 +87,22 @@ it.each([
   ["was redirected to the same lecture with a query", [frame(0, "TOP", `${lecture}?redirected=1`), frame(4, "PLAYER", player)]],
   ["no longer holds the player document", [frame(0, "TOP", lecture), frame(4, "OTHER", player)]],
   ["has no readable top frame", [frame(4, "PLAYER", player)]],
+  [
+    "holds two KU players",
+    [frame(0, "TOP", lecture), frame(4, "PLAYER", player), frame(5, "OTHER", "https://kucom.korea.ac.kr/em/fedcba9876543210")],
+  ],
 ])("reports a mismatch when the lecture tab %s", async (_case, frames) => {
   expect(await verify(lectureTab(frames))).toEqual({ status: "error", code: "LECTURE_MISMATCH" });
+});
+
+it.each([
+  ["lost the player document", [frame(0, "TOP", lecture)]],
+  ["replaced its top document", [frame(0, "NEXT", lecture), frame(4, "PLAYER", player)]],
+])("reports a mismatch when the lecture tab %s after the address was read", async (_case, second) => {
+  const source = lectureTab(second);
+  executeScript.mockResolvedValueOnce([frame(0, "TOP", lecture), frame(4, "PLAYER", player)]);
+  expect(await verify(source)).toEqual({ status: "error", code: "LECTURE_MISMATCH" });
+  expect(executeScript).toHaveBeenCalledTimes(2);
 });
 
 it("reports a mismatch when the lecture tab cannot be read or was never opened", async () => {
@@ -120,7 +134,7 @@ it("refuses questions beyond the per-tab budget without reading the tab", async 
   const source = lectureTab([frame(0, "TOP", lecture), frame(4, "PLAYER", player)]);
   for (let count = 0; count < 60; count++) expect((await verify(source)).status).toBe("success");
   expect(await verify(source)).toEqual({ status: "error", code: "RATE_LIMITED" });
-  expect(executeScript).toHaveBeenCalledTimes(60);
+  expect(executeScript).toHaveBeenCalledTimes(120);
 });
 
 it("opens the first lecture in a new tab and remembers it for that list", async () => {

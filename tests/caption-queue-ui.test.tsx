@@ -203,6 +203,57 @@ it("treats a tab that never leaves the previous lecture as a mismatch without as
   expect(submitLecture).not.toHaveBeenCalled();
 });
 
+it("reports no player when the tab leaves the previous lecture for a page without one", async () => {
+  vi.useFakeTimers();
+  identifyMedia.mockResolvedValueOnce(media("old")).mockResolvedValueOnce(media("old"));
+  identifyMedia.mockImplementation(noPlayer);
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a"], target }, String);
+    await vi.advanceTimersByTimeAsync(50_000);
+    await run;
+  });
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "UNSUPPORTED_MEDIA" });
+});
+
+it("sends nothing when stopped while the lecture is being confirmed", async () => {
+  vi.useFakeTimers();
+  let confirm: (() => void) | undefined;
+  queryActive.mockImplementation((request: { type: string }) =>
+    request.type === "CAPTION_BATCH_VERIFY"
+      ? new Promise((resolve) => (confirm = () => resolve({ status: "success", verified: true })))
+      : admitted(request),
+  );
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a"], target }, String);
+    await vi.advanceTimersByTimeAsync(0);
+    queue.stop();
+    confirm?.();
+    await run;
+  });
+  expect(confirm).toBeDefined();
+  expect(submitLecture).not.toHaveBeenCalled();
+  expect(phases()).toEqual(["cancelled"]);
+});
+
+it("reports the limit when the lecture check itself keeps being refused", async () => {
+  vi.useFakeTimers();
+  queryActive.mockImplementation(async (request: { type: string }) =>
+    request.type === "CAPTION_BATCH_VERIFY" ? { status: "error", code: "RATE_LIMITED" } : admitted(request),
+  );
+  identifyMedia.mockImplementationOnce(noPlayer).mockResolvedValue(media("first"));
+  await render();
+  await act(async () => {
+    const run = queue.start({ handles: ["a"], target }, String);
+    await vi.advanceTimersByTimeAsync(50_000);
+    await run;
+  });
+  expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "RATE_LIMITED" });
+  expect(submitLecture).not.toHaveBeenCalled();
+});
+
 it("stops the queue when the list tab is lost while a lecture is confirmed", async () => {
   queryActive.mockImplementation(async (request: { type: string }) =>
     request.type === "CAPTION_BATCH_VERIFY" ? { status: "error", code: "RELOAD_TAB" } : admitted(request),

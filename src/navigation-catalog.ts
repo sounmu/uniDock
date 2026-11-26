@@ -45,6 +45,8 @@ const HANDLE_TTL_MS = 300_000;
 export class CaptionBatch {
   private expires: number;
   private readonly used = new Set<number>();
+  // The one lecture tab shows only the lecture opened last.
+  private current: number | null = null;
   constructor(
     private readonly targets: readonly Pick<Entry, "url" | "moduleAccess" | "itemAccess">[],
     now: number,
@@ -68,14 +70,21 @@ export class CaptionBatch {
     const url = navigationUrl(target.url, origin);
     if (!url) return null;
     this.used.add(index);
+    this.current = index;
     this.expires = now + CAPTION_BATCH_IDLE_MS;
-    return { url, restore: () => this.used.delete(index) };
+    return {
+      url,
+      restore: () => {
+        this.used.delete(index);
+        if (this.current === index) this.current = null;
+      },
+    };
   }
   /** The URL a lecture was opened at, to check what its tab shows; null
       for a lecture that is not open. */
   opened(index: number, origin: string, now = Date.now()): string | null {
     const target = this.targets[index];
-    if (!target || !this.used.has(index) || this.expires <= now) return null;
+    if (!target || this.current !== index || this.expires <= now) return null;
     return navigationUrl(target.url, origin);
   }
 }

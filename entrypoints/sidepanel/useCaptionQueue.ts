@@ -77,7 +77,8 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 /** The player in the lecture tab once `confirm` says its document belongs to
     the lecture just opened; the KU player loads a moment after the page, and
     the previous lecture's document is never asked about. A player that is
-    found but not confirmed in time is a mismatch, so its audio is not read. */
+    found but not confirmed in time is a mismatch, so its audio is not read;
+    a tab that moved on to a page without a player is not. */
 async function lectureMedia(
   source: number,
   previous: string | null,
@@ -85,23 +86,30 @@ async function lectureMedia(
   signal: AbortSignal,
 ): Promise<MediaSource> {
   const deadline = Date.now() + MEDIA_WAIT_MS;
-  let found = false;
+  let unverified = false;
   for (;;) {
     const saved = await savedLectureTab(source);
     const media = saved === null ? null : await identifyMedia(saved).catch(() => null);
-    if (media) {
-      found = true;
-      if (media.documentId !== previous) {
-        const verdict = await confirm(media.documentId);
-        if ("verified" in verdict) return media;
-        if (verdict.status === "error" && LOST_SELECTION.has(verdict.code))
-          throw new QueueError(verdict.code);
-      }
-    }
+    // A stop or a local-data wipe during either read must not reach the
+    // submission, which writes to storage before it looks at the signal.
     if (signal.aborted) throw new MediaSourceError("UNSUPPORTED_MEDIA");
-    if (Date.now() >= deadline)
-      throw found ? new QueueError("LECTURE_MISMATCH") : new MediaSourceError("UNSUPPORTED_MEDIA");
-    await pause(MEDIA_RETRY_MS, signal);
+    let limited = false;
+    if (media && media.documentId !== previous) {
+      unverified = true;
+      const verdict = await confirm(media.documentId);
+      if (signal.aborted) throw new MediaSourceError("UNSUPPORTED_MEDIA");
+      if ("verified" in verdict) return media;
+      if (verdict.status === "error" && LOST_SELECTION.has(verdict.code))
+        throw new QueueError(verdict.code);
+      limited = verdict.status === "error" && verdict.code === "RATE_LIMITED";
+    }
+    if (Date.now() >= deadline) {
+      if (limited) throw new QueueError("RATE_LIMITED");
+      throw unverified || media
+        ? new QueueError("LECTURE_MISMATCH")
+        : new MediaSourceError("UNSUPPORTED_MEDIA");
+    }
+    await pause(limited ? RATE_LIMIT_RETRY_MS : MEDIA_RETRY_MS, signal);
   }
 }
 

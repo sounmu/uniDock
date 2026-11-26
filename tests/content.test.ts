@@ -2979,6 +2979,23 @@ it("asks the background about the lecture it opened and passes on only the verdi
   expect(await verify(batch, 1)).toEqual({ status: "error", code: "LECTURE_MISMATCH" });
 });
 
+it("withholds a verdict that arrives after the list page was left", async () => {
+  let pagehide: (() => void) | undefined;
+  vi.stubGlobal("addEventListener", (type: string, listener: () => void) => {
+    if (type === "pagehide") pagehide = listener;
+  });
+  const { sendMessage, admit, open, verify } = captionBatchHarness();
+  const { batch } = await admit();
+  await open(batch, 0);
+  let answer: ((verdict: unknown) => void) | undefined;
+  sendMessage.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+  const pending = verify(batch, 0);
+  await vi.waitFor(() => expect(answer).toBeDefined());
+  pagehide?.();
+  answer?.({ status: "success", verified: true });
+  expect(await pending).toEqual({ status: "error", code: "RELOAD_TAB" });
+});
+
 it("confirms nothing for a lecture it did not open or when the background cannot answer", async () => {
   const { sendMessage, admit, open, verify } = captionBatchHarness();
   const { batch } = await admit();

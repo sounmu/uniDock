@@ -142,6 +142,10 @@ it("names the address of a lecture only while that lecture is open", () => {
   expect(batch.opened(0, origin, now + CAPTION_BATCH_IDLE_MS)).toBeNull();
   first!.restore();
   expect(batch.opened(0, origin, now)).toBeNull();
+  batch.take(0, origin, now);
+  batch.take(1, origin, now);
+  expect(batch.opened(0, origin, now)).toBeNull();
+  expect(batch.opened(1, origin, now)).not.toBeNull();
 });
 
 it("rejects duplicate, expired, and wrong-kind batches without partial consumption", () => {

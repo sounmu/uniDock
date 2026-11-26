@@ -1,5 +1,5 @@
 import { validDocument, type Result } from "./protocol";
-import { navigationUrl, playerUrl } from "./security/navigation";
+import { navigationUrl, PLAYER_ORIGIN, playerUrl } from "./security/navigation";
 import { TabRateLimiter } from "./security/rate-limit";
 import { allowedPage } from "./security/policy";
 // Shared by clicks and caption-batch opens: a forged request picks its own
@@ -76,9 +76,32 @@ export async function openLmsTab(
     return { status: "error", code: "TAB_OPEN_FAILED" };
   }
 }
+function kuPlayer(value: unknown): boolean {
+  try {
+    const url = new URL(String(value));
+    return url.origin === PLAYER_ORIGIN && url.pathname.startsWith("/em/");
+  } catch {
+    return false;
+  }
+}
+/** The top document's id when one read of the tab's frames shows `url` at the
+    top, holds `document`, and has at most one KU player: with several players
+    in the page nothing says which one is the opened lecture's. */
+function lectureShown(
+  frames: readonly chrome.scripting.InjectionResult<string>[],
+  url: string,
+  document: string,
+): string | null {
+  const top = frames.find((frame) => frame.frameId === 0);
+  return top?.result === url &&
+    frames.some((frame) => frame.documentId === document) &&
+    frames.filter((frame) => kuPlayer(frame.result)).length <= 1
+    ? top.documentId
+    : null;
+}
 /** Whether the lecture tab this list tab opened still shows `url` at the top
-    and holds `document` among its current documents. A caption batch sends
-    the audio of a player document only after this confirms it; anything that
+    and holds `document` as its only KU player. A caption batch sends the
+    audio of a player document only after this confirms it; anything that
     cannot be confirmed is a mismatch. */
 export async function verifyLectureTab(
   message: unknown,
@@ -107,15 +130,18 @@ export async function verifyLectureTab(
     const saved: unknown = (await chrome.storage.session.get(key))[key];
     if (typeof saved !== "number")
       return { status: "error", code: "LECTURE_MISMATCH" };
-    // One pass over the tab's frames reads the top URL and the documents
-    // together, so a navigation cannot fall between two separate checks.
-    const frames = await chrome.scripting.executeScript({
-      target: { tabId: saved, allFrames: true },
-      func: () => location.href,
-    });
-    const top = frames.find((frame) => frame.frameId === 0);
-    return top?.result === url &&
-      frames.some((frame) => frame.documentId === row.document)
+    const read = () =>
+      chrome.scripting.executeScript({
+        target: { tabId: saved, allFrames: true },
+        func: () => location.href,
+      });
+    // One read is not a snapshot: a frame's answer is kept after the frame
+    // leaves. A document still answering in a second read was in the tab
+    // after the first read saw the URL, and the same top document shows
+    // that URL on both sides of it.
+    const before = lectureShown(await read(), url, row.document);
+    return before !== null &&
+      before === lectureShown(await read(), url, row.document)
       ? { status: "success", verified: true }
       : { status: "error", code: "LECTURE_MISMATCH" };
   } catch {
