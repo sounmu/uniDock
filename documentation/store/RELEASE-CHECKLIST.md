@@ -7,6 +7,10 @@
   영어 강의 영어 전사와 반복 문장 방지는 uniDock Server 1.1.0 변경이며, 업로드 속도는
   서버 PR #28(한 chunk 앞선 PATCH 대기)이 배포돼야 모두 나타납니다. 구버전 서버에서도
   확장은 1개씩 보내는 방식으로 돌아가 업로드를 끝냅니다.
+- 서버 선행 조건: 업데이트 안내의 영어 자막·반복 문장 방지는 uniDock Server 1.1.0, 업로드
+  속도는 서버 PR #28이 운영 자막 서버에 배포돼야 맞는 설명입니다. 확장은 서버 버전을
+  읽지 않으므로, 0.7.0을 Chrome Web Store에 제출하거나 사용자에게 배포하기 전에 반드시
+  두 변경을 운영 서버에 배포하고 워커 `pipeline_version`이 `worker-0.2.0`인지 확인합니다.
 - 산출물: `release/uniDock-0.7.0-chrome-mv3.zip`, `release/inventory.json`.
 - 버전 원본은 `package.json`과 `package-lock.json`이며 manifest는 빌드에서 생성합니다.
 - 개인정보처리방침 기준일은 2026-11-26이고 적용 버전은 0.5.8, 0.5.9, 0.6.0,
