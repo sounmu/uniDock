@@ -62,10 +62,9 @@ export function CaptionsPanel({
     if (seenVisit.current === visit) return;
     seenVisit.current = visit;
     // Each entry starts fresh: at the recording's picker, or at detection.
-    if (queueEntry) {
-      dismissDetail();
-      openQueue("queue");
-    } else dismissQueue();
+    dismissDetail();
+    if (queueEntry) openQueue("queue");
+    else dismissQueue();
   }, [visit, queueEntry, openQueue, dismissQueue, dismissDetail]);
   const [videoTarget, setVideoTarget] = useState<VideoCaptionTarget | null>(null);
   const [aiVideo, setAiVideo] = useState<VideoCaptionDelivery | null>(null);

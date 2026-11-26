@@ -593,3 +593,19 @@ it("starts each outside entry fresh, closing a picker opened earlier", async () 
   await ui.render(<CaptionsPanel visit={3} queueEntry={queueEntry} />);
   expect(ui.host.textContent).toContain("강의 고르는 화면");
 });
+
+it("closes an open transcript when captions is entered again", async () => {
+  detect.mockImplementation(async (onTarget) => {
+    onTarget({ tabId: 7, windowId: 1 });
+    return officialTrack;
+  });
+  ui = await mount(<CaptionsPanel visit={1} />);
+  await click("자막 감지");
+  const label = officialTrack.status === "success" ? officialTrack.captions[0]!.label : "";
+  await act(async () =>
+    [...ui.host.querySelectorAll("button")].find((button) => button.textContent?.includes(label))!.click(),
+  );
+  expect(ui.host.querySelector(".detail-view")).not.toBeNull();
+  await ui.render(<CaptionsPanel visit={2} />);
+  expect(ui.host.querySelector(".detail-view")).toBeNull();
+});

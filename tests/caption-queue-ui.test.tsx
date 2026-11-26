@@ -10,11 +10,12 @@ const queryActive = vi.hoisted(() => vi.fn());
 const identifyMedia = vi.hoisted(() => vi.fn());
 const submitLecture = vi.hoisted(() => vi.fn());
 const cancelJob = vi.hoisted(() => vi.fn());
+const mediaAccess = vi.hoisted(() => vi.fn());
 vi.mock("../src/transport", () => ({ queryActive }));
 vi.mock("../src/captions/media-source", async (original) => ({
   ...(await original<object>()),
   identifyMedia,
-  requestCaptionMediaAccess: () => Promise.resolve(true),
+  requestCaptionMediaAccess: mediaAccess,
 }));
 vi.mock("../src/captions/submit-lecture", async (original) => ({
   ...(await original<object>()),
@@ -79,6 +80,7 @@ beforeEach(() => {
   });
   queryActive.mockImplementation(admitted);
   cancelJob.mockResolvedValue(undefined);
+  mediaAccess.mockResolvedValue(true);
   submitLecture.mockImplementation(async (found: { documentId: string }) => ({
     jobId: `job-${found.documentId}`,
     key: `key-${found.documentId}`,
@@ -145,6 +147,14 @@ it("skips a lecture that cannot be opened and goes on", async () => {
   await act(() => queue.start({ handles: ["a", "b"], target }, String));
   expect(queue.items[0]).toMatchObject({ phase: "failed", errorCode: "TAB_OPEN_FAILED" });
   expect(queue.items[1]?.phase).toBe("queued");
+});
+
+it("spends nothing from the list when media access is refused", async () => {
+  mediaAccess.mockResolvedValueOnce(false);
+  await render();
+  await act(() => queue.start({ handles: ["a", "b"], target }, String));
+  expect(queryActive).not.toHaveBeenCalled();
+  expect(queue.items.map((item) => item.errorCode)).toEqual(["PERMISSION", "PERMISSION"]);
 });
 
 it("fails every lecture when the selection cannot be admitted", async () => {

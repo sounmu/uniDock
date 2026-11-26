@@ -171,12 +171,6 @@ export function useCaptionQueue() {
     const abort = new AbortController();
     controller.current = abort;
     const { signal } = abort;
-    // Spend the list's short-lived handles now; the list tab keeps the lectures
-    // for as long as earlier uploads take.
-    const admission = queryActive(
-      { version: 1, type: "CAPTION_BATCH_ADMIT", handles: [...selection.handles] },
-      { target: selection.target, signal },
-    ).catch((error: unknown) => ({ status: "error" as const, code: errorCode(error) }));
     setItems(selection.handles.map((handle) => ({
       handle,
       title: titleOf(handle),
@@ -187,11 +181,16 @@ export function useCaptionQueue() {
     })));
     setRunning(true);
     try {
-      const [allowed, admitted] = await Promise.all([access, admission]);
-      if (!allowed) {
+      if (!(await access)) {
         patch(() => true, { phase: "failed", errorCode: "PERMISSION" });
         return;
       }
+      // Spend the list's short-lived handles now, and only once the media can
+      // be read; the list tab keeps the lectures as long as uploads take.
+      const admitted = await queryActive(
+        { version: 1, type: "CAPTION_BATCH_ADMIT", handles: [...selection.handles] },
+        { target: selection.target, signal },
+      ).catch((error: unknown) => ({ status: "error" as const, code: errorCode(error) }));
       if (!("batch" in admitted)) {
         if (!signal.aborted)
           patch(() => true, {
