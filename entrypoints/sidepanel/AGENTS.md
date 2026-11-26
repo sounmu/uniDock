@@ -1,7 +1,7 @@
 # entrypoints/sidepanel/ - React side panel UI
 
 ## OVERVIEW
-The main uniDock UI (React 19). WXT builds it into `sidepanel.html` and the manifest `side_panel` entry. Boot chain: `index.html` -> `main.tsx` (StrictMode) -> `App.tsx`.
+The main uniDock UI (React 19). WXT builds it into `sidepanel.html` and the manifest `side_panel` entry. Boot chain: `index.html` -> `main.tsx` (StrictMode) -> `App.tsx`. In playback or AI caption builds `main.tsx` also calls `announcePanel` (`src/panel-presence.ts`): the page holds a port for as long as it is open, and the worker hides the LMS progress pill in this page's window meanwhile.
 
 Earned its file with a score of about 16: 40 root files (20 TSX, 16 TS) and two sub-folders, its own design-token stylesheet, and the extension's whole user-facing surface.
 
@@ -17,7 +17,7 @@ Earned its file with a score of about 16: 40 root files (20 TSX, 16 TS) and two 
 | LMS query lifecycle and stale-result guarding | `useSidepanelQuery.ts`, `query-gate.ts` (`QueryGate`), `query-messages.ts` |
 | Sequential playback UI | `PlaybackPanel.tsx`, `usePlaybackPanel.ts`, `screens/PlaybackConfirmation.tsx`; lecture lists and selection in `useRecordingPicker.ts` |
 | Caption extraction / AI captions | `CaptionsPanel.tsx`, `AiCaptionsSection.tsx`, `useAiCaptions.ts`, `useCaptionSession.ts`, `useCaptionAccount.ts`, `CaptionServerSettings.tsx` |
-| AI captions for several lectures | `CaptionQueue.tsx`, `useCaptionQueue.ts`, `src/captions/submit-lecture.ts`; the selection is admitted at once (`CAPTION_BATCH_ADMIT`, `CaptionBatch` in `src/navigation-catalog.ts`, held by `entrypoints/lms.content.ts`) and each lecture opens in one lecture tab (`CAPTION_BATCH_OPEN`, `src/open-tab.ts`) |
+| AI captions for several lectures | `CaptionQueue.tsx`, `useCaptionQueue.ts`, `src/captions/submit-lecture.ts`; the selection is admitted at once (`CAPTION_BATCH_ADMIT`, `CaptionBatch` in `src/navigation-catalog.ts`, held by `entrypoints/lms.content.ts`) and each lecture opens in one lecture tab (`CAPTION_BATCH_OPEN`, `src/open-tab.ts`). Audio is read only after the list tab and the worker confirm that the detected player document belongs to the lecture just opened (`CAPTION_BATCH_VERIFY` -> `verifyLectureTab` in `src/open-tab.ts`); a player not confirmed within `MEDIA_WAIT_MS` fails that item with `LECTURE_MISMATCH` and the run goes on. Opens share the 30-per-`OPEN_RATE_WINDOW_MS` tab limiter, and a `RATE_LIMITED` open is retried for one window |
 | Bulk material downloads | `screens/MaterialsTab.tsx`, `useDocumentDownloads.ts` |
 | Assignment and item lists | `ItemResults.tsx`, `ResultList.tsx`, `PagedList.tsx`, `ItemDetail.tsx` |
 | Usage stats opt-out and notice | `analytics.ts`, `useAnalytics.ts`, `AnalyticsSettings.tsx` |

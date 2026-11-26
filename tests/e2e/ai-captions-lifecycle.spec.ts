@@ -569,13 +569,17 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     await panel.getByRole("button", { name: "음성 보내기" }).click();
     await held.arrived;
 
-    // When an LMS page opens and the panel shows another screen.
-    const lms = await context.newPage();
-    await lms.goto("https://mylms.korea.ac.kr/courses");
+    // When an LMS page opens in another window (the panel's own window hides
+    // the pill) and the panel shows another screen.
+    const opened = context.waitForEvent("page");
+    await worker.evaluate((url) => chrome.windows.create({ url }), "https://mylms.korea.ac.kr/courses");
+    const lms = await opened;
+    await lms.waitForLoadState();
     const toast = lms.getByRole("region", { name: "uniDock 진행 상황" });
     await expect(toast.getByText("AI 자막 대기 중")).toBeVisible();
     await panel.getByRole("button", { name: "내 과목", exact: true }).click();
-    const row = panel.locator(".progress-row");
+    // The lecture row for the player tab is a progress row too.
+    const row = panel.locator(".progress-row", { hasText: "AI 자막" });
     await expect(row).toContainText("AI 자막 대기 중");
     await expect(panel.locator(".rail-dot")).toHaveCount(1);
     await row.click();

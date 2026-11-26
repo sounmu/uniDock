@@ -16,6 +16,10 @@ import {
 } from "../recordings";
 import type { PlaybackCandidate } from "../playback/playlist";
 
+const COURSE_CONCURRENCY = 3;
+const MAX_COURSES = 100;
+const MAX_CANDIDATES = 10000;
+
 /** Closed, GET-only discovery. No caller-supplied endpoint or navigation target. */
 export async function discoverPlayback(
   origin: string,
@@ -123,15 +127,15 @@ export async function discoverPlayback(
       const projectedCourse = projectCourseIndex([course])[0];
       if (projectedCourse) indexed.push(projectedCourse);
     }
-    // Each course is still read fresh with the same GETs. Up to three courses
-    // overlap; results are merged in course order and the lowest-index failure
-    // wins, so listing order and error precedence match a sequential walk.
+    // Each course is still read fresh with the same GETs. Up to
+    // COURSE_CONCURRENCY courses overlap; results are merged in course order and
+    // the lowest-index failure wins, so listing order and error precedence match a sequential walk.
     // Every course reads under its own signal, linked to the overall deadline.
     // A failure at index F aborts only the reads after F, which can no longer
     // decide the result; lower unresolved courses keep running until they settle.
     // `buffered` is the one candidate budget shared by every overlapped course:
-    // it is charged before a candidate is kept, so the 10,000 cap bounds memory
-    // while courses are still being read, not only after they are merged.
+    // it is charged before a candidate is kept, so the MAX_CANDIDATES cap bounds
+    // memory while courses are still being read, not only after they are merged.
     let buffered = 0;
     async function courseCandidates(
       courseId: string,
@@ -144,7 +148,7 @@ export async function discoverPlayback(
         "per_page=100&include[]=items&include[]=content_details",
         signal,
       )) {
-        if (buffered > 10000) throw new Error("LIMIT");
+        if (buffered > MAX_CANDIDATES) throw new Error("LIMIT");
         if (!accessible(module, now)) continue;
         if (
           module.items_count != null &&
@@ -169,7 +173,7 @@ export async function discoverPlayback(
           if (!recordingCandidate(item, now)) continue;
           const itemId = internalId(item.id);
           if (!itemId) continue;
-          if (++buffered > 10000) throw new Error("LIMIT");
+          if (++buffered > MAX_CANDIDATES) throw new Error("LIMIT");
           // Canvas completion and due-date fields do not prove KUCOM attendance or credit.
           found.push({
             id: `${courseId}:${itemId}`,
@@ -180,8 +184,8 @@ export async function discoverPlayback(
       }
       return found;
     }
-    // The 101st course is the LIMIT failure; it is never fetched.
-    const fetchable = Math.min(indexed.length, 100);
+    // The course after MAX_COURSES is the LIMIT failure; it is never fetched.
+    const fetchable = Math.min(indexed.length, MAX_COURSES);
     type CourseOutcome = { found: PlaybackCandidate[] } | { error: unknown };
     const settle: ((outcome: CourseOutcome) => void)[] = [];
     const outcomes = Array.from(
@@ -198,7 +202,7 @@ export async function discoverPlayback(
       while (nextCourse < fetchable) {
         const index = nextCourse++;
         // A sequential walk would have stopped before reading this course.
-        if (index > firstFailure || buffered > 10000) return;
+        if (index > firstFailure || buffered > MAX_CANDIDATES) return;
         const own = new AbortController();
         courseAborts[index] = own;
         controller.signal.addEventListener("abort", () => own.abort(), {
@@ -221,10 +225,10 @@ export async function discoverPlayback(
     }
     // Workers are not awaited: the merge below returns as soon as the course
     // that decides the result has settled. `finally` aborts whatever is left.
-    for (let i = 0; i < Math.min(3, fetchable); i++) void worker();
+    for (let i = 0; i < Math.min(COURSE_CONCURRENCY, fetchable); i++) void worker();
     for (const [index, course] of indexed.entries()) {
       courses.push({ id: course.id, name: course.name });
-      if (courses.length > 100) throw new Error("LIMIT");
+      if (courses.length > MAX_COURSES) throw new Error("LIMIT");
       const result = await outcomes[index]!;
       if ("error" in result) throw result.error;
       candidates.push(...result.found);

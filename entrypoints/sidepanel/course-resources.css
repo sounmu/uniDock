@@ -9,15 +9,22 @@
   grid-template-columns: minmax(0, 1fr);
 }
 /* Materials keep their sole primary (전체/선택 다운로드) beside the selection
-   summary; the button drops under the summary before the row would overflow
-   at 320px. */
+   summary in a bar that sticks under the work strip while the list scrolls;
+   the button drops under the summary before the row would overflow at 320px. */
 .material-actions {
+  position: sticky;
+  top: var(--work-strip-h, 0px);
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
-  margin: 0 0 var(--space-3);
+  margin: 0 calc(-1 * var(--space-4)) var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: var(--sticky-surface);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
 }
 .material-actions .remaining-toggle {
   flex: 1 1 auto;

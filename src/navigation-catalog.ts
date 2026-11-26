@@ -38,11 +38,15 @@ interface Entry {
 export const CAPTION_BATCH_IDLE_MS = 1_800_000;
 const moduleItemPath = /^\/courses\/[1-9]\d{0,19}\/modules\/items\/[1-9]\d{0,19}$/;
 
+const HANDLE_TTL_MS = 300_000;
+
 /** Lectures a caption run was admitted for, opened once each by position.
     The list's handles are already spent, so a long upload cannot outlive them. */
 export class CaptionBatch {
   private expires: number;
   private readonly used = new Set<number>();
+  // The one lecture tab shows only the lecture opened last.
+  private current: number | null = null;
   constructor(
     private readonly targets: readonly Pick<Entry, "url" | "moduleAccess" | "itemAccess">[],
     now: number,
@@ -66,8 +70,22 @@ export class CaptionBatch {
     const url = navigationUrl(target.url, origin);
     if (!url) return null;
     this.used.add(index);
+    this.current = index;
     this.expires = now + CAPTION_BATCH_IDLE_MS;
-    return { url, restore: () => this.used.delete(index) };
+    return {
+      url,
+      restore: () => {
+        this.used.delete(index);
+        if (this.current === index) this.current = null;
+      },
+    };
+  }
+  /** The URL a lecture was opened at, to check what its tab shows; null
+      for a lecture that is not open. */
+  opened(index: number, origin: string, now = Date.now()): string | null {
+    const target = this.targets[index];
+    if (!target || this.current !== index || this.expires <= now) return null;
+    return navigationUrl(target.url, origin);
   }
 }
 export interface NavigationCatalogCapacity {
@@ -137,7 +155,7 @@ export class NavigationCatalog {
       this.add(handle, {
         url: safe,
         kind: "recording",
-        expires: now + 300000,
+        expires: now + HANDLE_TTL_MS,
         moduleAccess: target.moduleAccess,
         itemAccess: target.itemAccess,
       });
@@ -164,7 +182,7 @@ export class NavigationCatalog {
               )
             : "",
       }));
-      this.timer = setTimeout(() => this.expire(), 300000);
+      this.timer = setTimeout(() => this.expire(), HANDLE_TTL_MS);
       return result;
     } catch (error) {
       this.clear();
@@ -194,7 +212,7 @@ export class NavigationCatalog {
         this.add(lmsHandle, {
           url,
           kind: "document",
-          expires: now + 300000,
+          expires: now + HANDLE_TTL_MS,
           moduleAccess: target.moduleAccess,
           itemAccess: target.itemAccess,
         });
@@ -212,7 +230,7 @@ export class NavigationCatalog {
             module: target.module,
             // Downloads are saved under the actual file name, not the item title.
             title: target.filename,
-            expires: now + 300000,
+            expires: now + HANDLE_TTL_MS,
             moduleAccess: target.moduleAccess,
             itemAccess: target.itemAccess,
           });
@@ -226,7 +244,7 @@ export class NavigationCatalog {
           downloadHandle,
         };
       });
-      this.timer = setTimeout(() => this.expire(), 300000);
+      this.timer = setTimeout(() => this.expire(), HANDLE_TTL_MS);
       return result;
     } catch (error) {
       this.clear();

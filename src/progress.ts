@@ -68,6 +68,13 @@ export function progressActive(item: ProgressItem): boolean {
   return item.status !== "failed";
 }
 
+/** Preparing a job before the server has its audio; only a panel page does this. */
+export function panelWork(item: ProgressItem): boolean {
+  return (
+    item.kind === "captions" && ["identifying", "extracting", "uploading"].includes(item.phase)
+  );
+}
+
 export type ProgressTone = "run" | "wait" | "done" | "error";
 
 export interface ProgressText {

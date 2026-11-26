@@ -16,12 +16,9 @@ const target = {
 };
 afterEach(() => catalog.clear());
 it("makes download handles one-use without consuming the document open handle", () => {
-  // Given
   const item = catalog.replaceDocuments(origin, [target], now)[0];
   if (!item) throw new Error("Missing document");
-  // When
   const taken = catalog.takeDownload(item.downloadHandle, origin, now);
-  // Then
   expect(taken).toEqual({
     url: `${origin}/courses/101/files/777/download?download_frd=1`,
     module: "Week",
@@ -52,7 +49,6 @@ it.each([
   "open-as-download",
   "download-as-open",
 ])("rejects a %s capability", (kind) => {
-  // Given
   const item = catalog.replaceDocuments(
     origin,
     [
@@ -65,7 +61,6 @@ it.each([
     now,
   )[0];
   if (!item) throw new Error("Missing document");
-  // When
   const value =
     kind === "download-as-open"
       ? catalog.take(item.downloadHandle, origin, now, "document")
@@ -74,13 +69,11 @@ it.each([
           kind === "cross-origin" ? "https://canvas.korea.ac.kr" : origin,
           now + (kind === "expired" ? 300000 : kind === "locked" ? 1000 : 0),
         );
-  // Then
   expect(value).toBeNull();
 });
 it.each([undefined, 0, "invalid", "777?download_frd=1"])(
   "offers only LMS opening when content_id is %j",
   async (content_id) => {
-    // Given
     const fetcher: typeof fetch = async (input) =>
       Response.json(
         String(input).includes("/modules?")
@@ -102,7 +95,6 @@ it.each([undefined, 0, "invalid", "777?download_frd=1"])(
             ]
           : [{ id: 101, name: "Course" }],
       );
-    // When
     const result = await listQuery(
       origin,
       { version: 1, type: "DOCUMENTS_LIST", course: "Course" },
@@ -110,7 +102,6 @@ it.each([undefined, 0, "invalid", "777?download_frd=1"])(
       now,
       catalog,
     );
-    // Then
     expect(result).toMatchObject({
       status: "success",
       documents: [{ downloadHandle: "" }],

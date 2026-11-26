@@ -76,6 +76,25 @@ describe("privacy and policy", () => {
     expect(open(0, { extra: 1 })).toBe(false);
     expect(isRequest({ version: 1, type: "CAPTION_BATCH_OPEN", batch: "x", index: 0 })).toBe(false);
   });
+  it("accepts a caption batch check only with an opaque document id, and its verdict only as its answer", () => {
+    const batch = "00000000-0000-4000-8000-0000000000b1";
+    const check = { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index: 0, document: "0A1B2C3D" } as const;
+    expect(isRequest(check)).toBe(true);
+    for (const document of ["", "https://mylms.korea.ac.kr/courses/1", "a".repeat(65), 7, undefined])
+      expect(isRequest({ ...check, document })).toBe(false);
+    expect(isRequest({ ...check, index: 100 })).toBe(false);
+    expect(isRequest({ ...check, url: "https://mylms.korea.ac.kr/" })).toBe(false);
+    expect(parseResult({ status: "success", verified: true }, check)).toEqual({ status: "success", verified: true });
+    expect(parseResult({ status: "error", code: "LECTURE_MISMATCH" }, check)).toEqual({
+      status: "error",
+      code: "LECTURE_MISMATCH",
+    });
+    for (const answer of [{ status: "success", verified: false }, { status: "success", opened: true }])
+      expect(parseResult(answer, check)).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+    expect(
+      parseResult({ status: "success", verified: true }, { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 0 }),
+    ).toEqual({ status: "error", code: "INVALID_RESPONSE" });
+  });
   it("reads a batch id only as the answer to an admission", () => {
     const batch = "00000000-0000-4000-8000-0000000000b1";
     const admission = { version: 1, type: "CAPTION_BATCH_ADMIT", handles: [batch] } as const;

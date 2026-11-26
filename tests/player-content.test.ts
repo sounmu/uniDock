@@ -202,7 +202,6 @@ it("shows worker-forwarded subtitles on the lecture video without any playback r
   expect(tracks).toHaveLength(0);
   const respond = vi.fn();
   fixture.listeners[0]!(message, sender, respond);
-  // Then
   expect(respond).toHaveBeenCalledWith({ ok: true });
   expect(tracks).toMatchObject([{ label: "uniDock 자막", mode: "showing", cues: [{ startTime: 1, endTime: 2, text: "\u2002첫 자막\u2002" }] }]);
   window.dispatchEvent(new Event("pagehide"));

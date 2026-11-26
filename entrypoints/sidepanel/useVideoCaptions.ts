@@ -7,7 +7,8 @@ import {
 } from "../../src/video-captions";
 
 // The player's listener may still be starting; a failed delivery is retried
-// after 0.5, 1, 2 and 4 seconds, then left alone.
+// after FIRST_RETRY_MS, doubling each time through LAST_RETRY_MS, then left
+// alone.
 const FIRST_RETRY_MS = 500;
 const LAST_RETRY_MS = 4000;
 

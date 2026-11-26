@@ -27,6 +27,7 @@ import {
 const coursesPath = "/api/v1/courses";
 // Time kept back from board videos so module recordings can still be returned.
 const BOARD_RESERVE_MS = 2000;
+const QUERY_TIMEOUT_MS = 20_000;
 const coursesQuery = `${coursesPath}?per_page=100&enrollment_state=active`;
 export async function listQuery(
   origin: string,
@@ -42,11 +43,11 @@ export async function listQuery(
 ): Promise<Result> {
   const controller = new AbortController();
   let timedOut = false;
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + QUERY_TIMEOUT_MS;
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, 20000);
+  }, QUERY_TIMEOUT_MS);
   function cancelRead() {
     timedOut = true;
     controller.abort();
@@ -138,6 +139,7 @@ export async function listQuery(
       case "DOCUMENT_DOWNLOAD":
       case "CAPTION_BATCH_ADMIT":
       case "CAPTION_BATCH_OPEN":
+      case "CAPTION_BATCH_VERIFY":
         throw new Error("POLICY");
       case "TODO_LIST":
       case "RECORDINGS_LIST":
@@ -344,7 +346,7 @@ async function collectCourseIndex(
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, 20000);
+  }, QUERY_TIMEOUT_MS);
   let pages = 0;
   try {
     let next: string | null = readUrl(coursesQuery, origin, coursesPath).href;
