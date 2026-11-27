@@ -676,6 +676,36 @@ it("a failed lecture gives its use back before the next lecture is opened", asyn
   ]);
 });
 
+it("retains a failed cancellation and retries before opening the next lecture", async () => {
+  vi.useFakeTimers();
+  link.open.mockResolvedValue(opened());
+  link.media.mockResolvedValueOnce(found(1)).mockResolvedValueOnce(found(2));
+  extractAudio.mockRejectedValueOnce(failure("MEDIA_NETWORK"));
+  cancelJob.mockRejectedValueOnce(failure("NETWORK"));
+  await runner.command(startQueue());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(last().unfinished).toEqual(["job-1"]);
+  expect(link.open).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(cancelJob).toHaveBeenCalledTimes(2);
+  expect(last().unfinished).toEqual([]);
+  expect(itemPhases()).toEqual(["failed", "queued"]);
+});
+
+it("does not retry an earlier account's failed cancellation after sign-out", async () => {
+  vi.useFakeTimers();
+  link.media.mockResolvedValue(found(1));
+  extractAudio.mockRejectedValueOnce(failure("MEDIA_NETWORK"));
+  cancelJob.mockRejectedValueOnce(failure("NETWORK"));
+  await runner.command(startSingle);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(last().unfinished).toEqual(["job-1"]);
+  runner.sessionEnded();
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(cancelJob).toHaveBeenCalledTimes(1);
+  expect(last().unfinished).toEqual([]);
+});
+
 it("stopping cancels the lecture in flight and leaves queued jobs alone", async () => {
   link.open.mockResolvedValue(opened(null));
   link.media.mockResolvedValueOnce(found(1)).mockResolvedValueOnce(found(2));

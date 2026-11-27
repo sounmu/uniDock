@@ -22,6 +22,8 @@ import {
 export const MEDIA_WAIT_MS = 45_000;
 export const MEDIA_RETRY_MS = 1_500;
 export const RATE_LIMIT_RETRY_MS = 5_000;
+export const CLEANUP_RETRY_MS = 5_000;
+const CLEANUP_MAX_RETRY_MS = 30_000;
 // Every later lecture would fail the same way.
 const FATAL = new Set(["QUOTA_EXCEEDED", "LOGIN_REQUIRED", "ACCOUNT_NOT_ALLOWED", "NO_SERVER", "PERMISSION"]);
 const DONE: CommandOutcome = { status: "success", accepted: null };
@@ -84,6 +86,7 @@ export class CaptionWorkRunner {
   private readonly releasing = new Set<string>();
   /** Counts sign-in changes, so work begun before one leaves its jobs alone. */
   private session = 0;
+  private cleanup = new AbortController();
 
   constructor(private readonly link: WorkerLink) {}
 
@@ -168,6 +171,9 @@ export class CaptionWorkRunner {
   /** The sign-in changed: the jobs belong to the earlier account and stay untouched. */
   sessionEnded(): void {
     this.session++;
+    this.cleanup.abort();
+    this.cleanup = new AbortController();
+    this.releasing.clear();
     for (const run of [this.single, this.queue]) run?.controller.abort();
     this.single = null;
     this.queue = null;
@@ -184,7 +190,21 @@ export class CaptionWorkRunner {
     if (id) this.releasing.add(id);
     this.publish();
     if (!id) return;
-    await cancelJob(id).catch(() => {});
+    const { signal } = this.cleanup;
+    let delay = CLEANUP_RETRY_MS;
+    while (!signal.aborted) {
+      try {
+        await cancelJob(id);
+        break;
+      } catch (error) {
+        if (errorCode(error) === "EXPIRED") break;
+        // A failed request did not release the use. Keep ownership until the
+        // server confirms, or a sign-in change ends this account's work.
+        await pause(delay, signal);
+        delay = Math.min(delay * 2, CLEANUP_MAX_RETRY_MS);
+      }
+    }
+    if (signal.aborted) return;
     this.releasing.delete(id);
     this.publish();
   }
