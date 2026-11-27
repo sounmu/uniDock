@@ -80,6 +80,24 @@ const get = { version: 1, type: "CAPTION_WORK_GET" } as const;
 /** Runs every promise continuation queued so far; no timer is involved. */
 const drained = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+it("rejects starts queued or connecting under a sign-in that ended", async () => {
+  let finishCreate = () => {};
+  createDocument.mockImplementationOnce(() => new Promise<void>((resolve) => {
+    finishCreate = resolve;
+  }));
+  const first = host.command(startSingle);
+  const second = host.command({ ...startSingle, run: other });
+  await drained();
+  host.sessionEnded();
+  const document = connect();
+  finishCreate();
+
+  expect(await first).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
+  expect(await second).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
+  expect(document.commands()).toEqual([]);
+  expect((await host.command(startSingle)).status).toBe("success");
+});
+
 /** The offscreen document's end of the work port, played by the test. */
 function documentPort() {
   const messages: ((message: unknown) => void)[] = [];

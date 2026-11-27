@@ -121,6 +121,7 @@ export class CaptionWorkHost {
   private lane: Promise<unknown> = Promise.resolve();
   private readonly pending = new Map<number, (outcome: CommandOutcome) => void>();
   private commandId = 0;
+  private session = 0;
 
   constructor(private readonly options: WorkHostOptions) {}
 
@@ -150,9 +151,15 @@ export class CaptionWorkHost {
   /** Only for a message whose sender passed `panelSender`. */
   command(command: CaptionWorkCommand): Promise<CaptionWorkReply> {
     if (command.type === "CAPTION_WORK_GET") return Promise.resolve(this.reply(null));
+    const session = this.session;
     return this.enqueue(async () => {
+      if (session !== this.session) return { status: "error", code: "LOGIN_REQUIRED" };
       if (command.type === "CAPTION_WORK_START" && !(await this.ensure()))
         return { status: "error", code: "UNAVAILABLE" };
+      if (session !== this.session) {
+        this.settle();
+        return { status: "error", code: "LOGIN_REQUIRED" };
+      }
       let accepted: string | null = null;
       if (this.port) {
         const outcome = await this.send(command);
@@ -193,6 +200,7 @@ export class CaptionWorkHost {
 
   /** The sign-in changed or local data was deleted: nothing of it is shown or continued. */
   sessionEnded(): void {
+    this.session++;
     this.post({ type: "session-ended" });
     this.unfinished = [];
     this.runs = NO_RUNS;
