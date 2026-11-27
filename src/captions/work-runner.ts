@@ -117,7 +117,7 @@ export class CaptionWorkRunner {
         ? this.cancelSingle(command.run)
         : this.stopQueue(command.run);
     // One lecture's audio at a time, whoever asked.
-    if (workBusy(this.snapshot())) return { status: "error", code: "ACTIVE_JOB_EXISTS" };
+    if (this.busy()) return { status: "error", code: "ACTIVE_JOB_EXISTS" };
     const controller = new AbortController();
     if (command.kind === "single") {
       const run: Run<SingleWork> = {

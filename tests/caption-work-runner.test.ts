@@ -198,6 +198,31 @@ it("a failed read cancels the job the server has no audio for", async () => {
   expect(link.accept).not.toHaveBeenCalled();
 });
 
+it.each(["single", "queue"] as const)(
+  "refuses a new %s run until the failed job's cancellation finishes",
+  async (kind) => {
+    link.media.mockResolvedValue(found(1));
+    extractAudio.mockRejectedValueOnce(failure("MEDIA_DENIED"));
+    const releasing = deferred();
+    const reached = deferred();
+    cancelJob.mockImplementationOnce(() => {
+      reached.resolve();
+      return releasing.promise;
+    });
+    await runner.command(startSingle);
+    await reached.promise;
+    const retry = kind === "single" ? { ...startSingle, run: other } : startQueue();
+    const answer = await runner.command(retry);
+    releasing.resolve();
+    await drained();
+    expect(answer).toEqual({ status: "error", code: "ACTIVE_JOB_EXISTS" });
+    expect(createJob).toHaveBeenCalledTimes(1);
+    link.open.mockResolvedValue(opened());
+    expect((await runner.command(retry)).status).toBe("success");
+    await drained();
+  },
+);
+
 it.each([
   [{ status: "error", code: "ACTIVATE_TAB" } as MediaReply, "ACTIVATE_TAB"],
   [{ status: "pending" } as MediaReply, "UNSUPPORTED_MEDIA"],
