@@ -131,8 +131,7 @@ export class CaptionMediaRules {
 
   sweep(graceMs = CAPTION_RULE_SWEEP_GRACE_MS): Promise<void> {
     return new Promise<void>((resolve) => setTimeout(resolve, graceMs))
-      .then(() => chrome.declarativeNetRequest.getSessionRules())
-      .then(
+      .then(() => this.enqueue(() => chrome.declarativeNetRequest.getSessionRules().then(
         async (rules) => {
           await removeRules(
             rules
@@ -141,6 +140,6 @@ export class CaptionMediaRules {
           );
         },
         () => safeLog("REQUEST_FAILED"),
-      );
+      )));
   }
 }

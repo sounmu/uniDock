@@ -115,6 +115,28 @@ it("refuses a rule id outside the caption range and a url that is not lecture me
   expect(updates).toEqual([]);
 });
 
+it("finishes the orphan sweep before installing a rule requested during enumeration", async () => {
+  const rules = new CaptionMediaRules();
+  let release = () => {};
+  let reached = () => {};
+  const enumerating = new Promise<void>((resolve) => { reached = resolve; });
+  vi.mocked(chrome.declarativeNetRequest.getSessionRules).mockImplementationOnce(async () => {
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    reached();
+    await held;
+    return [];
+  });
+  const sweeping = rules.sweep(0);
+  await enumerating;
+  const adding = rules.add(1947001, url);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const duringSweep = [...updates];
+  release();
+  await Promise.all([sweeping, adding]);
+  expect(duringSweep).toEqual([]);
+  expect(updates.at(-1)?.addRules?.[0]?.id).toBe(1947001);
+});
+
 it("reports a rule Chrome refused and does not keep it from the next sweep", async () => {
   const rules = new CaptionMediaRules();
   refuse = true;

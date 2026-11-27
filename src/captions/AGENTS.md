@@ -28,6 +28,7 @@ Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20
 | Server auth/session | `../caption-server-settings.ts` | lives in root; `authorizedFetch` is what `job-client.ts` calls |
 
 ## CONVENTIONS
+- Work commands capture the host's sign-in generation before entering its lane and recheck it after document connection; a sign-in change invalidates pending commands. Start admission includes unfinished cancellations, so a retry cannot reuse a job still being released. Caption rule add/remove/clear/startup sweep share one lane, including the sweep's enumeration.
 - `extract.ts` and the reader in `media-source.ts` are self-contained functions injected via `chrome.scripting`: no imports, no closures, read only own data descriptors.
 - MAIN-world/page results are hostile: accept only bounded strings for display fields (`service.ts`).
 - `requestCaptionMediaAccess` must run first in the click handler, before any `await`, to keep the user gesture for the optional CDN host grant.
