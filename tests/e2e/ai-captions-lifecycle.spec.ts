@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
+import type { ServerResponse } from "node:http";
 import { createServer } from "node:https";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -20,6 +21,8 @@ const JOB_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e0";
 const TRANSCRIPT_ID = "0193c0de-7a1b-7c2d-8e3f-00000000e2e1";
 const stages = ["extracting", "uploading", "polling"] as const;
 type Stage = (typeof stages)[number];
+/** `receiving`: an upload request whose body the server has not read yet. */
+type Hold = Stage | "receiving";
 
 function responseGate() {
   let reached!: () => void;
@@ -70,18 +73,41 @@ async function fakeServices(directory: string) {
   let received: Buffer[] = [];
   let declaredLength: number | undefined;
   let refuseQuota = false;
-  const holds = new Map<Stage, ReturnType<typeof responseGate>>();
+  const holds = new Map<Hold, ReturnType<typeof responseGate>>();
   const gates: ReturnType<typeof responseGate>[] = [];
   const polls: string[] = [];
   const transcripts: string[] = [];
-  const pause = async (stage: Stage) => {
+  // Reading and uploading run in the extension's offscreen document, whose
+  // requests Playwright does not report, so the server is where a dropped
+  // request or a cancellation is observed.
+  const observers: { event: string; seen: () => void }[] = [];
+  const observed = (event: string) => {
+    for (const observer of observers.splice(0))
+      if (observer.event === event) observer.seen();
+      else observers.push(observer);
+  };
+  const observe = (event: string) =>
+    new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`${event} not observed`)), 10_000);
+      observers.push({
+        event,
+        seen: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+      });
+    });
+  const pause = async (stage: Hold, response: ServerResponse) => {
     const held = holds.get(stage);
     if (!held) return;
     holds.delete(stage);
+    response.once("close", () => {
+      if (!response.writableEnded) observed(`dropped:${stage}`);
+    });
     held.reached();
     await held.released;
   };
-  const holdNextResponse = (stage: Stage) => {
+  const holdNextResponse = (stage: Hold) => {
     const gate = responseGate();
     holds.set(stage, gate);
     gates.push(gate);
@@ -130,7 +156,7 @@ async function fakeServices(directory: string) {
           return;
         }
         cdn.push({ referer, range, status: 206 });
-        await pause("extracting");
+        await pause("extracting", response);
         if (specs.length > 1) {
           // Same shape as the live KU CDN, including its leading CRLF.
           const boundary = "E2EBOUND";
@@ -214,7 +240,9 @@ async function fakeServices(directory: string) {
         if (url.pathname === `/v1/transcription-jobs/${JOB_ID}`) {
           polls.push(url.pathname);
           const status = job();
-          await pause("polling");
+          // The first GET proves ownership before the worker accepts the job.
+          // Hold the monitor's subsequent GET to exercise polling invalidation.
+          if (polls.length > 1) await pause("polling", response);
           return json(status);
         }
         if (url.pathname === audioPath) {
@@ -233,21 +261,27 @@ async function fakeServices(directory: string) {
           if (Number(request.headers["upload-offset"]) !== offset)
             return json({ error: { code: "UPLOAD_OFFSET_MISMATCH" } }, 409);
           declaredLength ??= Number(request.headers["upload-length"]);
+          await pause("receiving", response);
           const chunks: Buffer[] = [];
-          for await (const chunk of request) chunks.push(chunk as Buffer);
+          try {
+            for await (const chunk of request) chunks.push(chunk as Buffer);
+          } catch {
+            return; // The client gave the upload up.
+          }
           received.push(Buffer.concat(chunks));
           const next = offset + chunks.reduce((n, b) => n + b.length, 0);
           if (next === declaredLength) {
             uploads.push(Buffer.concat(received));
             received = [];
           }
-          await pause("uploading");
+          await pause("uploading", response);
           response.writeHead(204, { "Tus-Resumable": "1.0.0", "Upload-Offset": String(next) });
           response.end();
           return;
         }
         if (url.pathname === `/v1/transcription-jobs/${JOB_ID}/cancel`) {
           cancels++;
+          observed("cancel");
           return json(job());
         }
         if (url.pathname === `/v1/transcripts/${TRANSCRIPT_ID}`) {
@@ -293,6 +327,10 @@ async function fakeServices(directory: string) {
     },
     holdNextResponse,
     holdNextCdnResponse: () => holdNextResponse("extracting"),
+    /** Resolves when the client drops the request held at this stage. */
+    dropped: (stage: Hold) => observe(`dropped:${stage}`),
+    /** Resolves when the server is asked to cancel the job. */
+    cancelled: () => observe("cancel"),
     close: () =>
       new Promise<void>((resolve, reject) => {
         for (const gate of gates) {
@@ -464,7 +502,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
       expect((await transcript).status()).toBe(200);
       await expectFinished(panel, []);
       expect(services.idempotencyKeys).toHaveLength(1);
-      expect(services.polls).toHaveLength(1);
+      expect(services.polls).toHaveLength(2);
       expect(services.transcripts).toHaveLength(1);
       expect(services.cancels()).toBe(0);
       expect(services.cdn.every((hit) => hit.status === 206)).toBe(true);
@@ -495,27 +533,8 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
             });
           }));
         }
-        const aborted = context.waitForEvent("requestfailed", {
-          predicate: (request) => {
-            switch (stage) {
-              case "extracting":
-                return request.url() === CDN_URL && request.method() === "GET";
-              case "uploading":
-                return request.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}/audio` &&
-                  request.method() === "PATCH";
-              case "polling":
-                return request.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}` &&
-                  request.method() === "GET";
-            }
-          },
-          timeout: 10_000,
-        });
-        const cancelled = context.waitForEvent("response", {
-          predicate: (response) =>
-            response.url() === `https://captions.test/v1/transcription-jobs/${JOB_ID}/cancel` &&
-            response.request().method() === "POST",
-          timeout: 10_000,
-        });
+        const aborted = services.dropped(stage);
+        const cancelled = services.cancelled();
 
         // When the source document is lost, not merely deactivated.
         switch (sourceChange) {
@@ -529,9 +548,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
             await player.close();
             break;
         }
-        const [failedRequest, cancelResponse] = await Promise.all([aborted, cancelled]);
-        expect(failedRequest.failure()).not.toBeNull();
-        expect(cancelResponse.status()).toBe(200);
+        await Promise.all([aborted, cancelled]);
         // The source offer is cleared while the same hook cancels its job.
         // An idle card must not remount and restore the cancelled record.
         try {
@@ -553,7 +570,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         expect(services.cancels()).toBe(1);
         expect(services.idempotencyKeys).toHaveLength(1);
         expect(services.uploads).toHaveLength(stage === "extracting" ? 0 : 1);
-        expect(services.polls).toHaveLength(stage === "polling" ? 1 : 0);
+        expect(services.polls).toHaveLength(stage === "polling" ? 2 : 0);
         expect(services.transcripts).toHaveLength(0);
         expectAudioOnly(services.cdn);
         if (stage !== "extracting") expectUploadedAudio();
@@ -745,17 +762,120 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     await expect.poll(panelRules).toEqual([]);
   });
 
-  test("closing the panel mid-capture removes the rule through the background", async () => {
-    const { panel } = await openPanelOnPlayer();
+  const offscreenDocuments = () =>
+    worker.evaluate(async () =>
+      (await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] })).length,
+    );
+
+  const transcriptFetched = () =>
+    context.waitForEvent("response", {
+      predicate: (response) =>
+        response.url() === `https://captions.test/v1/transcripts/${TRANSCRIPT_ID}` &&
+        response.request().method() === "GET",
+      timeout: 20_000,
+    });
+
+  async function reopenPanelOn(player: Page) {
+    const panel = await context.newPage();
+    await panel.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+    await player.bringToFront();
+    return panel;
+  }
+
+  test("closing the panel mid-upload still finishes the upload and the job reaches the server queue", async () => {
+    // Given an upload request the server has accepted but not read yet.
+    const { player, panel } = await openPanelOnPlayer();
+    const held = services.holdNextResponse("receiving");
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await held.arrived;
+    expect(services.uploads).toHaveLength(0);
+    expect(services.idempotencyKeys).toHaveLength(1);
+    expect(await offscreenDocuments()).toBe(1);
+    const transcript = transcriptFetched();
+
+    // When the panel page closes before the server has the audio.
+    await panel.close();
+    held.release();
+
+    // Then the upload completes, the worker follows the job the server queued
+    // and stores its transcript, and nothing was cancelled or started twice.
+    expect((await transcript).status()).toBe(200);
+    expectUploadedAudio();
+    expect(services.polls).toHaveLength(2);
+    expect(services.cancels()).toBe(0);
+    expect(services.idempotencyKeys).toHaveLength(1);
+    await expect.poll(() => captionRules(worker)).toEqual([]);
+    // The document is closed once it has nothing in flight.
+    await expect.poll(offscreenDocuments).toBe(0);
+    // A panel opened afterwards finds the finished captions for that lecture.
+    const reopened = await reopenPanelOn(player);
+    await reopened.getByRole("button", { name: "자막 추출", exact: true }).click();
+    await expect(reopened.getByText("합성 자막 문장")).toBeVisible();
+  });
+
+  test("closing the panel mid-capture keeps the rule and an LMS page shows the preparation", async () => {
+    // Given an LMS page beside the panel, and a media read held at the CDN.
+    const { player, panel } = await openPanelOnPlayer();
+    const lms = await context.newPage();
+    await lms.goto("https://mylms.korea.ac.kr/courses");
+    // The lecture to caption is the one in the active tab.
+    await player.bringToFront();
+    const toast = lms.getByRole("region", { name: "uniDock 진행 상황" });
     const held = services.holdNextCdnResponse();
     await panel.getByRole("button", { name: "음성 보내기" }).click();
     await held.arrived;
-    expect(await captionRules(worker)).toHaveLength(1);
+    const ruleIds = (await captionRules(worker)).map((rule) => rule.id);
+    expect(ruleIds).toHaveLength(1);
+    // While the panel is open in this window it shows the work itself.
+    await expect(toast).toHaveCount(0);
+
+    // When the panel closes with the read still in flight.
     await panel.close();
-    await expect.poll(() => captionRules(worker)).toEqual([]);
+
+    // Then the LMS page takes over showing the preparation, which goes on:
+    // the rule stays for the document that is still reading.
+    await expect(toast.getByText("AI 자막 준비 중")).toBeVisible();
+    expect((await captionRules(worker)).map((rule) => rule.id)).toEqual(ruleIds);
+    const transcript = transcriptFetched();
     held.release();
-    expect(services.uploads).toHaveLength(0);
+    expect((await transcript).status()).toBe(200);
+    await expect(toast.getByText("AI 자막이 준비됐어요")).toBeVisible();
+    expectAudioOnly(services.cdn);
+    expectUploadedAudio();
     expect(services.cancels()).toBe(0);
+    await expect.poll(() => captionRules(worker)).toEqual([]);
+    await expect.poll(offscreenDocuments).toBe(0);
+  });
+
+  test("a reopened panel shows the upload in flight and cancelling there releases the job", async () => {
+    // Given an upload that went on after its panel closed.
+    const { player, panel } = await openPanelOnPlayer();
+    const held = services.holdNextResponse("uploading");
+    await panel.getByRole("button", { name: "음성 보내기" }).click();
+    await held.arrived;
+    await panel.close();
+
+    // When another panel page opens on the same lecture.
+    const reopened = await reopenPanelOn(player);
+    const row = reopened.locator(".progress-row", { hasText: "AI 자막" });
+    await expect(row).toContainText("AI 자막 준비 중");
+    await row.click();
+    const cancel = reopened.getByRole("button", { name: "취소", exact: true });
+    await expect(cancel).toBeVisible();
+    await expect(reopened.getByText("패널을 닫아도 계속 진행돼요")).toBeVisible();
+
+    // Then cancelling there stops the upload and cancels the unfinished job.
+    const dropped = services.dropped("uploading");
+    const cancelled = services.cancelled();
+    await cancel.click();
+    await Promise.all([dropped, cancelled]);
+    held.release();
+    await expect(reopened.locator(".ai-offer")).toHaveCount(0);
+    await expect(row).toHaveCount(0);
+    expect(services.cancels()).toBe(1);
+    expect(services.polls).toHaveLength(0);
+    expect(services.transcripts).toHaveLength(0);
+    await expect.poll(offscreenDocuments).toBe(0);
   });
 
   test("without a session the panel asks for Google login and sends nothing", async () => {

@@ -1,19 +1,35 @@
 import type { CaptionJobSnapshot } from "./captions/job-monitor";
+import type { WorkRuns } from "./captions/work-protocol";
 import type { PlaybackSnapshot } from "./playback/bridge";
 import {
   captionProgressItem,
-  panelWork,
   playbackProgressItem,
   progressActive,
+  workProgressItems,
   type ProgressItem,
   type ProgressState,
 } from "./progress";
 import { allowedPage, LMS_MATCHES } from "./security/policy";
 
 const NOTHING: ProgressState = { version: 1, type: "PROGRESS_STATE", items: [] };
+const MAX_CAPTION_ITEMS = 8;
+
+/** The newest items up to the cap; finished ones make room first, so a
+    running job is never pushed out by one that is over. */
+function capped(items: readonly ProgressItem[]): ProgressItem[] {
+  let over = items.length - MAX_CAPTION_ITEMS;
+  const kept = items.filter((item) => {
+    if (over <= 0 || progressActive(item)) return true;
+    over--;
+    return false;
+  });
+  return kept.slice(-MAX_CAPTION_ITEMS);
+}
 
 /**
- * Worker-side collection of caption jobs and playback. A change goes once to
+ * Worker-side collection of caption work and playback. Caption work is the
+ * preparation the offscreen document does (reading and uploading audio, which
+ * goes on with no panel open) and the jobs the server accepted. A change goes once to
  * open extension pages and to the top frame of LMS tabs; LMS tabs hear nothing
  * while no work is or just was in progress, and a newly loaded LMS page gets
  * the current state only while something is in progress. A window with an open
@@ -22,19 +38,35 @@ const NOTHING: ProgressState = { version: 1, type: "PROGRESS_STATE", items: [] }
  */
 export class ProgressHub {
   private captions: ProgressItem[] = [];
+  private work: ProgressItem[] = [];
   private playback: ProgressItem | null = null;
   private panels: ReadonlySet<number> = new Set();
+  /** The window each dragged tab was last attached to: a tab list read
+      before the drag still names the old one. */
+  private readonly attached = new Map<number, number>();
   private sent = "[]";
   private shown = "[]";
   private tabsInvolved = false;
 
   state(): ProgressState {
-    const items = this.playback ? [this.playback, ...this.captions] : this.captions;
+    // An accepted job is reported by the monitor before the document's next
+    // report drops it from the preparation, so it is listed once, as followed.
+    const followed = new Set(this.captions.map((item) => item.id));
+    const captions = capped([
+      ...this.captions,
+      ...this.work.filter((item) => !followed.has(item.id)),
+    ]);
+    const items = this.playback ? [this.playback, ...captions] : captions;
     return { version: 1, type: "PROGRESS_STATE", items };
   }
 
   setCaptions(snapshots: readonly CaptionJobSnapshot[]): void {
-    this.captions = snapshots.slice(-8).map(captionProgressItem);
+    this.captions = capped(snapshots.map(captionProgressItem));
+    this.changed();
+  }
+
+  setWork(runs: WorkRuns): void {
+    this.work = workProgressItems(runs);
     this.changed();
   }
 
@@ -53,12 +85,13 @@ export class ProgressHub {
 
   tabReady(tabId: number, url: string | undefined, windowId: number): void {
     if (!url || !allowedPage(url) || this.panels.has(windowId)) return;
-    const view = this.view();
-    if (view.items.some(progressActive)) this.toTab(tabId, view);
+    const state = this.state();
+    if (state.items.some(progressActive)) this.toTab(tabId, state);
   }
 
   /** A tab dragged to another window follows the panel of its new window. */
-  tabMoved(tabId: number): void {
+  tabMoved(tabId: number, windowId: number): void {
+    this.attached.set(tabId, windowId);
     void chrome.tabs
       .get(tabId)
       .then((tab) => {
@@ -67,18 +100,6 @@ export class ProgressHub {
         else this.tabReady(tabId, tab.url, tab.windowId);
       })
       .catch(() => {});
-  }
-
-  /**
-   * What LMS pages may show. Preparing a job (reading and uploading its audio)
-   * happens in a panel page: with no panel page left nothing advances it, so
-   * it is not shown as in progress.
-   */
-  private view(): ProgressState {
-    const state = this.state();
-    return this.panels.size
-      ? state
-      : { ...state, items: state.items.filter((item) => !panelWork(item)) };
   }
 
   private changed(): void {
@@ -96,9 +117,9 @@ export class ProgressHub {
 
   /** `touched`: windows whose panel just opened or closed. */
   private refresh(touched: ReadonlySet<number> = new Set()): void {
-    const view = this.view();
-    const text = JSON.stringify(view.items);
-    const active = view.items.some(progressActive);
+    const state = this.state();
+    const text = JSON.stringify(state.items);
+    const active = state.items.some(progressActive);
     const all = text !== this.shown && (active || this.tabsInvolved);
     if (all) {
       this.shown = text;
@@ -110,12 +131,13 @@ export class ProgressHub {
       .then((tabs) => {
         // Panels and work may have changed while the tabs were listed, so each
         // tab gets what holds now; a late answer can never undo a newer one.
-        const now = this.view();
+        const now = this.state();
         const live = now.items.some(progressActive);
         for (const tab of tabs) {
           if (tab.id === undefined) continue;
-          const moved = touched.has(tab.windowId);
-          if (this.panels.has(tab.windowId)) {
+          const windowId = this.attached.get(tab.id) ?? tab.windowId;
+          const moved = touched.has(windowId);
+          if (this.panels.has(windowId)) {
             // Sent even with no work known: after a worker restart the page
             // may still show what the previous worker sent.
             if (moved) this.toTab(tab.id, NOTHING);

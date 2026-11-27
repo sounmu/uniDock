@@ -87,8 +87,7 @@ export function CaptionQueue({
             <p className="hint">
               고른 순서대로 강의를 한 탭에서 하나씩 열어 음성을 보냅니다. 보낸 뒤에는
               서버에서 차례로 자막을 만들고, 완성된 자막은 그 강의를 다시 열면
-              자막 추출과 영상 자막에서 볼 수 있습니다. 음성을 보내는 동안에는
-              패널을 열어 두세요.
+              자막 추출과 영상 자막에서 볼 수 있습니다.
             </p>
           </details>
           <div className="playback-selection-actions">

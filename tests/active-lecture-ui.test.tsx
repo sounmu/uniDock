@@ -69,21 +69,22 @@ it("offers the lecture open in the active tab without injecting into it", async 
   expect(executeScript).not.toHaveBeenCalled();
 });
 
-it("hides the card while this panel prepares audio or works on that tab's lecture", async () => {
+it("hides the card while audio is being prepared anywhere or that tab's lecture is in work", async () => {
   const { lectureBusy } = await import("../entrypoints/sidepanel/progress-activity");
   const run = (phase: "extracting" | "uploading" | "queued" | "running" | "succeeded") => ({
     caption: { kind: "captions" as const, id: "job", phase, percent: null, workerOffline: false },
     source: 3,
-    queuePreparing: false,
+    preparing: false,
   });
-  const idle = { caption: null, source: null, queuePreparing: false };
+  const idle = { caption: null, source: null, preparing: false };
   expect(lectureBusy(run("extracting"), 9)).toBe(true);
   expect(lectureBusy(run("uploading"), 9)).toBe(true);
   expect(lectureBusy(run("queued"), 3)).toBe(true);
   expect(lectureBusy(run("running"), 3)).toBe(true);
   expect(lectureBusy(run("running"), 9)).toBe(false);
   expect(lectureBusy(run("succeeded"), 3)).toBe(false);
-  expect(lectureBusy({ ...idle, queuePreparing: true }, 9)).toBe(true);
+  expect(lectureBusy({ ...idle, preparing: true }, 9)).toBe(true);
+  expect(lectureBusy({ ...run("succeeded"), preparing: true }, 9)).toBe(true);
   expect(lectureBusy(idle, 9)).toBe(false);
   expect(lectureBusy(run("running"), undefined)).toBe(false);
 });

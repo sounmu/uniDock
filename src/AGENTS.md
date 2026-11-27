@@ -29,9 +29,9 @@ src/
 | Panel result caching | `query-result-cache.ts` | |
 | Downloads / tab opening | `download-tab.ts`, `open-tab.ts` | `download-tab.ts` uses `TabRateLimiter` + `security/download` |
 | LMS popup auto-close | `lms-popup.ts`, `popup-settings.ts` | optional host permission `POPUP_PERMISSION` |
-| AI caption server auth/session | `caption-server-settings.ts` | `signIn`, `authorizedFetch`, `signOutEverywhere` |
+| AI caption server auth/session | `caption-server-settings.ts` | `signIn`, `authorizedFetch`, `signOutEverywhere`; `setSessionAccess` lets the offscreen document, which has no storage, borrow access tokens from the worker (`storedSessionAccess`) |
 | Update badge | `update-notice.ts` | |
-| LMS progress pill | `progress.ts`, `progress-hub.ts`, `progress-toast.ts`, `panel-presence.ts` | `ProgressHub` sends work to extension pages and LMS top frames; `PanelPresence` (port `PANEL_PORT`, window id in the port name) tells it which windows have a panel page open, and those windows' LMS tabs get an empty list; `panelWork` phases are shown on LMS pages only while some panel page is open |
+| LMS progress pill | `progress.ts`, `progress-hub.ts`, `progress-toast.ts`, `panel-presence.ts` | `ProgressHub` sends work to extension pages and LMS top frames; `PanelPresence` (port `PANEL_PORT`, window id in the port name) tells it which windows have a panel page open, and those windows' LMS tabs get an empty list; caption preparation (`setWork`, `workProgressItems`) comes from the offscreen document through `CaptionWorkHost` and is shown with no panel open |
 | Build-time constants | `build-flags.d.ts` | `__UNIDOCK_PLAYBACK__`, `__UNIDOCK_AI_CAPTIONS__`, `__UNIDOCK_CAPTION_SERVER__`, `__UNIDOCK_STATS_SERVER__` (replaced by `wxt.config.ts`) |
 
 ## CONVENTIONS

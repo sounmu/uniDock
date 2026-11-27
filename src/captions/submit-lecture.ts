@@ -1,13 +1,14 @@
 import { extractAudio } from "./audio-extract";
 import { cancelJob, createJob, uploadAudio } from "./job-client";
-import { captionJobKey, saveActiveJob } from "./job-record";
 import { mediaRangeReader } from "./media-fetch";
-import type { MediaSource } from "./media-source";
-import { withCaptionMediaRule } from "./referer-rule";
+import { withCaptionMediaRule, type CaptionRuleChannel } from "./referer-rule";
+import { errorCode } from "./work-protocol";
 
-export function errorCode(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" ? code : "UNKNOWN";
+/** A lecture's media with the job key the worker derived from its content id. */
+export interface LectureAudio {
+  readonly mediaUrl: string;
+  readonly durationS: number;
+  readonly key: string;
 }
 
 export interface SubmitHooks {
@@ -16,16 +17,18 @@ export interface SubmitHooks {
   readonly live: () => boolean;
   readonly onJob: (jobId: string) => void;
   readonly onPhase: (phase: "extracting" | "uploading") => void;
-  readonly onProgress: (bytes: number) => void;
+  readonly rule: CaptionRuleChannel;
+  /** Hands the job to the worker once the server has its audio. */
+  readonly accept: (jobId: string, key: string) => Promise<void>;
 }
 
 /** Creates the lecture's job, uploads its audio unless the server already has
-    it, and records the job so the worker follows it. Null when superseded. */
+    it, and hands the job over so the worker follows it. Null when superseded. */
 export async function submitLecture(
-  media: MediaSource,
-  { signal, live, onJob, onPhase, onProgress }: SubmitHooks,
+  media: LectureAudio,
+  { signal, live, onJob, onPhase, rule, accept }: SubmitHooks,
 ): Promise<{ jobId: string; key: string } | null> {
-  const key = await captionJobKey(media.contentId);
+  const { key } = media;
   const hint = { durationHintS: media.durationS || undefined };
   // The per-lecture key returns this user's existing job for the lecture,
   // so a repeat request skips extraction and upload entirely.
@@ -36,16 +39,15 @@ export async function submitLecture(
   if (job.state === "awaiting_upload") {
     onPhase("extracting");
     const reader = mediaRangeReader(media.mediaUrl, signal);
-    const audio = await withCaptionMediaRule(media.mediaUrl, async () =>
+    const audio = await withCaptionMediaRule(media.mediaUrl, rule, async () =>
       extractAudio(await reader.totalSize(), reader.fetchRange, {
         signal,
         fetchRanges: reader.fetchRanges,
-        onProgress,
       }),
     );
     if (!live()) return null;
     onPhase("uploading");
-    const upload = (target: string) => uploadAudio(target, audio, signal, onProgress);
+    const upload = (target: string) => uploadAudio(target, audio, signal);
     try {
       await upload(id);
     } catch (error) {
@@ -68,6 +70,6 @@ export async function submitLecture(
     }
   }
   if (!live()) return null;
-  await saveActiveJob({ jobId: id, key });
+  await accept(id, key);
   return { jobId: id, key };
 }

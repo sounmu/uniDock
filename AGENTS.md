@@ -11,7 +11,7 @@ uniDock 0.7.0: unofficial Korea University LMS helper (mylms/canvas/kucom.korea.
 ```
 unidock/
 ├── wxt.config.ts     # build flags -> manifest() permissions/CSP + Vite define; manifest is generated here
-├── entrypoints/      # thin WXT wiring only (worker, content scripts, popup script) -> entrypoints/AGENTS.md
+├── entrypoints/      # thin WXT wiring only (worker, content scripts, popup script, offscreen document) -> entrypoints/AGENTS.md
 │   └── sidepanel/    # entire React UI surface -> entrypoints/sidepanel/AGENTS.md
 ├── src/              # framework-free domain/protocol/transport -> src/AGENTS.md
 │   ├── security/     # origin/path allowlist, redaction, fixed-code logger; most-imported dir
@@ -35,7 +35,7 @@ unidock/
 | Any LMS fetch / URL | `src/security/policy.ts` (`readUrl`) | allowlist only; no generic proxy |
 | Logging | `src/security/logger.ts` | only `console` user in repo |
 | Canvas API, pagination, course lookup | `src/api/` | GET-only; covered by src/AGENTS.md |
-| Captions / AI captions | `src/captions/` | needs `UNIDOCK_AI_CAPTIONS=1` + caption server |
+| Captions / AI captions | `src/captions/` | needs `UNIDOCK_AI_CAPTIONS=1` + caption server; lecture audio is read and uploaded in the offscreen document (`entrypoints/offscreen/`) the worker owns, so it goes on after the panel closes |
 | Sequential playback | `src/playback/runtime.ts` | needs `UNIDOCK_PLAYBACK=1` |
 | Usage stats contract | `src/analytics/`, `tests/analytics-report-contract.test.ts` | mirrored by `sounmu/unidock-server` |
 | UI screens / primitives | `entrypoints/sidepanel/screens`, `ui/` | Korean copy is test-selected |

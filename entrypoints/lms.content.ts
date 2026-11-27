@@ -16,6 +16,7 @@ import { currentAccount } from "../src/api/account";
 import { discoverPlayback } from "../src/api/playback-discovery";
 import { learningxToken } from "../src/security/learningx-token";
 import {
+  isRequest,
   panelCancel,
   panelQuery,
   parseResult,
@@ -765,6 +766,22 @@ export default defineContentScript({
             return false;
           }
         }
+        // The worker opens each admitted caption lecture and asks whether its
+        // tab shows it, so a batch goes on after the panel that admitted it
+        // has closed. No page may ask for either.
+        if (
+          __UNIDOCK_AI_CAPTIONS__ &&
+          isRequest(message) &&
+          (message.type === "CAPTION_BATCH_OPEN" || message.type === "CAPTION_BATCH_VERIFY")
+        ) {
+          if (!backgroundSender(sender) || !allowedPage(location.href)) return false;
+          void (
+            message.type === "CAPTION_BATCH_OPEN"
+              ? openCaptionBatch(message.batch, message.index)
+              : verifyCaptionBatch(message.batch, message.index, message.document)
+          ).then(respond);
+          return true;
+        }
         const cancellation = panelCancel(message);
         if (cancellation) {
           // Only the panel scope that issued the read can abort that read.
@@ -881,11 +898,7 @@ export default defineContentScript({
                   ? open(request.handle, request.type)
                   : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_ADMIT"
                     ? admitCaptionBatch(request.handles)
-                    : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_OPEN"
-                      ? openCaptionBatch(request.batch, request.index)
-                      : __UNIDOCK_AI_CAPTIONS__ && request.type === "CAPTION_BATCH_VERIFY"
-                        ? verifyCaptionBatch(request.batch, request.index, request.document)
-                        : list(request, parsed.refresh);
+                    : list(request, parsed.refresh);
           }
           void result.then(resolveResult, rejectResult);
         }
