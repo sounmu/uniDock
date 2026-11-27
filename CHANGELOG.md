@@ -2,6 +2,10 @@
 
 ## 0.8.0 - 2026-11-27
 
+- Move audio extraction, upload and the multi-lecture queue into an offscreen
+  extension document. Once the worker accepts a run, closing the side panel
+  no longer interrupts it; reopening the panel restores progress and cancel
+  controls. AI caption builds add the `offscreen` permission.
 - Before the multi-lecture caption queue sends a lecture's audio, check that
   the lecture tab's address equals the lecture that was opened and that the tab
   holds one KU player. A lecture that fails the check is skipped with
