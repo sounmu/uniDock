@@ -1,9 +1,9 @@
-import { storedSessionAccess, type AccessGrant } from "../caption-server-settings";
+import { storedSessionAccess, withCaptionLogin, type AccessGrant } from "../caption-server-settings";
 import { lectureTabKey } from "../open-tab";
 import { parseResult, type Request, type Result } from "../protocol";
 import { safeLog } from "../security/logger";
 import { allowedPage } from "../security/policy";
-import { cancelJob } from "./job-client";
+import { cancelJob, getJob } from "./job-client";
 import type { CaptionJobMonitor } from "./job-monitor";
 import { captionJobKey, saveActiveJob } from "./job-record";
 import { identifyMedia, type MediaSource } from "./media-source";
@@ -187,11 +187,23 @@ export class CaptionWorkHost {
         return this.open(request.tabId, request.batch, request.index);
       case "CAPTION_OFFSCREEN_ACCEPT":
         try {
-          await saveActiveJob({ jobId: request.jobId, key: request.key });
-          this.options.monitor.track(request.jobId, request.key);
-          return { status: "success" };
-        } catch {
-          return { status: "error", code: "STORAGE" };
+          const session = this.session;
+          const { loginId } = await storedSessionAccess.current();
+          // A delayed document message must prove ownership under this login.
+          // Network work stays outside the lock used by sign-in/logout.
+          await getJob(request.jobId, undefined, loginId);
+          return await withCaptionLogin(loginId, async (): Promise<AcceptReply> => {
+            if (session !== this.session) return { status: "error", code: "LOGIN_REQUIRED" };
+            try {
+              await saveActiveJob({ jobId: request.jobId, key: request.key });
+              this.options.monitor.track(request.jobId, request.key);
+              return { status: "success" };
+            } catch {
+              return { status: "error", code: "STORAGE" };
+            }
+          });
+        } catch (error) {
+          return { status: "error", code: errorCode(error) };
         }
       case "CAPTION_OFFSCREEN_TOKEN":
         return this.token(request);

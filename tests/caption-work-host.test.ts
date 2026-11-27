@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const cancelJob = vi.hoisted(() => vi.fn());
+const getJob = vi.hoisted(() => vi.fn());
+const withCaptionLogin = vi.hoisted(() => vi.fn());
 const captionJobKey = vi.hoisted(() => vi.fn());
 const saveActiveJob = vi.hoisted(() => vi.fn());
 const identifyMedia = vi.hoisted(() => vi.fn());
@@ -8,6 +10,7 @@ const session = vi.hoisted(() => ({ current: vi.fn(), refresh: vi.fn(), reject: 
 vi.mock("../src/captions/job-client", async (original) => ({
   ...(await original<object>()),
   cancelJob,
+  getJob,
 }));
 vi.mock("../src/captions/job-record", async (original) => ({
   ...(await original<object>()),
@@ -21,6 +24,7 @@ vi.mock("../src/captions/media-source", async (original) => ({
 vi.mock("../src/caption-server-settings", async (original) => ({
   ...(await original<object>()),
   storedSessionAccess: session,
+  withCaptionLogin,
 }));
 
 import { MediaSourceError } from "../src/captions/media-source";
@@ -177,6 +181,9 @@ beforeEach(() => {
   rules.remove.mockResolvedValue(undefined);
   rules.clear.mockResolvedValue(undefined);
   cancelJob.mockResolvedValue(undefined);
+  getJob.mockResolvedValue({ id: "job_1", state: "queued" });
+  session.current.mockResolvedValue({ id: "s".repeat(16), loginId: "l".repeat(16) });
+  withCaptionLogin.mockImplementation(async (_login: string, action: () => Promise<unknown>) => action());
   saveActiveJob.mockResolvedValue(undefined);
   captionJobKey.mockResolvedValue(key);
   vi.stubGlobal("chrome", {
@@ -691,6 +698,30 @@ it("records an accepted job and has the monitor follow it", async () => {
   saveActiveJob.mockRejectedValue(new Error("quota"));
   expect(await host.request(accept)).toEqual({ status: "error", code: "STORAGE" });
   expect(monitor.track).toHaveBeenCalledOnce();
+});
+
+it("does not save a late handover whose job is unavailable to the current account", async () => {
+  getJob.mockRejectedValueOnce(Object.assign(new Error("missing"), { code: "EXPIRED" }));
+  const answer = await host.request({
+    version: 1, type: "CAPTION_OFFSCREEN_ACCEPT", jobId: "job_old", key,
+  });
+  expect(answer).toEqual({ status: "error", code: "EXPIRED" });
+  expect(saveActiveJob).not.toHaveBeenCalled();
+  expect(monitor.track).not.toHaveBeenCalled();
+});
+
+it("rejects an accepted job when sign-in changes during the ownership query", async () => {
+  let resolveJob = () => {};
+  getJob.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveJob = resolve; }));
+  const accepting = host.request({
+    version: 1, type: "CAPTION_OFFSCREEN_ACCEPT", jobId: "job_1", key,
+  });
+  await drained();
+  host.sessionEnded();
+  resolveJob();
+  expect(await accepting).toEqual({ status: "error", code: "LOGIN_REQUIRED" });
+  expect(saveActiveJob).not.toHaveBeenCalled();
+  expect(monitor.track).not.toHaveBeenCalled();
 });
 
 it("lends the document an access token and nothing else of the session", async () => {

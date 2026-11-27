@@ -240,7 +240,9 @@ async function fakeServices(directory: string) {
         if (url.pathname === `/v1/transcription-jobs/${JOB_ID}`) {
           polls.push(url.pathname);
           const status = job();
-          await pause("polling", response);
+          // The first GET proves ownership before the worker accepts the job.
+          // Hold the monitor's subsequent GET to exercise polling invalidation.
+          if (polls.length > 1) await pause("polling", response);
           return json(status);
         }
         if (url.pathname === audioPath) {
@@ -500,7 +502,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
       expect((await transcript).status()).toBe(200);
       await expectFinished(panel, []);
       expect(services.idempotencyKeys).toHaveLength(1);
-      expect(services.polls).toHaveLength(1);
+      expect(services.polls).toHaveLength(2);
       expect(services.transcripts).toHaveLength(1);
       expect(services.cancels()).toBe(0);
       expect(services.cdn.every((hit) => hit.status === 206)).toBe(true);
@@ -568,7 +570,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
         expect(services.cancels()).toBe(1);
         expect(services.idempotencyKeys).toHaveLength(1);
         expect(services.uploads).toHaveLength(stage === "extracting" ? 0 : 1);
-        expect(services.polls).toHaveLength(stage === "polling" ? 1 : 0);
+        expect(services.polls).toHaveLength(stage === "polling" ? 2 : 0);
         expect(services.transcripts).toHaveLength(0);
         expectAudioOnly(services.cdn);
         if (stage !== "extracting") expectUploadedAudio();
@@ -799,7 +801,7 @@ test.describe("AI caption lifecycle against a fake player, CDN and server", () =
     // and stores its transcript, and nothing was cancelled or started twice.
     expect((await transcript).status()).toBe(200);
     expectUploadedAudio();
-    expect(services.polls).toHaveLength(1);
+    expect(services.polls).toHaveLength(2);
     expect(services.cancels()).toBe(0);
     expect(services.idempotencyKeys).toHaveLength(1);
     await expect.poll(() => captionRules(worker)).toEqual([]);

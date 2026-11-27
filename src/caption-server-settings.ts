@@ -264,6 +264,15 @@ async function readSnapshot(): Promise<Snapshot> {
   return { epoch: await readEpoch(), session: await loadSession() };
 }
 
+/** Commit local job ownership without racing a sign-in, logout or data deletion. */
+export function withCaptionLogin<T>(loginId: string, action: () => Promise<T>): Promise<T> {
+  return withLock(COMMIT_LOCK, async () => {
+    if ((await loadSession())?.loginId !== loginId)
+      throw new CaptionServerError("LOGIN_REQUIRED");
+    return action();
+  });
+}
+
 /**
  * The only writer of the stored session. Under the commit lock (held for
  * storage calls only, never across the network, never stolen) it applies
