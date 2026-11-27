@@ -17,8 +17,8 @@ import { softDisabled } from "./ui/a11y";
 import { AiCaptionReader } from "./AiCaptionReader";
 import { messages } from "./query-messages";
 
-// Before the server starts, only show what the user can act on: preparing
-// (keep the panel open), waiting in line, then generating.
+// Before the server starts, only show what the user can act on: preparing,
+// waiting in line, then generating. All of it goes on with the panel closed.
 const steps = [
   [["identifying", "extracting", "uploading"], "준비"],
   [["queued"], "대기"],
@@ -367,18 +367,13 @@ function AiCaptionsContent({
       index === current && state.phase === "running"
         ? serverMinutes(state.serverProgress)
         : "";
-    const accepted = state.phase === "queued" || state.phase === "running";
     return (
       <div className="ai-job" aria-live="polite" aria-busy="true">
         <Head title={title} sub={phaseText[state.phase] ?? "진행 중이에요"} chip="진행 중" tone="run" />
         <Body
           foot={
             <div className="ai-run-foot">
-              <p className="ai-note">
-                {accepted
-                  ? "패널을 닫아도 계속 진행돼요"
-                  : "준비가 끝날 때까지 패널을 열어 두세요"}
-              </p>
+              {state.started && <p className="ai-note">패널을 닫아도 계속 진행돼요</p>}
               <button className="btn-ghost" onClick={() => cancel()}>
                 취소
               </button>

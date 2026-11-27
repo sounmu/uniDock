@@ -2888,7 +2888,7 @@ function captionBatchHarness() {
   vi.stubGlobal("chrome", {
     runtime: {
       id: "fixture-extension",
-      getURL: () => "chrome-extension://fixture-extension/sidepanel.html",
+      getURL: (path: string) => `chrome-extension://fixture-extension/${path}`,
       onMessage: { addListener },
       sendMessage,
     },
@@ -2912,10 +2912,16 @@ function captionBatchHarness() {
   (content as unknown as { main: () => void }).main();
   const listener = addListener.mock.calls[0]![0];
   const sender = { id: "fixture-extension", url: "chrome-extension://fixture-extension/sidepanel.html" };
-  const send = async (message: unknown) => {
+  const worker = { id: "fixture-extension" };
+  const send = async (message: unknown, by: unknown = sender) => {
     const result = response();
-    expect(listener(message, sender, result.respond)).toBe(true);
+    expect(listener(message, by, result.respond)).toBe(true);
     return result.done;
+  };
+  /** Whether the script took no notice of the message: no answer, now or later. */
+  const ignored = (message: unknown, by: unknown) => {
+    const respond = vi.fn();
+    return listener(message, by, respond) === false && respond.mock.calls.length === 0;
   };
   const admit = async () => {
     const listed = parseResult(
@@ -2927,12 +2933,34 @@ function captionBatchHarness() {
     if (!admitted.batch) throw new Error("not admitted");
     return { batch: admitted.batch, handles };
   };
+  // The worker opens the lectures, for the offscreen document that reads them.
   const open = (batch: string, index: number) =>
-    send({ version: 1, type: "CAPTION_BATCH_OPEN", batch, index });
+    send({ version: 1, type: "CAPTION_BATCH_OPEN", batch, index }, worker);
+  // The worker asks it, for the offscreen document that waits for the player.
   const verify = (batch: string, index: number) =>
-    send({ version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: "PLAYER" });
-  return { sendMessage, send, admit, open, verify };
+    send({ version: 1, type: "CAPTION_BATCH_VERIFY", batch, index, document: "PLAYER" }, worker);
+  return { sendMessage, send, admit, open, verify, ignored, sender };
 }
+
+it("opens and checks an admitted caption lecture for the worker and for no page", async () => {
+  const { sendMessage, admit, open, ignored, sender } = captionBatchHarness();
+  const { batch } = await admit();
+  const requests = [
+    { version: 1, type: "CAPTION_BATCH_OPEN", batch, index: 0 },
+    { version: 1, type: "CAPTION_BATCH_VERIFY", batch, index: 0, document: "PLAYER" },
+  ];
+  for (const request of requests)
+    for (const by of [
+      sender,
+      { id: "fixture-extension", url: "chrome-extension://fixture-extension/offscreen.html" },
+      { id: "fixture-extension", url: `${origin}/`, tab: { id: 3 } },
+      { id: "other-extension" },
+    ])
+      expect(ignored(request, by)).toBe(true);
+  expect(sendMessage).not.toHaveBeenCalled();
+  // A refused request spends nothing: the worker still opens that lecture.
+  expect(await open(batch, 0)).toEqual({ status: "success", opened: true });
+});
 
 it("admits a caption batch and opens its lectures after the list handles expired", async () => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });

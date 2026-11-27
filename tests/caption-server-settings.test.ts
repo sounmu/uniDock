@@ -9,6 +9,7 @@ import {
   signIn,
   signOut,
   signOutEverywhere,
+  withCaptionLogin,
 } from "../src/caption-server-settings";
 import { getJob } from "../src/captions/job-client";
 import {
@@ -129,6 +130,37 @@ function deferred<T>() {
   const promise = new Promise<T>((r) => (resolve = r));
   return { promise, resolve };
 }
+
+it("refuses a local handover from a login that has been replaced", async () => {
+  seedSession(store, { loginId: "replacement-login" });
+  const save = vi.fn(async () => {});
+  await expect(withCaptionLogin("seed-login-000001", save))
+    .rejects.toMatchObject({ code: "LOGIN_REQUIRED" });
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("finishes a local handover before logout can change its account", async () => {
+  seedSession(store);
+  mockServer(() => new Response(null, { status: 204 }));
+  const entered = deferred<void>();
+  const finish = deferred<void>();
+  let loginAtCommit: string | undefined;
+  const saving = withCaptionLogin("seed-login-000001", async () => {
+    entered.resolve();
+    await finish.promise;
+    loginAtCommit = (await loadSession())?.loginId;
+  });
+  await entered.promise;
+  const logout = signOut();
+  await vi.waitFor(async () => {
+    const { pending = [] } = await navigator.locks.query();
+    expect(pending.some((lock) => lock.name === "unidock-caption-commit")).toBe(true);
+  });
+  finish.resolve();
+  await Promise.all([saving, logout]);
+  expect(loginAtCommit).toBe("seed-login-000001");
+  expect(await loadSession()).toBeNull();
+});
 
 it("drops a sign-in that the broker answers after logout", async () => {
   launchWebAuthFlow.mockImplementation(

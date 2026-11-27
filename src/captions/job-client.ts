@@ -136,8 +136,8 @@ export async function createJob(
   return parseJob(await readJson(await ok(response)));
 }
 
-export async function getJob(id: string, signal?: AbortSignal): Promise<JobStatus> {
-  const response = await authorizedFetch(jobPath(id), { method: "GET" }, signal);
+export async function getJob(id: string, signal?: AbortSignal, loginId?: string): Promise<JobStatus> {
+  const response = await authorizedFetch(jobPath(id), { method: "GET" }, signal, loginId);
   return parseJob(await readJson(await ok(response)));
 }
 

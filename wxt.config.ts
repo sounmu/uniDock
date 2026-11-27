@@ -47,9 +47,14 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   hooks: {
     "entrypoints:resolved": (_wxt, entrypoints) => {
-      if (buildFlags().playback) return;
+      const { playback, aiCaptions } = buildFlags();
       for (const entrypoint of entrypoints)
-        if (entrypoint.name === "player") entrypoint.skipped = true;
+        if (
+          (entrypoint.name === "player" && !playback) ||
+          // The offscreen document only reads and uploads AI caption audio.
+          (entrypoint.name === "offscreen" && !aiCaptions)
+        )
+          entrypoint.skipped = true;
     },
   },
   manifest: () => {
@@ -74,7 +79,7 @@ export default defineConfig({
         "storage",
         ...(playback ? ["alarms"] : []),
         ...(aiCaptions
-          ? ["declarativeNetRequestWithHostAccess", "identity"]
+          ? ["declarativeNetRequestWithHostAccess", "identity", "offscreen"]
           : []),
       ],
       host_permissions: [

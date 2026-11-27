@@ -8,6 +8,11 @@ import background, {
   createChromePlaybackRuntime,
 } from "../entrypoints/background";
 import { CaptionJobMonitor } from "../src/captions/job-monitor";
+import { CaptionMediaRules } from "../src/captions/referer-rule";
+import { CAPTION_TRANSCRIPT_CACHE_KEY } from "../src/captions/transcript-cache";
+import { CaptionWorkHost } from "../src/captions/work-host";
+import { CAPTION_WORK_PORT } from "../src/captions/work-protocol";
+import { CAPTION_SESSION_EPOCH_KEY } from "../src/caption-server-settings";
 import { PlaybackRuntime } from "../src/playback/runtime";
 import { emptyPlayback, PLAYBACK_STORAGE_KEY } from "../src/playback/storage";
 
@@ -2163,6 +2168,198 @@ it("forgets the subtitles of a closed tab", async () => {
   expect(await worker.forward(captionForward(captionCues))).toEqual({ ok: false });
   expect(fixture.sendMessage).toHaveBeenCalledTimes(1);
   expect(fixture.session).toEqual({});
+});
+
+const WORK_RUN = "00000000-0000-4000-8000-000000000001";
+const workStart = { version: 1, type: "CAPTION_WORK_START", kind: "single", run: WORK_RUN, tabId: 3 };
+const mediaRequest = { version: 1, type: "CAPTION_OFFSCREEN_MEDIA", tabId: 3 };
+const panelPage = { id: "test", url: "chrome-extension://test/sidepanel.html" };
+const offscreenPage = { id: "test", url: "chrome-extension://test/offscreen.html" };
+const otherSenders = [
+  { id: "test", url: "https://mylms.korea.ac.kr/", tab: { id: 3 } },
+  { id: "test", url: "chrome-extension://test/privacy.html" },
+  { id: "other", url: "chrome-extension://other/offscreen.html" },
+  { id: "other", url: "chrome-extension://other/sidepanel.html" },
+];
+
+function captionWorkFixture({ offscreen = true, sessionRules = [] as { id: number }[] } = {}) {
+  const messages = vi.fn();
+  const connect = vi.fn<(listener: (port: chrome.runtime.Port) => void) => void>();
+  const changed =
+    vi.fn<(listener: (changes: Record<string, unknown>, area: string) => void) => void>();
+  const updateSessionRules = vi.fn().mockResolvedValue(undefined);
+  vi.spyOn(CaptionJobMonitor.prototype, "storageChanged").mockImplementation(() => {});
+  vi.stubGlobal("chrome", {
+    runtime: {
+      id: "test",
+      getURL: (path: string) => `chrome-extension://test/${path}`,
+      onMessage: { addListener: messages },
+      onConnect: { addListener: connect },
+    },
+    action: actionMocks(),
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+        setAccessLevel: vi.fn().mockResolvedValue(undefined),
+      },
+      onChanged: { addListener: changed },
+    },
+    tabs: {
+      query: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      onUpdated: { addListener: vi.fn() },
+    },
+    declarativeNetRequest: {
+      getSessionRules: vi.fn().mockResolvedValue(sessionRules),
+      updateSessionRules,
+    },
+    ...(offscreen ? { offscreen: { createDocument: vi.fn(), closeDocument: vi.fn() } } : {}),
+  });
+  background.main();
+  const receive = messages.mock.calls[0]![0] as (
+    message: unknown,
+    sender: unknown,
+    respond: (value: unknown) => void,
+  ) => boolean;
+  return {
+    receive,
+    updateSessionRules,
+    /** Sends a message and resolves with the worker's answer and whether it kept the channel open. */
+    ask: async (message: unknown, sender: unknown) => {
+      let answered!: (reply: unknown) => void;
+      const reply = new Promise<unknown>((resolve) => (answered = resolve));
+      const open = receive(message, sender, answered);
+      return { reply: await reply, open };
+    },
+    open(name: string, sender: unknown) {
+      const port = {
+        name,
+        sender,
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onMessage: { addListener: vi.fn() },
+        onDisconnect: { addListener: vi.fn() },
+      };
+      for (const [listener] of connect.mock.calls)
+        listener(port as unknown as chrome.runtime.Port);
+      return port;
+    },
+    storageChanged(changes: Record<string, unknown>, area: string) {
+      for (const [listener] of changed.mock.calls) listener(changes, area);
+    },
+  };
+}
+
+it("takes caption work commands from the panel only and passes the host's answer back", async () => {
+  vi.spyOn(CaptionMediaRules.prototype, "sweep").mockResolvedValue();
+  const answer = { status: "error", code: "ACTIVE_JOB_EXISTS" } as const;
+  const command = vi.spyOn(CaptionWorkHost.prototype, "command").mockResolvedValue(answer);
+  const f = captionWorkFixture();
+  for (const sender of [...otherSenders, offscreenPage])
+    expect(await f.ask(workStart, sender)).toEqual({
+      reply: { status: "error", code: "POLICY" },
+      open: false,
+    });
+  expect(command).not.toHaveBeenCalled();
+
+  expect(await f.ask(workStart, panelPage)).toEqual({ reply: answer, open: true });
+  expect(command).toHaveBeenCalledExactlyOnceWith(workStart);
+  command.mockRejectedValueOnce(new Error("boom"));
+  expect((await f.ask(workStart, panelPage)).reply).toEqual({ status: "error", code: "UNKNOWN" });
+
+  // A command with anything extra is not a caption work command at all.
+  const respond = vi.fn();
+  expect(f.receive({ ...workStart, url: "https://example.com/a.mp4" }, panelPage, respond)).toBe(false);
+  expect(respond).not.toHaveBeenCalled();
+  expect(command).toHaveBeenCalledTimes(2);
+});
+
+it("answers the offscreen document's requests for that document only", async () => {
+  vi.spyOn(CaptionMediaRules.prototype, "sweep").mockResolvedValue();
+  const pending = { status: "pending" } as const;
+  const request = vi.spyOn(CaptionWorkHost.prototype, "request").mockResolvedValue(pending);
+  const f = captionWorkFixture();
+  for (const sender of [
+    ...otherSenders,
+    panelPage,
+    // The offscreen page opened in a tab is not the offscreen document.
+    { ...offscreenPage, tab: { id: 9 } },
+  ])
+    expect(await f.ask(mediaRequest, sender)).toEqual({
+      reply: { status: "error", code: "POLICY" },
+      open: false,
+    });
+  expect(request).not.toHaveBeenCalled();
+
+  expect(await f.ask(mediaRequest, offscreenPage)).toEqual({ reply: pending, open: true });
+  expect(request).toHaveBeenCalledExactlyOnceWith(mediaRequest);
+  request.mockRejectedValueOnce(new Error("boom"));
+  expect((await f.ask(mediaRequest, offscreenPage)).reply).toEqual({
+    status: "error",
+    code: "UNKNOWN",
+  });
+});
+
+it("gives the work port to the offscreen document and refuses it to every other page", () => {
+  vi.spyOn(CaptionMediaRules.prototype, "sweep").mockResolvedValue();
+  const connected = vi.spyOn(CaptionWorkHost.prototype, "connect").mockImplementation(() => {});
+  const f = captionWorkFixture();
+  for (const sender of [...otherSenders, panelPage]) {
+    const forged = f.open(CAPTION_WORK_PORT, sender);
+    expect(forged.disconnect).toHaveBeenCalledOnce();
+  }
+  expect(f.open(CAPTION_WORK_PORT, undefined).disconnect).toHaveBeenCalledOnce();
+  expect(connected).not.toHaveBeenCalled();
+
+  const port = f.open(CAPTION_WORK_PORT, offscreenPage);
+  expect(port.disconnect).not.toHaveBeenCalled();
+  expect(connected).toHaveBeenCalledExactlyOnceWith(port);
+});
+
+it("ends caption work when the sign-in changes or local data is deleted, and at nothing else", () => {
+  vi.spyOn(CaptionMediaRules.prototype, "sweep").mockResolvedValue();
+  const ended = vi.spyOn(CaptionWorkHost.prototype, "sessionEnded").mockImplementation(() => {});
+  const f = captionWorkFixture();
+  f.storageChanged({ [CAPTION_SESSION_EPOCH_KEY]: { oldValue: "a", newValue: "a" } }, "session");
+  f.storageChanged({ [CAPTION_SESSION_EPOCH_KEY]: { oldValue: "a", newValue: "b" } }, "local");
+  f.storageChanged({ [CAPTION_TRANSCRIPT_CACHE_KEY]: { oldValue: {}, newValue: {} } }, "local");
+  f.storageChanged({ [CAPTION_TRANSCRIPT_CACHE_KEY]: { newValue: {} } }, "local");
+  f.storageChanged({ unrelated: { oldValue: 1 } }, "local");
+  expect(ended).not.toHaveBeenCalled();
+
+  f.storageChanged({ [CAPTION_SESSION_EPOCH_KEY]: { oldValue: "a", newValue: "b" } }, "session");
+  expect(ended).toHaveBeenCalledTimes(1);
+  f.storageChanged({ [CAPTION_TRANSCRIPT_CACHE_KEY]: { oldValue: {} } }, "local");
+  expect(ended).toHaveBeenCalledTimes(2);
+});
+
+it("refuses caption work where the browser has no offscreen documents", async () => {
+  vi.spyOn(CaptionMediaRules.prototype, "sweep").mockResolvedValue();
+  const f = captionWorkFixture({ offscreen: false });
+  expect(await f.ask(workStart, panelPage)).toEqual({
+    reply: { status: "error", code: "UNAVAILABLE" },
+    open: false,
+  });
+  expect((await f.ask(mediaRequest, offscreenPage)).reply).toEqual({
+    status: "error",
+    code: "POLICY",
+  });
+});
+
+it("removes the Referer rules an earlier worker left, once its document had time to claim them", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = captionWorkFixture({ sessionRules: [{ id: 1_947_005 }, { id: 7 }] });
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(chrome.declarativeNetRequest.getSessionRules).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    // Only rules in the caption range are this feature's to remove.
+    expect(f.updateSessionRules).toHaveBeenCalledExactlyOnceWith({ removeRuleIds: [1_947_005] });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("answers only a list tab's top frame about the lecture tab it opened", async () => {

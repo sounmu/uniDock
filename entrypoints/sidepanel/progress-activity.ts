@@ -1,40 +1,39 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { subscribeWork, workState } from "../../src/captions/work-client";
+import { workBusy, type CaptionWorkState } from "../../src/captions/work-protocol";
 import {
   PROGRESS_GET,
+  captionPreparing,
   isProgressState,
-  panelWork,
   progressActive,
   type ProgressItem,
 } from "../../src/progress";
 import type { ToolSection } from "./ui/Rail";
 
-/** This panel's own caption work: the single-lecture run with the tab its
-    audio comes from, and whether a several-lecture batch is preparing audio. */
-export interface CaptionWork {
+/** The lecture card's run with the tab its audio comes from. */
+interface LectureRun {
   readonly caption: ProgressItem | null;
   readonly source: number | null;
-  readonly queuePreparing: boolean;
 }
 
-let work: CaptionWork = { caption: null, source: null, queuePreparing: false };
-let workKey = JSON.stringify(work);
+/** Caption work as this panel sees it: its lecture card's run, and whether
+    audio is being read or uploaded at all, by one lecture or a batch. */
+export interface CaptionWork extends LectureRun {
+  readonly preparing: boolean;
+}
+
+let lecture: LectureRun = { caption: null, source: null };
+let lectureKey = JSON.stringify(lecture);
 const listeners = new Set<() => void>();
 
-function publish(next: CaptionWork): void {
-  const key = JSON.stringify(next);
-  if (key === workKey) return;
-  workKey = key;
-  work = next;
-  for (const listener of listeners) listener();
-}
-
-/** This panel's own caption run, including extraction and upload the worker does not see. */
+/** The lecture card's run in this panel, from its first click to its transcript. */
 export function publishCaptionActivity(item: ProgressItem | null, source: number | null = null): void {
-  publish({ ...work, caption: item, source: item ? source : null });
-}
-
-export function publishQueuePreparing(preparing: boolean): void {
-  publish({ ...work, queuePreparing: preparing });
+  const next = { caption: item, source: item ? source : null };
+  const key = JSON.stringify(next);
+  if (key === lectureKey) return;
+  lectureKey = key;
+  lecture = next;
+  for (const listener of listeners) listener();
 }
 
 const subscribe = (listener: () => void) => {
@@ -42,19 +41,28 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
+/** Caption preparation as the worker reports it; it goes on with no panel open. */
+export function useWorkState(): CaptionWorkState {
+  return useSyncExternalStore(subscribeWork, workState);
+}
+
 export function useCaptionWork(): CaptionWork {
-  return useSyncExternalStore(subscribe, () => work);
+  const own = useSyncExternalStore(subscribe, () => lecture);
+  const preparing = workBusy(useWorkState());
+  return useMemo(() => ({ ...own, preparing }), [own, preparing]);
 }
 
 /** Whether "make captions for the lecture you are watching" would duplicate
-    work already under way: this panel is reading or uploading audio, which
-    allows one lecture at a time, or the lecture in that tab is the one the
-    current run is for. */
+    work already under way: audio is being read or uploaded, which allows one
+    lecture at a time, or the lecture in that tab is the one the current run
+    is for. */
 export function lectureBusy(current: CaptionWork, tabId: number | undefined): boolean {
-  if (current.queuePreparing) return true;
   const { caption } = current;
-  if (!caption || !progressActive(caption)) return false;
-  return panelWork(caption) || (tabId !== undefined && current.source === tabId);
+  // A run just started here is preparing before the worker has reported it.
+  if (current.preparing || (caption !== null && captionPreparing(caption))) return true;
+  return (
+    caption !== null && progressActive(caption) && tabId !== undefined && current.source === tabId
+  );
 }
 
 function useWorkerProgress(enabled: boolean): readonly ProgressItem[] {
@@ -87,7 +95,7 @@ export interface Activity {
 /** In-progress work per rail section: this panel's caption run first, then the worker's view. */
 export function useActivity(enabled: boolean): readonly Activity[] {
   const worker = useWorkerProgress(enabled);
-  const local = useCaptionWork().caption;
+  const local = useSyncExternalStore(subscribe, () => lecture).caption;
   const captions =
     (local && progressActive(local) ? local : null) ??
     worker.find((item) => item.kind === "captions" && progressActive(item));

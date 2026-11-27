@@ -1,7 +1,7 @@
 # src/captions/ - caption extraction and AI caption jobs
 
 ## OVERVIEW
-Two pipelines: (1) read existing captions/VTT/media scripts from LMS + KU player frames; (2) AI captions - extract MP4 audio in the panel and upload it to the caption server; the worker then polls the job, caches the transcript and pushes changes to subscribed panels.
+Two pipelines: (1) read existing captions/VTT/media scripts from LMS + KU player frames; (2) AI captions - the extension's offscreen document (`entrypoints/offscreen/`, created and closed by the worker) reads a lecture's MP4 audio and uploads it to the caption server, so this goes on after the panel closes; the panel only starts, shows and cancels it. The worker then polls the job, caches the transcript and pushes changes to subscribed panels.
 Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20+ dedicated tests) + distinct domain (AI path gated by `__UNIDOCK_AI_CAPTIONS__`).
 
 ## WHERE TO LOOK
@@ -13,7 +13,11 @@ Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20
 | Caption text cleanup | `normalize.ts` | `normalizeCaptions`, `safeCaptionText` (uses `security/redaction`) |
 | Export / download a transcript | `download.ts` | `exportTranscript`, `downloadCaption`, `captionFileTitle` |
 | Locate the KU media file | `media-source.ts` | `requestCaptionMediaAccess`, `readPlayerMedia`, `identifyMedia`, `MediaSourceError` |
-| Referer for CDN fetch | `referer-rule.ts` `withCaptionMediaRule`, `installCaptionRuleCleanup` | session DNR rule scoped to one media URL; port `CAPTION_RULE_PORT` + keepalive |
+| Referer for CDN fetch | `referer-rule.ts` `withCaptionMediaRule`, `CaptionMediaRules` | session DNR rule scoped to one media URL. The document asks for it over the work port (`CaptionRuleChannel`); the worker's `CaptionMediaRules` is the only DNR caller, clears the rules when the port drops and sweeps orphans `CAPTION_RULE_SWEEP_GRACE_MS` after a boot |
+| Messages of caption preparation | `work-protocol.ts` | `CAPTION_WORK_*` panel commands and `CaptionWorkState`, `CAPTION_OFFSCREEN_*` document requests, the `CAPTION_WORK_PORT` messages, `offscreenSender`; closed shapes with guards and reply parsers |
+| Own the offscreen document (worker) | `work-host.ts` `CaptionWorkHost` | creates it on a start (reason `BLOBS`), closes it when nothing is in flight; cancels unfinished jobs when it goes away on its own; finds media, opens batch lectures and hands a batch lecture's media over only once its list tab confirms the player (`CAPTION_BATCH_VERIFY`; otherwise `stale`, `unverified` or a lost-selection error), records accepted jobs and lends access tokens for it |
+| Read and upload audio (document) | `work-runner.ts` `CaptionWorkRunner`, `submit-lecture.ts`, `offscreen-link.ts` `startCaptionWork` | one lecture at a time, single runs and the several-lecture loop; `offscreen-link.ts` keeps the port across worker restarts and keeps the worker running while work is in flight |
+| Panel's copy of the work | `work-client.ts` | `workState`, `workCommand`, `subscribeWork`; takes broadcasts from the worker only |
 | Ranged media reads | `media-fetch.ts` `mediaRangeReader`, `multipart-ranges.ts` | HTTP Range + multipart/byteranges parsing |
 | MP4 audio extraction | `mp4-audio.ts` (`audioLayout`, `topLevelBox`), `audio-extract.ts` (`extractAudio`, `AudioExtractError`) | only module using the `mp4box` dependency |
 | Caption server HTTP | `server-http.ts` | `serverFetch`, `readJson`, `CaptionServerError`, `SERVER_CODES`; base from `__UNIDOCK_CAPTION_SERVER__` |
@@ -24,6 +28,7 @@ Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20
 | Server auth/session | `../caption-server-settings.ts` | lives in root; `authorizedFetch` is what `job-client.ts` calls |
 
 ## CONVENTIONS
+- Work commands capture the host's sign-in generation before entering its lane and recheck it after document connection; a sign-in change invalidates pending commands. Start admission includes unfinished cancellations, so a retry cannot reuse a job still being released. Caption rule add/remove/clear/startup sweep share one lane, including the sweep's enumeration.
 - `extract.ts` and the reader in `media-source.ts` are self-contained functions injected via `chrome.scripting`: no imports, no closures, read only own data descriptors.
 - MAIN-world/page results are hostile: accept only bounded strings for display fields (`service.ts`).
 - `requestCaptionMediaAccess` must run first in the click handler, before any `await`, to keep the user gesture for the optional CDN host grant.
@@ -37,3 +42,5 @@ Earned its file: score ~10.5 (15 files, 86 exports, densest module in `src/`, 20
 - Never leave a referer session rule installed: remove on success, failure, and cancel; background sweeps orphans on worker start.
 - Never send the LMS content id, course id, or tab title to the caption server.
 - Do not import `server-http.ts`/`job-client.ts` from code reachable without the `__UNIDOCK_AI_CAPTIONS__` gate in `entrypoints/`.
+- The offscreen document has no extension API but `chrome.runtime`: code it runs (`work-runner.ts`, `submit-lecture.ts`, `offscreen-link.ts`) never touches storage, tabs or declarativeNetRequest and asks the worker instead. The refresh token never leaves the worker.
+- Never lose a use to a closed panel: closing the panel cancels nothing, while an explicit cancel or a failure cancels the job whose audio the server does not have yet.

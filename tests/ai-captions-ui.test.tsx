@@ -15,7 +15,6 @@ let session: { email: string; loginId: string } | null = {
 };
 const base: AiCaptionState = {
   phase: "idle",
-  progress: null,
   serverProgress: null,
   workerOffline: false,
   errorCode: null,
@@ -24,6 +23,7 @@ const base: AiCaptionState = {
   title: null,
   durationS: null,
   restoredFromCache: false,
+  started: true,
 };
 
 vi.mock("../entrypoints/sidepanel/useAiCaptions", () => ({
@@ -260,18 +260,30 @@ it("shows the daily quota, a plain queue state and transcription progress", asyn
   ).toBe("15");
 });
 
-it("marks finished steps and tells whether the panel may close", async () => {
-  current = { ...base, phase: "uploading", progress: 5 * 1024 * 1024 };
+it("marks finished steps and says at every step that the panel may close", async () => {
+  current = { ...base, phase: "uploading" };
   await render();
   const steps = [...ui.host.querySelectorAll(".ai-steps li")];
   expect(steps.map((li) => li.className)).toEqual(["now", "", ""]);
   expect(steps[0]?.textContent).not.toContain("MB");
-  expect(ui.host.textContent).toContain("패널을 열어 두세요");
+  expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
+  expect(ui.host.textContent).not.toContain("패널을 열어 두세요");
   await ui.unmount();
   current = { ...base, phase: "queued" };
   await render();
   const queued = [...ui.host.querySelectorAll(".ai-steps li")];
   expect(queued.map((li) => li.className)).toEqual(["done", "now", ""]);
+  expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
+});
+
+it("says the panel may close only once the worker holds the run", async () => {
+  current = { ...base, phase: "identifying", started: false };
+  await render();
+  expect(ui.host.textContent).not.toContain("패널을 닫아도 계속 진행돼요");
+  expect(ui.host.textContent).toContain("취소");
+  await ui.unmount();
+  current = { ...base, phase: "identifying", started: true };
+  await render();
   expect(ui.host.textContent).toContain("패널을 닫아도 계속 진행돼요");
 });
 
