@@ -2,13 +2,83 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: extension-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  verify:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+      analytics: ${{ steps.filter.outputs.analytics }}
+    steps:
+      - uses: actions/github-script@v8
+        id: filter
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setOutput("e2e", true);
+              core.setOutput("analytics", true);
+              return;
+            }
+            if (pr.draft) {
+              core.setOutput("e2e", false);
+              core.setOutput("analytics", false);
+              return;
+            }
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...context.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            if (files.length !== pr.changed_files) {
+              core.setFailed("The complete PR file list could not be verified.");
+              return;
+            }
+            const paths = files.flatMap((file) =>
+              [file.filename, file.previous_filename].filter(Boolean),
+            );
+            const codePaths = paths.filter((path) =>
+              !path.toLowerCase().endsWith(".md") && !path.startsWith("docs/"),
+            );
+            const analyticsChanged = codePaths.some((path) =>
+              path.startsWith("src/analytics/") ||
+              path.startsWith("src/security/") ||
+              path.startsWith("entrypoints/sidepanel/") ||
+              path.startsWith("tests/analytics") ||
+              [
+                "entrypoints/background.ts",
+                "src/protocol.ts",
+                "src/transport.ts",
+                "src/build-flags.d.ts",
+                "tests/e2e/analytics-consent.spec.ts",
+                "tests/e2e/synthetic-server.ts",
+                "scripts/test-analytics-e2e.mjs",
+                "package.json",
+                "package-lock.json",
+                "wxt.config.ts",
+                "playwright.config.ts",
+                ".github/workflows/ci.yml",
+              ].includes(path),
+            );
+            core.setOutput("e2e", codePaths.length > 0);
+            core.setOutput("analytics", analyticsChanged ||
+              pr.labels.some((label) => label.name === "run-analytics"));
+
+  checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -20,19 +90,107 @@ jobs:
       - run: npm ci
       - run: npm run pages:check
       - run: npm run server-contract:check
-      - run: npx playwright install --with-deps chromium
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test -- --coverage
-      - run: npm run build
-      - run: npm run test:e2e
-      - run: npm run test:e2e:analytics
-      - run: UNIDOCK_RELEASE=1 npm run test:e2e:full
+
+  e2e-core:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build:core
+      - run: npx playwright test --shard=${{ matrix.shard }}/2
       - name: Preserve failed browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: e2e-core-${{ matrix.shard }}-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: .wxt/e2e/
           include-hidden-files: true
           retention-days: 7
+
+  e2e-full:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      UNIDOCK_RELEASE: "1"
+      UNIDOCK_CAPTION_SERVER: https://captions.test
+      UNIDOCK_PLAYBACK: "1"
+      UNIDOCK_AI_CAPTIONS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npx playwright test --shard=${{ matrix.shard }}/4
+      - name: Preserve failed browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-${{ matrix.shard }}-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .wxt/e2e/
+          include-hidden-files: true
+          retention-days: 7
+
+  e2e-analytics:
+    needs: changes
+    if: needs.changes.outputs.analytics == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UNIDOCK_STATS_SERVER: https://stats.test
+      UNIDOCK_PLAYBACK: "0"
+      UNIDOCK_AI_CAPTIONS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npx playwright test tests/e2e/analytics-consent.spec.ts
+      - name: Preserve failed browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-analytics-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .wxt/e2e/
+          include-hidden-files: true
+          retention-days: 7
+
+  verify:
+    if: always()
+    needs: [changes, checks, e2e-core, e2e-full, e2e-analytics]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful or intentionally skipped jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")'
