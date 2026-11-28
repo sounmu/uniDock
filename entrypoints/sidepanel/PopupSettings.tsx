@@ -30,18 +30,26 @@ export function PopupSettings() {
     // user gesture) and before ON is saved; OFF is saved before the grant is
     // returned. The switch stays busy until both steps finish, so a quick
     // OFF -> ON can never request against a grant that is about to go away.
-    void runPopupChange(async () => {
-      if (value) {
-        if (!(await chrome.permissions.request(POPUP_PERMISSION))) {
-          setError("denied");
+    // A change in another panel page may return the grant while this one
+    // waits for it, so ON is saved only while the grant still holds.
+    void runPopupChange(
+      async (granted) => {
+        if (value) {
+          if (
+            !granted ||
+            !(await chrome.permissions.contains(POPUP_PERMISSION))
+          ) {
+            setError("denied");
+            return;
+          }
+          await chrome.storage.local.set({ [popupAutoCloseKey]: true });
           return;
         }
-        await chrome.storage.local.set({ [popupAutoCloseKey]: true });
-        return;
-      }
-      await chrome.storage.local.set({ [popupAutoCloseKey]: false });
-      await chrome.permissions.remove(POPUP_PERMISSION);
-    }).catch(() => setError("storage"));
+        await chrome.storage.local.set({ [popupAutoCloseKey]: false });
+        await chrome.permissions.remove(POPUP_PERMISSION);
+      },
+      value ? () => chrome.permissions.request(POPUP_PERMISSION) : undefined,
+    ).catch(() => setError("storage"));
   }
   const busy = !ready || pending;
   return (

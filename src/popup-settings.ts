@@ -218,6 +218,9 @@ export async function returnPopupGrant(): Promise<void> {
 // Panel side: grant and opt-in changes (the switch, local-data deletion) run
 // one at a time. The grant request has to start inside the click, so a busy
 // panel refuses a new change instead of queueing it, and shows it as busy.
+// Every panel page (each window's side panel, the popup, a tab) has its own
+// copy of this module, so changes from different pages wait for one Web Lock.
+const POPUP_CHANGE_LOCK = "unidock-popup-change";
 let popupChangeRunning = false;
 const popupChangeListeners = new Set<(busy: boolean) => void>();
 function setPopupChangeRunning(running: boolean) {
@@ -232,15 +235,23 @@ export function watchPopupChangeBusy(
   return () => popupChangeListeners.delete(listener);
 }
 /**
- * Starts `task` synchronously (keeping the click's user gesture) unless
- * another change is running; resolves false when refused.
+ * Runs `change` once no other panel page holds the change lock; resolves false
+ * when this page is already running one. `grant` is called at once, keeping
+ * the click's user gesture for the permission prompt, and `change` receives
+ * its answer. A grant may be returned by another page before the lock is
+ * held, so `change` checks it again.
  */
-export function runPopupChange(task: () => Promise<void>): Promise<boolean> {
+export function runPopupChange(
+  change: (granted: boolean) => Promise<void>,
+  grant: () => Promise<boolean> = () => Promise.resolve(true),
+): Promise<boolean> {
   if (popupChangeRunning) return Promise.resolve(false);
   setPopupChangeRunning(true);
   let running: Promise<void>;
   try {
-    running = task();
+    running = grant().then((granted) =>
+      navigator.locks.request(POPUP_CHANGE_LOCK, () => change(granted)),
+    );
   } catch (error) {
     running = Promise.reject(error);
   }
