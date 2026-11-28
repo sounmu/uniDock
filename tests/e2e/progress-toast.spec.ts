@@ -5,7 +5,7 @@ import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 
 test.use({ nativeExtension: path.resolve(".output/chrome-mv3") });
 
-const SKIP_REASON = "requires a playback or AI caption build for progress notifications";
+const SKIP_REASON = "requires a playback or AI caption build; run npm run test:e2e:full";
 
 async function pausedLecturePage(context: BrowserContext) {
   const origin = "https://mylms.korea.ac.kr";

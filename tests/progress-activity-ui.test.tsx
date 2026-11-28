@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { useActivity } from "../entrypoints/sidepanel/progress-activity";
 import { announcePanel } from "../src/panel-presence";
@@ -52,8 +52,8 @@ afterEach(() => {
 it("keeps a newer completion when the initial progress reply arrives late", async () => {
   const worker = setup();
   const initial = deferred<typeof running>();
-  worker.sendMessage.mockReturnValueOnce(initial.promise);
-  const view = await mount(<Activity />);
+  worker.sendMessage.mockReturnValue(initial.promise);
+  const view = await mount(<StrictMode><Activity /></StrictMode>);
   try {
     await act(async () => worker.publish(empty));
     await act(async () => initial.resolve(running));
@@ -66,7 +66,7 @@ it("keeps a newer completion when the initial progress reply arrives late", asyn
 it("reads empty progress after an accepted panel port reconnects", async () => {
   vi.useFakeTimers();
   const worker = setup();
-  const view = await mount(<Activity />);
+  const view = await mount(<StrictMode><Activity /></StrictMode>);
   try {
     announcePanel();
     await act(async () => {});
