@@ -9,6 +9,7 @@ import {
   type ProgressItem,
 } from "../../src/progress";
 import type { ToolSection } from "./ui/Rail";
+import { subscribePanelReady } from "../../src/panel-presence";
 
 /** The lecture card's run with the tab its audio comes from. */
 interface LectureRun {
@@ -70,17 +71,27 @@ function useWorkerProgress(enabled: boolean): readonly ProgressItem[] {
   useEffect(() => {
     if (!enabled || typeof chrome === "undefined" || !chrome.runtime?.onMessage) return;
     let live = true;
+    let generation = 0;
     const listener = (message: unknown) => {
-      if (isProgressState(message)) setItems(message.items);
+      if (isProgressState(message)) {
+        generation++;
+        setItems(message.items);
+      }
     };
     chrome.runtime.onMessage.addListener(listener);
-    void Promise.resolve(chrome.runtime.sendMessage?.(PROGRESS_GET))
-      .then((state: unknown) => {
-        if (live && isProgressState(state)) setItems(state.items);
-      })
-      .catch(() => {});
+    const refresh = () => {
+      const current = ++generation;
+      void Promise.resolve(chrome.runtime.sendMessage?.(PROGRESS_GET))
+        .then((state: unknown) => {
+          if (live && current === generation && isProgressState(state)) setItems(state.items);
+        })
+        .catch(() => {});
+    };
+    const unsubscribe = subscribePanelReady(refresh);
+    refresh();
     return () => {
       live = false;
+      unsubscribe();
       chrome.runtime.onMessage.removeListener(listener);
     };
   }, [enabled]);

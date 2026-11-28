@@ -9,6 +9,13 @@ export const PANEL_PORT = "unidock-panel";
 export const PANEL_ALIVE_MS = 25_000;
 
 const PORT_NAME = /^unidock-panel:(\d{1,10})$/;
+const readyListeners = new Set<() => void>();
+
+/** Panel clients reread worker-owned state whenever its connection is accepted. */
+export function subscribePanelReady(listener: () => void): () => void {
+  readyListeners.add(listener);
+  return () => { readyListeners.delete(listener); };
+}
 
 export function panelPortWindow(name: string): number | null {
   const id = PORT_NAME.exec(name)?.[1];
@@ -76,6 +83,7 @@ export function announcePanel(): void {
     let alive: ReturnType<typeof setInterval> | undefined;
     port.onMessage.addListener((message: unknown) => {
       if ((message as { type?: unknown } | null)?.type !== "ready") return;
+      for (const listener of readyListeners) listener();
       alive ??= setInterval(() => {
         try {
           port.postMessage({ type: "alive" });
