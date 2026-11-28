@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.1 - 2026-11-28
+
+- Clear stale caption progress on LMS pages when a background restart finds
+  the job already complete, and refresh an open panel after reconnection.
+- Keep newer progress updates when an earlier status request replies late.
+- Keep caption queues updating across repeated successful reconnections.
+- Coordinate popup auto-close changes across panel pages and avoid saving
+  an enabled setting after another page has returned its permission.
+
 ## 0.8.0 - 2026-11-27
 
 - Move audio extraction, upload and the multi-lecture queue into an offscreen
