@@ -5,7 +5,7 @@ import { aiCaptionsBuild, playbackBuild } from "./build-shape";
 
 test.use({ nativeExtension: path.resolve(".output/chrome-mv3") });
 
-const SKIP_REASON = "requires a playback or AI caption build for progress notifications";
+const SKIP_REASON = "requires a playback or AI caption build; run npm run test:e2e:full";
 
 async function pausedLecturePage(context: BrowserContext) {
   const origin = "https://mylms.korea.ac.kr";
@@ -66,4 +66,33 @@ test("capsule leaves the LMS page while a uniDock panel page is open in its wind
     new Set((await chrome.tabs.query({})).map((tab) => tab.windowId)).size)).toBe(1);
   // Then the panel shows the work and the capsule is gone
   await expect(capsule).toHaveCount(0);
+});
+
+test("an open panel clears old progress after its worker restarts", async ({ context }) => {
+  test.skip(!playbackBuild() && !aiCaptionsBuild(), SKIP_REASON);
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
+  const panel = await context.newPage();
+  await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
+  await expect(panel.locator(".rail")).toBeVisible();
+  await worker.evaluate(async () => {
+    await chrome.runtime.sendMessage({
+      version: 1, type: "PROGRESS_STATE",
+      items: [{ kind: "captions", id: "job_restart", phase: "running", percent: 42, workerOffline: false }],
+    });
+  });
+  await expect(panel.locator(".progress-strip")).toBeVisible();
+  const cdp = await context.newCDPSession(panel);
+  try {
+    const version = new Promise<string>((resolve) => {
+      cdp.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
+        const current = versions.find((item) => item.scriptURL === worker.url() && item.runningStatus === "running");
+        if (current) resolve(current.versionId);
+      });
+    });
+    await cdp.send("ServiceWorker.enable");
+    await cdp.send("ServiceWorker.stopWorker", { versionId: await version });
+    await expect(panel.locator(".progress-strip")).toHaveCount(0);
+  } finally {
+    await cdp.detach();
+  }
 });

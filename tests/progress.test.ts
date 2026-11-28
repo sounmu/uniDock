@@ -205,6 +205,13 @@ it("sends each change once and leaves LMS tabs alone when nothing was in progres
   expect(sendMessage).toHaveBeenCalledTimes(3);
 });
 
+it("delivers a completed job recovered after a worker restart to existing LMS pages", async () => {
+  const restarted = new ProgressHub();
+  restarted.setCaptions([snapshot("succeeded")]);
+  await delivered();
+  expect(tabMessage.mock.calls).toEqual([[3, restarted.state(), TOP]]);
+});
+
 it("updates a newly loaded LMS page only while work is in progress", () => {
   const hub = new ProgressHub();
   hub.tabReady(5, "https://mylms.korea.ac.kr/", 1);

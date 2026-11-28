@@ -63,7 +63,11 @@ export function useCaptionQueue() {
     const current = chrome.runtime.connect({ name: CAPTION_JOB_PORT });
     port.current = current;
     current.onMessage.addListener((message: unknown) => {
-      const update = message as CaptionJobUpdate;
+      const update = message as CaptionJobUpdate | null;
+      if (update?.type !== "snapshot" || typeof update.jobId !== "string") return;
+      // The worker's monitor answered on this port: a later drop is a new
+      // restart, so only drops with no snapshot in between use up the budget.
+      reconnects.current = 0;
       if (!tracked.current.has(update.jobId)) return;
       const snapshot = update.snapshot;
       // An ended job stays with the worker, so another panel that opens it

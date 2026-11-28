@@ -120,7 +120,9 @@ export class ProgressHub {
     const state = this.state();
     const text = JSON.stringify(state.items);
     const active = state.items.some(progressActive);
-    const all = text !== this.shown && (active || this.tabsInvolved);
+    // A restored terminal job may be the first state this worker sees, while
+    // existing LMS pages still display the previous worker's active state.
+    const all = text !== this.shown && (state.items.length > 0 || this.tabsInvolved);
     if (all) {
       this.shown = text;
       this.tabsInvolved = active;

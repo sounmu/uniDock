@@ -3,7 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PopupSettings } from "../entrypoints/sidepanel/PopupSettings";
 import { LocalDataSettings } from "../entrypoints/sidepanel/LocalDataSettings";
-import { popupAutoCloseKey } from "../src/popup-settings";
+import { popupAutoCloseKey, watchPopupChangeBusy } from "../src/popup-settings";
 import { click, deferred, mount } from "./ui-helpers";
 
 let ui: Awaited<ReturnType<typeof mount>>;
@@ -14,7 +14,19 @@ const get = vi.fn();
 const set = vi.fn();
 const request = vi.fn();
 const removeGrant = vi.fn();
+const contains = vi.fn();
 const sendMessage = vi.fn();
+// Web Locks are shared by every page of the extension origin; jsdom has none.
+function lockManager() {
+  const tails = new Map<string, Promise<unknown>>();
+  return {
+    request<T>(name: string, task: () => Promise<T>): Promise<T> {
+      const run = (tails.get(name) ?? Promise.resolve()).then(task);
+      tails.set(name, run.catch(() => {}));
+      return run;
+    },
+  };
+}
 function toggle(): HTMLButtonElement {
   const button = ui.host.querySelector<HTMLButtonElement>('[role="switch"]');
   if (!button) throw new Error("Missing switch");
@@ -28,11 +40,16 @@ beforeEach(() => {
   get.mockResolvedValue({});
   request.mockResolvedValue(true);
   removeGrant.mockResolvedValue(true);
+  contains.mockResolvedValue(true);
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: lockManager(),
+  });
   set.mockImplementation(async (values: Record<string, unknown>) => {
     emit(values[popupAutoCloseKey]);
   });
   vi.stubGlobal("chrome", {
-    permissions: { request, remove: removeGrant },
+    permissions: { request, remove: removeGrant, contains },
     runtime: { sendMessage },
     storage: {
       local: { get, set },
@@ -50,6 +67,7 @@ afterEach(async () => {
   listeners.clear();
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, "locks");
 });
 it("starts off without persisting a default and saves an explicit opt-in", async () => {
   ui = await mount(<PopupSettings />);
@@ -145,6 +163,57 @@ it("orders a quick OFF then ON: ON waits until OFF has saved and returned the gr
     origins: ["https://lms.korea.ac.kr/*"],
   });
   expect(button.getAttribute("aria-checked")).toBe("true");
+});
+it("waits for another panel page's change, so ON never saves after that page returned the grant", async () => {
+  let stored: unknown = true;
+  let granted = true;
+  get.mockImplementation(async () => ({ [popupAutoCloseKey]: stored }));
+  set.mockImplementation(async (values: Record<string, unknown>) => {
+    stored = values[popupAutoCloseKey];
+    emit(stored);
+  });
+  request.mockImplementation(async () => (granted = true));
+  contains.mockImplementation(async () => granted);
+  const returned = deferred<void>();
+  removeGrant.mockImplementation(async () => {
+    await returned.promise;
+    granted = false;
+    return true;
+  });
+  ui = await mount(<PopupSettings />);
+  // A second panel page (another window) has its own copy of the module.
+  vi.resetModules();
+  const other = await import("../src/popup-settings");
+  let otherDone!: Promise<boolean>;
+  await act(async () => {
+    otherDone = other.runPopupChange(async () => {
+      await chrome.storage.local.set({ [popupAutoCloseKey]: false });
+      await chrome.permissions.remove(other.POPUP_PERMISSION);
+    });
+  });
+  // That page saved OFF and is still returning the grant.
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  const settled = deferred<void>();
+  let started = false;
+  const stop = watchPopupChangeBusy((busy) => {
+    if (busy) started = true;
+    else if (started) settled.resolve();
+  });
+  await act(async () => toggle().click());
+  // The grant request still starts inside the click.
+  expect(request).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    returned.resolve();
+    await otherDone;
+    await settled.promise;
+  });
+  stop();
+  expect(toggle().getAttribute("aria-disabled")).toBe("false");
+  expect({ stored, granted }).toEqual({ stored: false, granted: false });
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  expect(ui.host.querySelector('[role="alert"]')?.textContent).toContain(
+    "lms.korea.ac.kr 접근을 허용해야",
+  );
 });
 it("keeps the switch busy while local-data deletion clears the opt-in and its grant", async () => {
   get.mockResolvedValue({ [popupAutoCloseKey]: true });

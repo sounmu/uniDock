@@ -375,6 +375,28 @@ it("stops reconnecting after five drops", async () => {
   expect(connect).toHaveBeenCalledTimes(6);
 });
 
+it("keeps reconnecting across worker restarts that each answered on the new port", async () => {
+  worker.queue = list([accepted(A, "job_a", KEY_A)]);
+  await render();
+  for (let restart = 0; restart < 8; restart++) {
+    await act(async () => dropped?.());
+    await act(async () => receive?.(snapshot("job_a", "running")));
+  }
+  expect(connect).toHaveBeenCalledTimes(9);
+  expect(tracks().at(-1)).toEqual({ type: "track", jobId: "job_a", key: KEY_A });
+});
+
+it("counts drops after a message that is not a snapshot as consecutive failures", async () => {
+  worker.queue = list([accepted(A, "job_a", KEY_A)]);
+  await render();
+  for (let drop = 0; drop < 8; drop++) {
+    await act(async () => receive?.({ type: "ready" }));
+    await act(async () => receive?.(null));
+    await act(async () => dropped?.());
+  }
+  expect(connect).toHaveBeenCalledTimes(6);
+});
+
 it("stop asks the worker to stop the list, and clear forgets only a stopped one", async () => {
   await render();
   await start();
